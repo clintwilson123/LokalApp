@@ -7,7 +7,7 @@ export default function Navbar() {
       <div style={styles.links}>
         <Link to="/" style={styles.link}>Home</Link>
         <Link to="/find-jobs" style={styles.link}>Jobs</Link>
-        <Link to="/discover-talent" style={styles.link}>Talent</Link>
+        {/* Talent Link Removed From Here */}
         <Link to="/notifications" style={styles.link}>Notifications</Link>
         <Link to="/interview-schedule" style={styles.link}>Schedule</Link>
         <Link to="/about" style={styles.link}>About</Link>
