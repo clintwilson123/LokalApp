@@ -9,6 +9,7 @@ import Signup from "./pages/Signup";
 import About from "./pages/About";
 import AdminDashboard from "./pages/AdminDashboard";
 import ApplicantDashboard from "./pages/ApplicantDashboard";
+import ApplyJob from "./pages/ApplyJob"; // Ensure you have created this file
 
 export default function App() {
   return (
@@ -24,11 +25,16 @@ export default function App() {
         {/* Applicant Dashboard Routes */}
         <Route path="/applicant-dashboard" element={<ApplicantDashboard />} />
         <Route path="/find-jobs" element={<ApplicantDashboard />} />
+        
+        {/* New Route: Separate Job Details/Application Page */}
+        {/* We map this to ApplicantDashboard so your Sidebar and Topbar stay visible */}
+        <Route path="/apply-job/:jobId" element={<ApplicantDashboard />} />
+        
         <Route path="/notifications" element={<ApplicantDashboard />} />
         <Route path="/interview-schedule" element={<ApplicantDashboard />} />
         <Route path="/profile" element={<ApplicantDashboard />} />
         
-        {/* Admin Dashboard Routes - all mapped to AdminDashboard component */}
+        {/* Admin Dashboard Routes */}
         <Route path="/admin-dashboard" element={<AdminDashboard />} />
         <Route path="/discover-talent" element={<AdminDashboard />} />
         <Route path="/admin/users" element={<AdminDashboard />} />

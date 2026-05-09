@@ -1,9 +1,9 @@
-import React, { useState } from "react";
+import React from "react";
+import { useNavigate } from "react-router-dom";
 
 export default function FindJobs() {
-  const [selectedJob, setSelectedJob] = useState(null);
+  const navigate = useNavigate();
 
-  // Data matching the specific job titles and icons you provided
   const jobs = [
     { id: 1, title: "Sales Assistant", count: 45, icon: "🛍️" },
     { id: 2, title: "Computer Service", count: 12, icon: "💻" },
@@ -11,30 +11,19 @@ export default function FindJobs() {
     { id: 4, title: "Store Manager", count: 15, icon: "🏪" }
   ];
 
-  if (selectedJob) {
-    return (
-      <div style={{ textAlign: "left" }}>
-        <button onClick={() => setSelectedJob(null)} style={minimalBackBtn}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="19" y1="12" x2="5" y2="12"></line>
-            <polyline points="12 19 5 12 12 5"></polyline>
-          </svg>
-        </button>
-        <h3 style={{ color: "#1a3b5c", marginTop: "20px" }}>{selectedJob.title} Details</h3>
-        <p style={{ color: "#64748b" }}>Job requirements and AI suitability scan would appear here.</p>
-      </div>
-    );
-  }
-
   return (
-    <div style={{ textAlign: "center" }}>
-      {/* 2x2 White Grid Layout */}
+    <div style={container}>
+      {/* 2x2 Grid Layout */}
       <div style={jobGrid}>
         {jobs.map(job => (
-          <div key={job.id} style={whiteJobCard} onClick={() => setSelectedJob(job)}>
-            <div style={centeredIcon}>{job.icon}</div>
-            <div style={jobTitleText}>{job.title}</div>
-            <div style={applicantCountText}>{job.count} Applicants</div>
+          <div 
+            key={job.id} 
+            style={jobCard} 
+            onClick={() => navigate(`/apply-job/${job.id}`)}
+          >
+            <div style={iconWrapper}>{job.icon}</div>
+            <h3 style={jobTitleText}>{job.title}</h3>
+            <p style={applicantCountText}>{job.count} Applicants</p>
           </div>
         ))}
       </div>
@@ -42,57 +31,54 @@ export default function FindJobs() {
   );
 }
 
-// --- STYLES FOR THE WHITE CARD UI ---
+// --- STYLES REPLICATING image_d59303.png ---
+
+const container = {
+  width: "100%",
+  height: "100%",
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+  padding: "20px",
+  boxSizing: "border-box"
+};
 
 const jobGrid = {
   display: "grid",
-  gridTemplateColumns: "repeat(2, 1fr)", // Forced 2x2 grid
-  gap: "20px",
-  maxWidth: "800px",
-  margin: "0 auto"
+  gridTemplateColumns: "repeat(2, 1fr)", // Recreates the 2x2 look
+  gap: "35px",
+  width: "100%",
+  maxWidth: "850px"
 };
 
-const whiteJobCard = {
-  backgroundColor: "#ffffff", // Pure white background
-  padding: "40px 20px",
-  borderRadius: "28px", // Very rounded corners
+const jobCard = {
+  backgroundColor: "#ffffff",
+  padding: "50px 20px",
+  borderRadius: "40px", // High rounding for the modern look
   textAlign: "center",
   cursor: "pointer",
-  boxShadow: "0 4px 12px rgba(0,0,0,0.03)",
-  transition: "transform 0.2s ease",
+  boxShadow: "0 10px 25px rgba(0,0,0,0.02)",
   display: "flex",
   flexDirection: "column",
   alignItems: "center",
-  justifyContent: "center"
+  transition: "transform 0.2s ease"
 };
 
-const centeredIcon = {
-  fontSize: "40px",
-  marginBottom: "15px",
-  display: "block"
+const iconWrapper = {
+  fontSize: "45px",
+  marginBottom: "15px"
 };
 
 const jobTitleText = {
-  fontWeight: "700",
-  color: "#1a3b5c", // Dark blue/navy text
-  fontSize: "18px",
-  marginBottom: "5px"
+  color: "#1a3b5c", // Dark Navy
+  fontSize: "20px",
+  fontWeight: "800",
+  margin: "0 0 8px 0"
 };
 
 const applicantCountText = {
-  color: "#1a73e8", // Bright blue text for applicants
+  color: "#4a90e2", // Blue text for applicants
+  fontSize: "15px",
   fontWeight: "700",
-  fontSize: "14px"
-};
-
-const minimalBackBtn = {
-  width: "35px",
-  height: "35px",
-  borderRadius: "50%",
-  backgroundColor: "#fff",
-  border: "1px solid #e2eaf4",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  cursor: "pointer"
+  margin: 0
 };

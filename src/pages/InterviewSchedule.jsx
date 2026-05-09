@@ -1,83 +1,155 @@
 import React from "react";
-import { title } from "../uiStyles";
 
 export default function InterviewSchedule() {
   return (
-    <div style={{ padding: "10px" }}>
-      <h2 style={{ ...title, textAlign: "center", marginBottom: "30px" }}>
-        INTERVIEW SCHEDULE
-      </h2>
+    <div style={container}>
+      <h2 style={headerTitle}>INTERVIEW SCHEDULE</h2>
 
-      {/* Main Interview Card */}
-      <div style={blueScheduleCard}>
-        <div style={cardHeader}>
-          <span style={whiteBullet}></span>
-          <h4 style={interviewTitle}>Repair Technician Interview</h4>
+      {/* Main Combined Card */}
+      <div style={fullCard}>
+        
+        {/* Blue Top Section */}
+        <div style={blueTopSection}>
+          <div style={cardHeader}>
+             <span style={headerIcon}>🗓️</span>
+             <h4 style={interviewTitle}>Repair Technician Interview</h4>
+          </div>
+
+          <div style={detailRow}>
+            <span style={detailIcon}>📅</span>
+            <p style={detailText}>February 20, 2026 | 10:00 AM</p>
+          </div>
+
+          <div style={detailRow}>
+            <span style={detailIcon}>📍</span>
+            <p style={detailText}>Location: CJTECH Computer Trading</p>
+          </div>
         </div>
 
-        <div style={detailRow}>
-          <span style={detailIcon}>📅</span>
-          <p style={detailText}>February 20, 2026 | 10:00 AM</p>
-        </div>
+        {/* White Bottom Section */}
+        <div style={whiteBottomSection}>
+          <div style={instructionRow}>
+            <span style={timerIcon}>🕒</span>
+            <p style={instructionText}>
+              Please arrive 10 minutes early and bring a copy of your resume.
+            </p>
+          </div>
 
-        <div style={detailRow}>
-          <span style={detailIcon}>📍</span>
-          <p style={detailText}>Location: Gadget Hub Office</p>
+          <button style={rescheduleBtn}>
+            <span style={syncIcon}>🔄</span> Reschedule
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-// --- STYLES REPLICATED FROM IMAGE ---
+// --- STYLES REPLICATED FROM image_d58bc0.png & image_d58bc4.png ---
 
-const blueScheduleCard = {
-  background: "linear-gradient(135deg, #4a8ca6 0%, #3a7187 100%)", // Rich blue gradient
-  borderRadius: "24px", // Matches the modern rounded look
-  padding: "30px",
+const container = {
+  padding: "20px",
+  textAlign: "center",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center"
+};
+
+const headerTitle = {
+  color: "#1a3b5c",
+  fontSize: "24px",
+  fontWeight: "800",
+  marginBottom: "40px",
+  letterSpacing: "1px"
+};
+
+const fullCard = {
+  width: "100%",
+  maxWidth: "650px",
+  borderRadius: "32px",
+  overflow: "hidden", // Ensures sections stay within rounded corners
+  boxShadow: "0 15px 35px rgba(0,0,0,0.1)",
+};
+
+const blueTopSection = {
+  background: "linear-gradient(180deg, #5b92ad 0%, #4a7c96 100%)", // Matches blue in image_d58bc4.png
+  padding: "35px 40px",
   color: "white",
-  maxWidth: "600px",
-  margin: "0 auto",
-  boxShadow: "0 10px 25px rgba(0, 0, 0, 0.15)", // Depth shadow
   textAlign: "left"
 };
 
 const cardHeader = {
   display: "flex",
   alignItems: "center",
-  gap: "12px",
-  marginBottom: "15px"
+  gap: "15px",
+  marginBottom: "20px"
 };
 
-const whiteBullet = {
-  width: "8px",
-  height: "8px",
-  backgroundColor: "white",
-  borderRadius: "50%",
-  display: "inline-block"
-};
+const headerIcon = { fontSize: "24px" };
 
 const interviewTitle = {
   margin: 0,
-  fontSize: "1.2rem",
-  fontWeight: "600",
+  fontSize: "22px",
+  fontWeight: "700",
   letterSpacing: "0.5px"
 };
 
 const detailRow = {
   display: "flex",
   alignItems: "center",
-  gap: "10px",
-  marginTop: "8px",
-  opacity: 0.9
+  gap: "12px",
+  marginBottom: "10px"
 };
 
-const detailIcon = {
-  fontSize: "16px"
-};
+const detailIcon = { fontSize: "18px" };
 
 const detailText = {
   margin: 0,
-  fontSize: "0.95rem",
-  fontWeight: "400"
+  fontSize: "16px",
+  fontWeight: "500",
+  opacity: 0.95
 };
+
+const whiteBottomSection = {
+  backgroundColor: "rgba(255, 255, 255, 0.8)", // Glassy white
+  padding: "30px 40px",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: "20px"
+};
+
+const instructionRow = {
+  display: "flex",
+  alignItems: "center",
+  gap: "12px",
+  width: "100%",
+  paddingBottom: "15px",
+  borderBottom: "1px solid rgba(0,0,0,0.05)" // Subtle separator
+};
+
+const timerIcon = { fontSize: "20px", color: "#64748b" };
+
+const instructionText = {
+  margin: 0,
+  color: "#475569",
+  fontSize: "15px",
+  fontWeight: "500",
+  textAlign: "left"
+};
+
+const rescheduleBtn = {
+  backgroundColor: "#5b92ad", // Matches the card blue
+  color: "white",
+  border: "none",
+  padding: "12px 30px",
+  borderRadius: "15px",
+  fontSize: "15px",
+  fontWeight: "700",
+  cursor: "pointer",
+  display: "flex",
+  alignItems: "center",
+  gap: "10px",
+  boxShadow: "0 4px 12px rgba(91, 146, 173, 0.3)"
+};
+
+const syncIcon = { fontSize: "16px" };
