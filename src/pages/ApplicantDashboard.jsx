@@ -1,98 +1,268 @@
 import React from "react";
 import { useLocation, NavLink, useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
+import { colors } from "../uiStyles";
 import ApplyJob from "./ApplyJob";
 import FindJobs from "./FindJobs";
 import Notifications from "./Notifications";
 import InterviewSchedule from "./InterviewSchedule";
 import Profile from "./Profile";
 
+const navItems = [
+  { path: "/find-jobs", icon: "💼", label: "Browse Jobs", desc: "Openings" },
+  { path: "/notifications", icon: "🔔", label: "Notifications", desc: "Updates" },
+  { path: "/interview-schedule", icon: "📅", label: "Schedule", desc: "Interviews" },
+  { path: "/profile", icon: "👤", label: "My Profile", desc: "Settings" },
+];
+
 export default function ApplicantDashboard() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { signOut, profile, user } = useAuth();
+  const handleLogout = () => signOut();
 
-  const handleLogout = () => {
-    navigate("/"); 
-  };
-
-  // --- REVISED LOGIC TO DETECT APPLY-JOB ROUTE ---
   const renderContent = () => {
     const path = location.pathname;
-
-    // 1. Check for dynamic job application route first
-    if (path.startsWith("/apply-job/")) {
-      return <ApplyJob />;
-    }
-
-    // 2. Standard dashboard tabs
+    if (path.startsWith("/apply-job/")) return <ApplyJob />;
     switch (path) {
       case "/find-jobs":
-      case "/applicant-dashboard": 
+      case "/applicant-dashboard":
         return <FindJobs />;
-      case "/notifications": 
+      case "/notifications":
         return <Notifications />;
-      case "/interview-schedule": 
+      case "/interview-schedule":
         return <InterviewSchedule />;
-      case "/profile": 
+      case "/profile":
         return <Profile />;
-      default: 
+      default:
         return <FindJobs />;
     }
   };
 
-  return (
-    <div style={dashboardWrapper}>
-      {/* SIDEBAR */}
-      <aside style={sidebarStyle}>
-        <div style={{ padding: "40px 20px" }}>
-          <h2 style={sidebarLogo}>Lokal</h2>
-          <nav>
-            <NavLink to="/find-jobs" style={({ isActive }) => ({ ...navItem, ...activeStyle(isActive) })}>
-              <span style={icon}>💼</span> Jobs
-            </NavLink>
-            <NavLink to="/notifications" style={({ isActive }) => ({ ...navItem, ...activeStyle(isActive) })}>
-              <span style={icon}>🔔</span> Notifications
-            </NavLink>
-            <NavLink to="/interview-schedule" style={({ isActive }) => ({ ...navItem, ...activeStyle(isActive) })}>
-              <span style={icon}>📅</span> Schedule
-            </NavLink>
-            <NavLink to="/profile" style={({ isActive }) => ({ ...navItem, ...activeStyle(isActive) })}>
-              <span style={icon}>👤</span> Profile
-            </NavLink>
+  const isApplyJob = location.pathname.startsWith("/apply-job/");
+  const currentItem = navItems.find((i) => i.path === location.pathname);
 
-            <button onClick={handleLogout} style={logoutBtnStyle}>
-              <span style={icon}>🚪</span> Logout
-            </button>
+  return (
+    <div style={dashboardLayout}>
+      {/* Sidebar */}
+      <aside style={sidebar}>
+        <div style={sidebarInner}>
+          <div style={logoText}>Lokal</div>
+
+          <nav style={navSection}>
+            <div style={navLabel}>NAVIGATION</div>
+            {navItems.map((item) => {
+              const active = location.pathname === item.path;
+              return (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  style={{
+                    ...navItem,
+                    background: active
+                      ? "linear-gradient(135deg, rgba(255,255,255,0.15), rgba(255,255,255,0.05))"
+                      : "transparent",
+                    color: active ? "#fff" : "rgba(255,255,255,0.6)",
+                    borderLeft: active ? "3px solid #60a5fa" : "3px solid transparent",
+                  }}
+                >
+                  <span style={navIcon}>{item.icon}</span>
+                  <div>
+                    <div style={{ fontSize: "14px", fontWeight: active ? "700" : "500" }}>{item.label}</div>
+                    <div style={{ fontSize: "11px", opacity: 0.6 }}>{item.desc}</div>
+                  </div>
+                </NavLink>
+              );
+            })}
           </nav>
+
+          {/* Profile & Logout */}
+          <div style={sidebarFooter}>
+            <div style={profileStrip}>
+              <div style={avatarSmall}>{profile?.full_name?.[0] || user?.email?.[0]?.toUpperCase() || "?"}</div>
+              <div>
+                <div style={{ fontSize: "13px", fontWeight: "600", color: "#fff" }}>{profile?.full_name || "Applicant"}</div>
+                <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.5)" }}>{user?.email}</div>
+              </div>
+            </div>
+            <button onClick={handleLogout} style={logoutBtn}>
+              <span>🚪</span> Logout
+            </button>
+          </div>
         </div>
       </aside>
 
-      <main style={mainContent}>
-        {/* The outer light-blue card */}
-        <div style={focalBlueCard}>
-          
-          {/* Header only shows when NOT in the Apply Job view */}
-          {!location.pathname.startsWith("/apply-job/") && (
-             <h2 style={topBrandHeader}>Find Your Next Job</h2>
-          )}
-
-          <div style={contentCardInner}>
-            {renderContent()}
+      {/* Main Content */}
+      <main style={mainArea}>
+        <div style={topBar}>
+          <div>
+            <h1 style={pageTitle}>{currentItem?.label || "Find Jobs"}</h1>
+            <p style={pageBreadcrumb}>{isApplyJob ? "Apply" : currentItem?.desc || "Browse available positions"}</p>
           </div>
+          <div style={headerRight}>
+            <span style={dateBadge}>{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+            <span style={welcomeBadge}>👋 Welcome{profile?.full_name ? `, ${profile.full_name.split(" ")[0]}` : ""}</span>
+          </div>
+        </div>
+        <div style={contentCard}>
+          {renderContent()}
         </div>
       </main>
     </div>
   );
 }
 
-// --- STYLES (Keep your existing styles as they match the reference) ---
-const dashboardWrapper = { display: "flex", minHeight: "100vh", backgroundColor: "#f4f7fa" };
-const sidebarStyle = { width: "240px", background: "#1a3b5c", height: "100vh", position: "sticky", top: 0 };
-const sidebarLogo = { color: "#ffffff", fontWeight: "800", fontSize: "24px", marginBottom: "40px", paddingLeft: "15px" };
-const navItem = { display: "flex", alignItems: "center", padding: "14px 15px", textDecoration: "none", color: "rgba(255,255,255,0.7)", borderRadius: "12px", marginBottom: "8px", fontWeight: "500" };
-const logoutBtnStyle = { ...navItem, width: "100%", background: "transparent", border: "none", cursor: "pointer", color: "#f87171", marginTop: "10px", textAlign: "left" };
-const icon = { marginRight: "12px", fontSize: "18px" };
-const activeStyle = (isActive) => isActive ? { backgroundColor: "rgba(255,255,255,0.2)", color: "#ffffff", fontWeight: "700" } : {};
-const mainContent = { flex: 1, padding: "40px", display: "flex", justifyContent: "center", alignItems: "center" };
-const focalBlueCard = { backgroundColor: "#d6e6f7", borderRadius: "32px", width: "100%", maxWidth: "950px", padding: "40px", boxShadow: "0 10px 30px rgba(0,0,0,0.05)" };
-const topBrandHeader = { textAlign: "center", color: "#1a3b5c", fontSize: "22px", fontWeight: "800", marginBottom: "30px" }; 
-const contentCardInner = { backgroundColor: "rgba(255, 255, 255, 0.4)", borderRadius: "24px", padding: "30px", minHeight: "450px", backdropFilter: "blur(10px)", overflow: "hidden" };
+const dashboardLayout = {
+  display: "flex",
+  minHeight: "100vh",
+  background: "linear-gradient(135deg, #f0f4f8 0%, #e8edf4 100%)",
+};
+
+/* Sidebar */
+const sidebar = {
+  width: "270px",
+  background: `linear-gradient(180deg, ${colors.navy} 0%, #0f2840 100%)`,
+  display: "flex",
+  flexDirection: "column",
+  position: "sticky",
+  top: 0,
+  height: "100vh",
+};
+const sidebarInner = {
+  padding: "28px 18px",
+  display: "flex",
+  flexDirection: "column",
+  height: "100%",
+};
+const logoText = {
+  fontSize: "24px",
+  fontWeight: "800",
+  color: "#fff",
+  marginBottom: "36px",
+  paddingLeft: "6px",
+};
+const navSection = {
+  flex: 1,
+};
+const navLabel = {
+  fontSize: "10px",
+  fontWeight: "700",
+  color: "rgba(255,255,255,0.3)",
+  letterSpacing: "2px",
+  marginBottom: "12px",
+  paddingLeft: "6px",
+};
+const navItem = {
+  display: "flex",
+  alignItems: "center",
+  gap: "12px",
+  padding: "12px 14px",
+  borderRadius: "12px",
+  marginBottom: "4px",
+  fontSize: "14px",
+  textDecoration: "none",
+  transition: "all 0.2s",
+  cursor: "pointer",
+};
+const navIcon = {
+  fontSize: "20px",
+  width: "32px",
+  textAlign: "center",
+};
+const sidebarFooter = {
+  borderTop: "1px solid rgba(255,255,255,0.08)",
+  paddingTop: "16px",
+};
+const profileStrip = {
+  display: "flex",
+  alignItems: "center",
+  gap: "10px",
+  marginBottom: "12px",
+  padding: "0 6px",
+};
+const avatarSmall = {
+  width: "36px",
+  height: "36px",
+  borderRadius: "10px",
+  background: "linear-gradient(135deg, #60a5fa, #3b82f6)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: "14px",
+  fontWeight: "700",
+  color: "#fff",
+};
+const logoutBtn = {
+  width: "100%",
+  padding: "10px",
+  background: "rgba(248,113,113,0.1)",
+  border: "1px solid rgba(248,113,113,0.2)",
+  borderRadius: "10px",
+  color: colors.danger,
+  cursor: "pointer",
+  fontSize: "13px",
+  fontWeight: "600",
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+  justifyContent: "center",
+  transition: "all 0.2s",
+};
+
+/* Main Area */
+const mainArea = {
+  flex: 1,
+  padding: "32px 40px",
+  overflow: "auto",
+};
+const topBar = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  marginBottom: "28px",
+  flexWrap: "wrap",
+  gap: "12px",
+};
+const pageTitle = {
+  fontSize: "26px",
+  fontWeight: "800",
+  color: colors.navy,
+  margin: 0,
+};
+const pageBreadcrumb = {
+  fontSize: "12px",
+  color: colors.textSecondary,
+  marginTop: "2px",
+};
+const headerRight = {
+  display: "flex",
+  alignItems: "center",
+  gap: "10px",
+  flexWrap: "wrap",
+};
+const dateBadge = {
+  fontSize: "12px",
+  color: colors.textSecondary,
+  background: "#fff",
+  padding: "6px 14px",
+  borderRadius: "20px",
+  fontWeight: "500",
+  border: "1px solid #e2eaf4",
+};
+const welcomeBadge = {
+  fontSize: "12px",
+  color: colors.primaryDark,
+  background: "#d6e6f7",
+  padding: "6px 14px",
+  borderRadius: "20px",
+  fontWeight: "600",
+};
+const contentCard = {
+  background: "rgba(255,255,255,0.75)",
+  backdropFilter: "blur(20px)",
+  borderRadius: "24px",
+  padding: "32px",
+  minHeight: "600px",
+  border: "1px solid rgba(255,255,255,0.5)",
+  boxShadow: "0 8px 32px rgba(0,0,0,0.04)",
+};

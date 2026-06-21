@@ -1,105 +1,185 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
+import { supabase } from "../lib/supabaseClient";
+import { useAuth } from "../context/AuthContext";
+import { colors, radii, shadows } from "../uiStyles";
 
 export default function Settings() {
+  const { user, profile, loadProfile } = useAuth();
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const [form, setForm] = useState({
+    full_name: "",
+    phone: "",
+    location: "",
+  });
+
+  const [prefs, setPrefs] = useState({
+    job_alerts: true,
+    interview_reminders: true,
+    email_notifications: false,
+    sms_notifications: false,
+  });
+
+  useEffect(() => {
+    if (profile) {
+      setForm({
+        full_name: profile.full_name || "",
+        phone: profile.phone || "",
+        location: profile.location || "",
+      });
+    }
+    if (profile?.preferences) {
+      try {
+        const p = typeof profile.preferences === "string" ? JSON.parse(profile.preferences) : profile.preferences;
+        setPrefs({ ...prefs, ...p });
+      } catch { /* keep defaults */ }
+    }
+  }, [profile]);
+
+  async function handleSaveAccount() {
+    setSaving(true);
+    setMessage("");
+    const { error } = await supabase.from("profiles").update(form).eq("id", user.id);
+    if (error) {
+      setMessage("Error: " + error.message);
+    } else {
+      setMessage("Account updated successfully!");
+      loadProfile(user.id);
+    }
+    setSaving(false);
+  }
+
+  async function handleSavePrefs() {
+    setSaving(true);
+    setMessage("");
+    const { error } = await supabase
+      .from("profiles")
+      .update({ preferences: prefs })
+      .eq("id", user.id);
+    if (error) {
+      setMessage("Error: " + error.message);
+    } else {
+      setMessage("Preferences saved!");
+    }
+    setSaving(false);
+  }
+
+  async function handleDeleteAccount() {
+    const confirmed = window.confirm("Are you sure you want to delete your account? This cannot be undone.");
+    if (!confirmed) return;
+    const { error } = await supabase.from("profiles").delete().eq("id", user.id);
+    if (error) {
+      setMessage("Delete failed: " + error.message);
+    } else {
+      await supabase.auth.signOut();
+      window.location.href = "/";
+    }
+  }
+
   return (
     <div style={container}>
-      <div style={headerSection}>
-        <h2 style={mainTitle}>Manage Your Account Settings</h2>
-        <p style={subTitle}>Customize your preferences and secure your account</p>
+      <div style={{ marginBottom: "20px" }}>
+        <h2 style={{ fontSize: "20px", color: colors.navy, fontWeight: "800", margin: "0 0 4px" }}>Account Settings</h2>
+        <p style={{ fontSize: "13px", color: colors.textSecondary, margin: 0 }}>Manage your profile and preferences</p>
       </div>
 
+      {message && (
+        <p style={{
+          padding: "10px", borderRadius: "8px", marginBottom: "16px", fontSize: "13px", fontWeight: "600",
+          backgroundColor: message.includes("success") || message.includes("updated") || message.includes("saved") ? "#e2f9eb" : "#fee2e2",
+          color: message.includes("success") || message.includes("updated") || message.includes("saved") ? colors.success : colors.danger,
+          textAlign: "center",
+        }}>
+          {message}
+        </p>
+      )}
+
       <div style={settingsGrid}>
-        {/* COLUMN 1 */}
         <div style={column}>
-          {/* Account Settings Card */}
           <div style={settingsCard}>
             <div style={cardHeader}>
-              <span style={icon}>👤</span> <h4>Account Settings</h4>
+              <span style={{ fontSize: "18px", marginRight: "8px" }}>👤</span>
+              <h4 style={{ margin: 0, color: colors.navy }}>Account Details</h4>
             </div>
             <div style={fieldGroup}>
               <label style={label}>Full Name</label>
-              <input style={input} defaultValue="John Dela Cruz" />
+              <input style={input} value={form.full_name}
+                onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
             </div>
             <div style={fieldGroup}>
-              <label style={label}>Email Address</label>
-              <input style={input} defaultValue="john.delacruz@example.com" />
+              <label style={label}>Email</label>
+              <input style={input} value={user?.email || ""} disabled />
             </div>
             <div style={fieldGroup}>
-              <label style={label}>Phone Number</label>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <input style={{ ...input, width: "70%" }} defaultValue="+63 912 345 6789" />
-                <span style={textLink}>Change Password</span>
-              </div>
+              <label style={label}>Phone</label>
+              <input style={input} value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })} />
             </div>
-            <button style={primaryBtn}>Update Account</button>
+            <div style={fieldGroup}>
+              <label style={label}>Location</label>
+              <input style={input} value={form.location} placeholder="e.g., Toledo City, Cebu"
+                onChange={(e) => setForm({ ...form, location: e.target.value })} />
+            </div>
+            <button style={{ ...btn, width: "100%" }} onClick={handleSaveAccount} disabled={saving}>
+              {saving ? "Saving..." : "Update Account"}
+            </button>
           </div>
 
-          {/* Privacy & Security Card */}
           <div style={settingsCard}>
             <div style={cardHeader}>
-              <span style={icon}>🔒</span> <h4>Privacy & Security</h4>
+              <span style={{ fontSize: "18px", marginRight: "8px" }}>🔔</span>
+              <h4 style={{ margin: 0, color: colors.navy }}>Notifications</h4>
             </div>
-            <div style={rowItem}>
-              <span>Two-Factor Authentication</span>
-              <input type="checkbox" defaultChecked />
-            </div>
-            <div style={rowItem}>
-              <span>Session History</span>
-              <span style={dotIcon}>➖</span>
-            </div>
-            <div style={rowItem}>
-              <span>Logout from all devices</span>
-              <span style={dotIcon}>➖</span>
-            </div>
-            <button style={primaryBtn}>Save Preferences</button>
+            {[
+              { key: "job_alerts", label: "Job Alerts" },
+              { key: "interview_reminders", label: "Interview Reminders" },
+              { key: "email_notifications", label: "Email Notifications" },
+              { key: "sms_notifications", label: "SMS Notifications" },
+            ].map(({ key, label }) => (
+              <div key={key} style={checkboxItem}>
+                <input type="checkbox" checked={prefs[key]} onChange={() => setPrefs({ ...prefs, [key]: !prefs[key] })} />
+                <span>{label}</span>
+              </div>
+            ))}
+            <button style={{ ...btn, width: "100%", marginTop: "12px" }} onClick={handleSavePrefs} disabled={saving}>
+              Save Preferences
+            </button>
           </div>
         </div>
 
-        {/* COLUMN 2 */}
         <div style={column}>
-          {/* Notification Settings Card */}
           <div style={settingsCard}>
             <div style={cardHeader}>
-              <span style={icon}>🔔</span> <h4>Notification Settings</h4>
+              <span style={{ fontSize: "18px", marginRight: "8px" }}>🔒</span>
+              <h4 style={{ margin: 0, color: colors.navy }}>Security</h4>
             </div>
-            <div style={checkboxItem}><input type="checkbox" defaultChecked /> Job Alerts</div>
-            <div style={checkboxItem}><input type="checkbox" defaultChecked /> Interview Reminders</div>
-            <div style={checkboxItem}><input type="checkbox" /> Email Notifications</div>
-            <div style={checkboxItem}><input type="checkbox" /> SMS Notifications</div>
-            <button style={primaryBtn}>Save Preferences</button>
+            <p style={{ fontSize: "13px", color: colors.textSecondary, marginBottom: "12px" }}>
+              Email: <strong>{user?.email}</strong>
+            </p>
+            <p style={{ fontSize: "13px", color: colors.textSecondary, marginBottom: "12px" }}>
+              Role: <strong style={{ color: colors.primary }}>{profile?.role}</strong>
+            </p>
+            <p style={{ fontSize: "13px", color: colors.textSecondary, marginBottom: "16px" }}>
+              Joined: {profile?.created_at ? new Date(profile.created_at).toLocaleDateString() : "N/A"}
+            </p>
+            <button style={{ ...btn, width: "100%", backgroundColor: colors.danger }}
+              onClick={handleDeleteAccount}>
+              Delete Account
+            </button>
           </div>
 
-          {/* App Preferences Card */}
           <div style={settingsCard}>
             <div style={cardHeader}>
-              <span style={icon}>🖥️</span> <h4>App Preferences</h4>
+              <span style={{ fontSize: "18px", marginRight: "8px" }}>📄</span>
+              <h4 style={{ margin: 0, color: colors.navy }}>Skills</h4>
             </div>
-            <div style={rowItem}>
-              <span>Light Mode</span>
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                <span>Dark Mode</span>
-                <input type="checkbox" defaultChecked />
-              </div>
-            </div>
-            <div style={rowItem}>
-              <span>English</span>
-              <select style={selectInput}><option>12 hour</option><option>24 hour</option></select>
-            </div>
-            <button style={primaryBtn}>Manage Security</button>
-          </div>
-
-          {/* Account Actions Card */}
-          <div style={settingsCard}>
-            <div style={cardHeader}>
-              <span style={icon}>❗️</span> <h4>Account Actions</h4>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <p style={{ margin: 0, color: "#f87171", cursor: "pointer" }}>Deactivate Account</p>
-                <p style={{ margin: 0, color: "#64748b", fontSize: "12px" }}>Delete Account</p>
-              </div>
-              <button style={dangerBtn}>Delete Account</button>
-            </div>
+            <p style={{ fontSize: "13px", color: colors.textSecondary, marginBottom: "8px" }}>
+              Your current skills: {profile?.skills || "Not set"}
+            </p>
+            <p style={{ fontSize: "12px", color: colors.textSecondary }}>
+              Update your skills from the <a href="/profile" style={{ color: colors.primaryDark }}>Profile</a> page.
+            </p>
           </div>
         </div>
       </div>
@@ -107,40 +187,23 @@ export default function Settings() {
   );
 }
 
-// --- STYLES REPLICATING THE UI ---
-
-const container = { padding: "10px" };
-const headerSection = { marginBottom: "25px" };
-const mainTitle = { color: "#1a3b5c", fontSize: "22px", fontWeight: "700", margin: "0 0 5px 0" };
-const subTitle = { color: "#64748b", fontSize: "14px", margin: 0 };
-
+const container = { padding: "5px" };
 const settingsGrid = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" };
 const column = { display: "flex", flexDirection: "column", gap: "20px" };
-
-const settingsCard = { 
-  backgroundColor: "rgba(255, 255, 255, 0.6)", 
-  padding: "20px", 
-  borderRadius: "16px", 
-  boxShadow: "0 4px 6px rgba(0,0,0,0.02)" 
+const settingsCard = {
+  backgroundColor: "rgba(255,255,255,0.6)", padding: "20px", borderRadius: radii.lg, boxShadow: shadows.sm,
 };
-
-const cardHeader = { display: "flex", alignItems: "center", gap: "10px", marginBottom: "20px", color: "#1a3b5c" };
-const icon = { fontSize: "18px" };
-
-const fieldGroup = { marginBottom: "15px" };
-const label = { display: "block", fontSize: "13px", color: "#64748b", marginBottom: "5px" };
-const input = { width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #e2eaf4", background: "#f8fafc" };
-
-const rowItem = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", fontSize: "14px", color: "#1a3b5c" };
-const checkboxItem = { display: "flex", gap: "10px", marginBottom: "12px", fontSize: "14px", color: "#1a3b5c" };
-
-const textLink = { color: "#1a73e8", fontSize: "12px", cursor: "pointer" };
-const dotIcon = { color: "#cbd5e1" };
-
-const primaryBtn = { 
-  width: "100%", padding: "10px", background: "#4a90e2", color: "#fff", 
-  border: "none", borderRadius: "8px", fontWeight: "600", cursor: "pointer", marginTop: "10px" 
+const cardHeader = { display: "flex", alignItems: "center", marginBottom: "16px" };
+const fieldGroup = { marginBottom: "14px" };
+const label = { display: "block", fontSize: "12px", color: colors.textSecondary, marginBottom: "4px", fontWeight: "500" };
+const input = {
+  width: "100%", padding: "10px 12px", borderRadius: "8px", border: `1px solid ${colors.border}`,
+  fontSize: "14px", outline: "none", boxSizing: "border-box", backgroundColor: colors.white,
 };
-
-const dangerBtn = { background: "#f87171", color: "#fff", border: "none", borderRadius: "8px", padding: "10px 20px", fontWeight: "600", cursor: "pointer" };
-const selectInput = { padding: "5px", borderRadius: "6px", border: "1px solid #e2eaf4", background: "#fff" };
+const btn = {
+  padding: "10px", backgroundColor: colors.primaryDark, color: "#fff", border: "none",
+  borderRadius: "8px", cursor: "pointer", fontWeight: "700", fontSize: "14px",
+};
+const checkboxItem = {
+  display: "flex", gap: "10px", marginBottom: "10px", fontSize: "14px", color: colors.navy,
+};

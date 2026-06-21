@@ -1,33 +1,87 @@
-import { pageWrapper, card, title, button } from "../uiStyles";
+import { pageWrapper, card, button } from "../uiStyles";
 import { useNavigate } from "react-router-dom";
+import { colors, radii } from "../uiStyles";
 
 export default function SelectRole() {
   const navigate = useNavigate();
 
-  // Function to handle the navigation with role state
   const handleSelection = (role) => {
-    // We send them to signup, passing the role in the background
-    navigate("/signup", { state: { role } });
+    if (role === "admin") {
+      navigate("/login", { state: { role: "admin" } });
+    } else {
+      navigate("/signup", { state: { role: "applicant" } });
+    }
   };
 
   return (
     <div style={pageWrapper}>
-      <div style={{ ...card, textAlign: "center", maxWidth: "500px" }}>
-        <h2 style={title}>Select Your Role</h2>
+      <div style={{ ...card, textAlign: "center", maxWidth: "500px", padding: "48px 40px" }}>
+        <h2
+          style={{
+            fontSize: "28px",
+            fontWeight: "800",
+            color: colors.navy,
+            marginBottom: "8px",
+          }}
+        >
+          Select Your Role
+        </h2>
 
-        <p style={{ marginBottom: "25px", color: "#555" }}>
+        <p
+          style={{
+            marginBottom: "32px",
+            color: colors.textSecondary,
+            fontSize: "15px",
+          }}
+        >
           Are you an admin managing jobs or an applicant looking for work?
         </p>
 
-        <div style={{ display: "flex", gap: "20px", justifyContent: "center" }}>
-          <button style={button} onClick={() => handleSelection("admin")}>
-            👨‍💼 Admin
+        <div style={{ display: "flex", gap: "20px", justifyContent: "center", flexWrap: "wrap" }}>
+          <button
+            style={{
+              ...button,
+              padding: "24px 40px",
+              borderRadius: radii.xl,
+              fontSize: "16px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "8px",
+              background: colors.navy,
+              minWidth: "160px",
+            }}
+            onClick={() => handleSelection("admin")}
+          >
+            <span style={{ fontSize: "32px" }}>👨‍💼</span>
+            <span style={{ fontSize: "18px" }}>Admin</span>
+            <span style={{ fontSize: "11px", fontWeight: "400", opacity: 0.8 }}>Sign in to manage</span>
           </button>
 
-          <button style={button} onClick={() => handleSelection("applicant")}>
-            🧑 Applicant
+          <button
+            style={{
+              ...button,
+              padding: "24px 40px",
+              borderRadius: radii.xl,
+              fontSize: "16px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "8px",
+              background: colors.primaryDark,
+              minWidth: "160px",
+            }}
+            onClick={() => handleSelection("applicant")}
+          >
+            <span style={{ fontSize: "32px" }}>🧑</span>
+            <span style={{ fontSize: "18px" }}>Applicant</span>
+            <span style={{ fontSize: "11px", fontWeight: "400", opacity: 0.8 }}>Find jobs & apply</span>
           </button>
         </div>
+
+        <p style={{ marginTop: "24px", fontSize: "12px", color: colors.textSecondary }}>
+          Admin accounts are created by the system administrator.
+        </p>
       </div>
     </div>
   );

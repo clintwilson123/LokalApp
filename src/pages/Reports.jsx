@@ -1,129 +1,171 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { supabase } from "../lib/supabaseClient";
+import { colors, radii, shadows } from "../uiStyles";
 
 export default function Reports() {
-  const activities = [
-    { date: "April 24, 2024", time: "8:17 AM", activity: "Suspicious Login", location: "Manila, Philippines", ip: "192.34.56.78", device: "Chrome on Windows", type: "critical" },
-    { date: "April 22, 2024", time: "2:55 PM", activity: "Suspicious Login", location: "Cebu, Philippines", ip: "192.34.56.78", device: "Chrome on Windows", type: "critical" },
-    { date: "April 20, 2024", time: "6:48 PM", activity: "Failed Login Attempt", location: "Manila, Philippines", ip: "167.89.45.23", device: "iPhone (Safari)", type: "warning" },
-    { date: "April 18, 2024", time: "6:28 AM", activity: "New Device Sign-in", location: "Manila, Philippines", ip: "167.89.45.23", device: "Edge on Windows", type: "info" },
-    { date: "April 18, 2024", time: "5:36 AM", activity: "Failed Login Attempt", location: "Caloocan, Philippines", ip: "167.89.45.23", device: "Galaxy S22 (Chrome)", type: "warning" },
-  ];
+  const [stats, setStats] = useState({ jobs: 0, apps: 0, applicants: 0, interviews: 0 });
+  const [recentApps, setRecentApps] = useState([]);
+  const [appsByJob, setAppsByJob] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchAll();
+  }, []);
+
+  async function fetchAll() {
+    const [{ count: jobs }, { count: apps }, { count: applicants }, { count: interviews }] =
+      await Promise.all([
+        supabase.from("jobs").select("*", { count: "exact", head: true }),
+        supabase.from("applications").select("*", { count: "exact", head: true }),
+        supabase.from("profiles").select("*", { count: "exact", head: true }).eq("role", "applicant"),
+        supabase.from("interviews").select("*", { count: "exact", head: true }),
+      ]);
+
+    setStats({
+      jobs: jobs || 0,
+      apps: apps || 0,
+      applicants: applicants || 0,
+      interviews: interviews || 0,
+    });
+
+    // Recent 10 applications with user & job details
+    const { data: appData } = await supabase
+      .from("applications")
+      .select("id, status, score, created_at, user_id, job_id, profiles(full_name), jobs(title)")
+      .order("created_at", { ascending: false })
+      .limit(10);
+    if (appData) setRecentApps(appData);
+
+    // Applications grouped by job
+    const { data: jobsData } = await supabase.from("jobs").select("id, title, icon");
+    if (jobsData) {
+      const withCounts = await Promise.all(
+        jobsData.map(async (job) => {
+          const { count } = await supabase
+            .from("applications")
+            .select("*", { count: "exact", head: true })
+            .eq("job_id", job.id);
+          return { ...job, count: count || 0 };
+        })
+      );
+      setAppsByJob(withCounts.sort((a, b) => b.count - a.count));
+    }
+
+    setLoading(false);
+  }
+
+  const getStatusColor = (s) => {
+    if (s === "accepted") return colors.success;
+    if (s === "rejected") return colors.danger;
+    return colors.warning;
+  };
+
+  if (loading) {
+    return <div style={{ textAlign: "center", padding: "30px", color: colors.textSecondary }}>Loading reports...</div>;
+  }
 
   return (
     <div style={container}>
-      {/* HEADER SECTION */}
-      <div style={{ marginBottom: "25px" }}>
-        <h2 style={titleText}>Security Report</h2>
-        <p style={subTitleText}>Monitor your account and recent activity</p>
+      <div style={{ marginBottom: "20px" }}>
+        <h2 style={{ fontSize: "20px", color: colors.navy, fontWeight: "800", margin: "0 0 4px" }}>Platform Reports</h2>
+        <p style={{ fontSize: "13px", color: colors.textSecondary, margin: 0 }}>Real-time statistics and activity overview</p>
       </div>
 
-      {/* SUMMARY CARDS */}
       <div style={summaryRow}>
-        <div style={summaryCard}><span style={iconBlue}>🔍</span> <div><h4 style={summaryNum}>3</h4><p style={summaryLabel}>Suspicious Logins</p></div></div>
-        <div style={summaryCard}><span style={iconYellow}>⚡</span> <div><h4 style={summaryNum}>2</h4><p style={summaryLabel}>Failed Login Attempts</p></div></div>
-        <div style={summaryCard}><span style={iconBlue}>💻</span> <div><h4 style={summaryNum}>1</h4><p style={summaryLabel}>New Device Detected</p></div></div>
-        <div style={summaryCard}><span style={iconBlue}>📄</span> <div><h4 style={summaryNum}>5</h4><p style={summaryLabel}>Recent Reports</p></div></div>
+        <div style={summaryCard}>
+          <span style={{ fontSize: "22px" }}>💼</span>
+          <div><h4 style={summaryNum}>{stats.jobs}</h4><p style={summaryLabel}>Total Jobs</p></div>
+        </div>
+        <div style={summaryCard}>
+          <span style={{ fontSize: "22px" }}>📋</span>
+          <div><h4 style={summaryNum}>{stats.apps}</h4><p style={summaryLabel}>Applications</p></div>
+        </div>
+        <div style={summaryCard}>
+          <span style={{ fontSize: "22px" }}>👤</span>
+          <div><h4 style={summaryNum}>{stats.applicants}</h4><p style={summaryLabel}>Applicants</p></div>
+        </div>
+        <div style={summaryCard}>
+          <span style={{ fontSize: "22px" }}>📅</span>
+          <div><h4 style={summaryNum}>{stats.interviews}</h4><p style={summaryLabel}>Interviews</p></div>
+        </div>
       </div>
 
-      {/* ACTIVITY TABLE CONTAINER */}
-      <div style={tableWrapper}>
-        <div style={tableHeader}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <span style={{ color: "#d97706" }}>🛡️</span>
-            <span style={{ fontWeight: "700", color: "#1a3b5c" }}>Recent Activity</span>
-            <select style={dateFilter}><option>Past 30 Days</option></select>
-          </div>
-          <div style={{ display: "flex", gap: "10px" }}>
-            <input style={searchInput} placeholder="🔍 Search" />
-            <button style={generateBtn}>Generate Report</button>
-          </div>
+      <div style={dualGrid}>
+        <div style={sectionCard}>
+          <h4 style={sectionTitle}>Applications by Job</h4>
+          {appsByJob.length === 0 ? (
+            <p style={{ color: colors.textSecondary, fontSize: "13px" }}>No applications yet</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              {appsByJob.map((job) => {
+                const maxCount = Math.max(...appsByJob.map((j) => j.count), 1);
+                const pct = Math.round((job.count / maxCount) * 100);
+                return (
+                  <div key={job.id}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", marginBottom: "4px" }}>
+                      <span style={{ color: colors.navy, fontWeight: "600" }}>{job.icon} {job.title}</span>
+                      <span style={{ color: colors.textSecondary }}>{job.count}</span>
+                    </div>
+                    <div style={barBg}>
+                      <div style={{ ...barFill, width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
-        <table style={tableStyle}>
-          <thead>
-            <tr style={thRow}>
-              <th style={thStyle}>Date ▴</th>
-              <th style={thStyle}>Activity</th>
-              <th style={thStyle}>Location</th>
-              <th style={thStyle}>IP Address</th>
-              <th style={thStyle}>Device/Browser</th>
-            </tr>
-          </thead>
-          <tbody>
-            {activities.map((item, index) => (
-              <tr key={index} style={trStyle}>
-                <td style={tdStyle}>
-                  <div style={{ fontWeight: "500" }}>{item.date}</div>
-                  <div style={{ fontSize: "12px", color: "#64748b" }}>{item.time}</div>
-                </td>
-                <td style={tdStyle}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <span style={getStatusIconStyle(item.type)}>{getStatusIcon(item.type)}</span>
-                    <span style={getStatusTextStyle(item.type)}>{item.activity}</span>
+        <div style={sectionCard}>
+          <h4 style={sectionTitle}>Recent Applications</h4>
+          {recentApps.length === 0 ? (
+            <p style={{ color: colors.textSecondary, fontSize: "13px" }}>No applications yet</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {recentApps.map((app) => (
+                <div key={app.id} style={appRow}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: "13px", fontWeight: "600", color: colors.navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {app.profiles?.full_name || "Unknown"}
+                    </div>
+                    <div style={{ fontSize: "11px", color: colors.textSecondary }}>
+                      {app.jobs?.title || "Unknown job"}
+                    </div>
                   </div>
-                </td>
-                <td style={tdStyle}>{item.location}</td>
-                <td style={tdStyle}>{item.ip}</td>
-                <td style={tdStyle}>{item.device}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {/* FOOTER ACTIONS */}
-        <div style={footerRow}>
-          <div style={pagination}>Previous <span style={activePage}>1</span> Next</div>
-          <button style={reportIssueBtn}>🛡️ Report Issue</button>
+                  <div style={{ textAlign: "right" }}>
+                    <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "10px", backgroundColor: getStatusColor(app.status), color: "#fff", fontWeight: "600" }}>
+                      {app.status}
+                    </span>
+                    <div style={{ fontSize: "10px", color: colors.textSecondary, marginTop: "2px" }}>
+                      {app.score}% match
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-// --- HELPER FUNCTIONS FOR UI LOGIC ---
-const getStatusIcon = (type) => {
-  if (type === "critical") return "🔴";
-  if (type === "warning") return "⚠️";
-  return "✅";
+const container = { padding: "5px" };
+const summaryRow = { display: "flex", gap: "12px", margin: "20px 0", flexWrap: "wrap" };
+const summaryCard = {
+  flex: "1 1 120px", backgroundColor: colors.white, padding: "14px", borderRadius: radii.sm,
+  display: "flex", alignItems: "center", gap: "12px", boxShadow: shadows.sm,
 };
-
-const getStatusTextStyle = (type) => {
-  if (type === "critical") return { color: "#b91c1c", fontWeight: "500" };
-  if (type === "warning") return { color: "#1a3b5c", fontWeight: "500" };
-  if (type === "info") return { color: "#1a3b5c", fontWeight: "500" };
+const summaryNum = { margin: 0, fontSize: "18px", color: colors.navy };
+const summaryLabel = { margin: 0, fontSize: "11px", color: colors.textSecondary };
+const dualGrid = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "20px" };
+const sectionCard = {
+  backgroundColor: "rgba(255,255,255,0.7)", borderRadius: radii.lg, padding: "20px", boxShadow: shadows.sm,
 };
-
-const getStatusIconStyle = (type) => ({
-  fontSize: "14px",
-  display: "inline-flex"
-});
-
-// --- STYLES REPLICATING THE UI ---
-const container = { padding: "10px" };
-const titleText = { color: "#1a3b5c", fontSize: "22px", margin: "0" };
-const subTitleText = { color: "#64748b", fontSize: "14px", marginTop: "5px" };
-
-const summaryRow = { display: "flex", gap: "15px", margin: "20px 0" };
-const summaryCard = { flex: 1, backgroundColor: "#fff", padding: "15px", borderRadius: "12px", display: "flex", alignItems: "center", gap: "15px", boxShadow: "0 2px 4px rgba(0,0,0,0.02)" };
-const summaryNum = { margin: 0, fontSize: "20px", color: "#1a3b5c" };
-const summaryLabel = { margin: 0, fontSize: "12px", color: "#64748b" };
-
-const iconBlue = { color: "#4a90e2", backgroundColor: "#eff6ff", padding: "8px", borderRadius: "10px" };
-const iconYellow = { color: "#d97706", backgroundColor: "#fffbeb", padding: "8px", borderRadius: "10px" };
-
-const tableWrapper = { backgroundColor: "rgba(255, 255, 255, 0.6)", borderRadius: "20px", padding: "20px" };
-const tableHeader = { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" };
-const dateFilter = { padding: "6px 12px", borderRadius: "8px", border: "1px solid #e2eaf4", background: "#fff", fontSize: "13px" };
-const searchInput = { padding: "8px 15px", borderRadius: "8px", border: "1px solid #e2eaf4", width: "200px" };
-const generateBtn = { backgroundColor: "#4a90e2", color: "#fff", border: "none", padding: "8px 20px", borderRadius: "8px", cursor: "pointer", fontWeight: "600" };
-
-const tableStyle = { width: "100%", borderCollapse: "collapse" };
-const thRow = { textAlign: "left", borderBottom: "1px solid #e2eaf4" };
-const thStyle = { padding: "12px", color: "#64748b", fontSize: "13px", fontWeight: "400" };
-const trStyle = { borderBottom: "1px solid #e2eaf4" };
-const tdStyle = { padding: "15px 12px", fontSize: "14px", color: "#1a3b5c" };
-
-const footerRow = { display: "flex", justifyContent: "flex-end", alignItems: "center", marginTop: "20px", gap: "20px" };
-const pagination = { color: "#64748b", fontSize: "14px" };
-const activePage = { backgroundColor: "#e0f2fe", color: "#0369a1", padding: "2px 10px", borderRadius: "4px", margin: "0 10px" };
-const reportIssueBtn = { backgroundColor: "#4a90e2", color: "#fff", border: "none", padding: "10px 20px", borderRadius: "10px", cursor: "pointer", fontWeight: "600" };
+const sectionTitle = { fontSize: "14px", fontWeight: "700", color: colors.navy, margin: "0 0 16px" };
+const barBg = { height: "8px", backgroundColor: colors.bg, borderRadius: "10px", overflow: "hidden" };
+const barFill = { height: "100%", backgroundColor: colors.primary, borderRadius: "10px", transition: "width 0.5s ease" };
+const appRow = {
+  display: "flex", alignItems: "center", gap: "10px", padding: "8px 10px",
+  borderRadius: "10px", backgroundColor: colors.white,
+};

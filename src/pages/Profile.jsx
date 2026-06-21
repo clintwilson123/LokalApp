@@ -1,35 +1,158 @@
-import React, { useState, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
+import { supabase } from "../lib/supabaseClient";
+import { useAuth } from "../context/AuthContext";
+import { colors, radii, shadows } from "../uiStyles";
 
 export default function Profile() {
-  const [profileImg, setProfileImg] = useState(null);
-  const fileInputRef = useRef(null);
+  const { user, profile, loadProfile } = useAuth();
+  const avatarInputRef = useRef(null);
+  const resumeInputRef = useRef(null);
+  const [avatarUrl, setAvatarUrl] = useState(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [uploadingResume, setUploadingResume] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
 
-  const handleImageChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const imageUrl = URL.createObjectURL(file);
-      setProfileImg(imageUrl);
+  const [form, setForm] = useState({
+    full_name: "",
+    phone: "",
+    location: "",
+    skills: "",
+    bio: "",
+  });
+
+  useEffect(() => {
+    if (profile) {
+      setForm({
+        full_name: profile.full_name || "",
+        phone: profile.phone || "",
+        location: profile.location || "",
+        skills: profile.skills || "",
+        bio: profile.bio || "",
+      });
+      if (profile.avatar_url) setAvatarUrl(profile.avatar_url);
     }
-  };
+  }, [profile]);
+
+  async function handleAvatarUpload(e) {
+    const file = e.target.files[0];
+    if (!file || !user) return;
+    if (!file.type.startsWith("image/")) {
+      setMessage("Please select an image file.");
+      return;
+    }
+
+    setUploadingAvatar(true);
+    const ext = file.name.split(".").pop();
+    const filePath = `avatars/${user.id}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("resumes")
+      .upload(filePath, file, { upsert: true });
+
+    if (uploadError) {
+      setMessage("Upload failed: " + uploadError.message);
+    } else {
+      const { data: { publicUrl } } = supabase.storage
+        .from("resumes")
+        .getPublicUrl(filePath);
+
+      await supabase.from("profiles").update({ avatar_url: publicUrl }).eq("id", user.id);
+      setAvatarUrl(publicUrl);
+      setMessage("Profile picture updated!");
+      loadProfile(user.id);
+    }
+    setUploadingAvatar(false);
+  }
+
+  async function handleResumeUpload(e) {
+    const file = e.target.files[0];
+    if (!file || !user) return;
+
+    setUploadingResume(true);
+    const filePath = `resumes/${user.id}/${file.name}`;
+
+    const { error } = await supabase.storage
+      .from("resumes")
+      .upload(filePath, file, { upsert: true });
+
+    if (error) {
+      setMessage("Upload failed: " + error.message);
+    } else {
+      const { data: { publicUrl } } = supabase.storage
+        .from("resumes")
+        .getPublicUrl(filePath);
+
+      await supabase.from("profiles").update({ resume_url: publicUrl }).eq("id", user.id);
+      setMessage("Resume uploaded successfully!");
+      loadProfile(user.id);
+    }
+    setUploadingResume(false);
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setMessage("");
+    const { error } = await supabase.from("profiles").update(form).eq("id", user.id);
+    if (error) {
+      setMessage("Failed to save: " + error.message);
+    } else {
+      setMessage("Profile updated successfully!");
+      loadProfile(user.id);
+    }
+    setSaving(false);
+  }
 
   return (
     <div style={container}>
       <div style={headerTextWrapper}>
         <h2 style={mainTitle}>Profile Settings</h2>
-        <p style={subTitle}>Manage your account details, resume, and skills.</p>
+        <p style={subTitle}>Manage your photo, resume, skills, and personal details.</p>
       </div>
 
+      {message && (
+        <p style={{
+          padding: "10px",
+          borderRadius: "8px",
+          marginBottom: "20px",
+          fontSize: "13px",
+          fontWeight: "600",
+          backgroundColor: message.includes("success") || message.includes("updated") ? "#e2f9eb" : "#fee2e2",
+          color: message.includes("success") || message.includes("updated") ? colors.success : colors.danger,
+          textAlign: "center",
+          maxWidth: "600px",
+          margin: "0 auto 20px",
+        }}>
+          {message}
+        </p>
+      )}
+
       <div style={profileLayoutGrid}>
-        {/* Left Column Cards */}
+        {/* Left Column */}
         <div style={sideColumn}>
           <div style={profileCard}>
             <div style={cardHeader}>
               <div style={smallIconBox}>📞</div>
               <h4 style={cardTitle}>Contact Information</h4>
             </div>
-            <p style={cardDetail}><strong>Phone:</strong> +1 555-123-4567</p>
-            <p style={cardDetail}><strong>Location:</strong> Toledo City, Cebu</p>
-            <button style={actionBtn}>Edit Details</button>
+            <div style={fieldGroup}>
+              <label style={label}>Full Name</label>
+              <input className="input" value={form.full_name}
+                onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
+            </div>
+            <div style={fieldGroup}>
+              <label style={label}>Phone</label>
+              <input className="input" value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+            </div>
+            <div style={fieldGroup}>
+              <label style={label}>Location</label>
+              <input className="input" value={form.location} placeholder="e.g., Toledo City, Cebu"
+                onChange={(e) => setForm({ ...form, location: e.target.value })} />
+            </div>
+            <button className="btn btn-primary" style={{ width: "100%" }} onClick={handleSave}>
+              {saving ? "Saving..." : "Save Details"}
+            </button>
           </div>
 
           <div style={profileCard}>
@@ -37,48 +160,102 @@ export default function Profile() {
               <div style={smallIconBox}>⚙️</div>
               <h4 style={cardTitle}>Key Skills</h4>
             </div>
-            <p style={cardDetail}>Inventory Management, Customer Service, Team Leadership</p>
-            <button style={actionBtn}>Edit Skills</button>
+            <div style={fieldGroup}>
+              <label style={label}>Skills (comma-separated)</label>
+              <textarea className="input" style={{ minHeight: "80px", resize: "vertical" }}
+                value={form.skills}
+                onChange={(e) => setForm({ ...form, skills: e.target.value })}
+                placeholder="e.g., Customer Service, Sales, Communication" />
+            </div>
+            <button className="btn btn-primary" style={{ width: "100%" }} onClick={handleSave}>
+              {saving ? "Saving..." : "Save Skills"}
+            </button>
+          </div>
+
+          <div style={profileCard}>
+            <div style={cardHeader}>
+              <div style={smallIconBox}>📝</div>
+              <h4 style={cardTitle}>About Me</h4>
+            </div>
+            <div style={fieldGroup}>
+              <label style={label}>Short bio / description</label>
+              <textarea className="input" style={{ minHeight: "100px", resize: "vertical" }}
+                value={form.bio}
+                onChange={(e) => setForm({ ...form, bio: e.target.value })}
+                placeholder="Tell employers about yourself, your experience, and what you're looking for..." />
+            </div>
+            <button className="btn btn-primary" style={{ width: "100%" }} onClick={handleSave}>
+              {saving ? "Saving..." : "Save Bio"}
+            </button>
           </div>
         </div>
 
-        {/* Center Profile Photo Section */}
+        {/* Center Column */}
         <div style={centerSection}>
-          <div style={photoWrapper} onClick={() => fileInputRef.current.click()}>
-            {profileImg ? (
-              <img src={profileImg} alt="Profile" style={avatarImage} />
+          <div style={photoWrapper} onClick={() => avatarInputRef.current.click()}>
+            {avatarUrl ? (
+              <img src={avatarUrl} alt="Profile" style={avatarImage} />
             ) : (
-              <div style={photoPlaceholder}>👤</div>
+              <div style={photoPlaceholder}>
+                {profile?.full_name?.[0] || "👤"}
+              </div>
             )}
-            <div style={editPhotoBadge}>✏️</div>
+            <div style={editPhotoBadge}>
+              {uploadingAvatar ? "⏳" : "📷"}
+            </div>
           </div>
-          <h3 style={profileName}>Alex Thompson</h3>
-          <p style={profileEmail}>alex.thompson@email.com</p>
-          <button style={blueActionBtn}>Edit Photo</button>
-          <input type="file" ref={fileInputRef} onChange={handleImageChange} style={{ display: "none" }} accept="image/*" />
+          <input type="file" ref={avatarInputRef} onChange={handleAvatarUpload}
+            style={{ display: "none" }} accept="image/*" />
+
+          <h3 style={profileName}>{profile?.full_name || "User"}</h3>
+          <p style={profileEmail}>{user?.email}</p>
+
+          <div style={{ width: "100%", marginTop: "20px" }}>
+            <div style={profileCard}>
+              <div style={cardHeader}>
+                <div style={smallIconBox}>📄</div>
+                <h4 style={cardTitle}>Resume</h4>
+              </div>
+              {profile?.resume_url ? (
+                <>
+                  <p style={cardDetail}>✅ Resume uploaded</p>
+                  <div style={{ display: "flex", gap: "10px" }}>
+                    <a href={profile.resume_url} target="_blank" rel="noopener noreferrer"
+                      className="btn btn-outline" style={{ fontSize: "13px", padding: "8px 16px" }}>
+                      View Resume
+                    </a>
+                    <button className="btn btn-primary" style={{ fontSize: "13px", padding: "8px 16px" }}
+                      onClick={() => resumeInputRef.current.click()}>
+                      Update
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p style={cardDetail}>No resume uploaded yet</p>
+                  <button className="btn btn-primary" style={{ fontSize: "13px", padding: "8px 16px" }}
+                    onClick={() => resumeInputRef.current.click()}>
+                    {uploadingResume ? "Uploading..." : "Upload Resume"}
+                  </button>
+                </>
+              )}
+              <input type="file" ref={resumeInputRef} onChange={handleResumeUpload}
+                style={{ display: "none" }} accept=".pdf,.doc,.docx" />
+            </div>
+          </div>
         </div>
 
-        {/* Right Column Cards */}
+        {/* Right Column */}
         <div style={sideColumn}>
           <div style={profileCard}>
             <div style={cardHeader}>
-              <div style={smallIconBox}>☁️</div>
-              <h4 style={cardTitle}>Resume & Cover Letter</h4>
-            </div>
-            <p style={cardDetail}>Resume_Alex_v3.pdf</p>
-            <div style={buttonGroup}>
-              <button style={actionBtn}>Upload New</button>
-              <button style={actionBtn}>📥</button>
-            </div>
-          </div>
-
-          <div style={profileCard}>
-            <div style={cardHeader}>
               <div style={smallIconBox}>💼</div>
-              <h4 style={cardTitle}>Work Experience</h4>
+              <h4 style={cardTitle}>Account</h4>
             </div>
-            <p style={cardDetail}>Store Manager at RetailMart (3 yrs) | Assistant Manager at LocalShop (1.5 yrs)</p>
-            <button style={actionBtn}>Add Experience</button>
+            <p style={cardDetail}><strong>Email:</strong> {user?.email}</p>
+            <p style={cardDetail}><strong>Role:</strong> {profile?.role}</p>
+            <p style={cardDetail}><strong>Status:</strong> {profile?.status}</p>
+            <p style={cardDetail}><strong>Joined:</strong> {profile?.created_at ? new Date(profile.created_at).toLocaleDateString() : "N/A"}</p>
           </div>
         </div>
       </div>
@@ -86,97 +263,81 @@ export default function Profile() {
   );
 }
 
-// --- STYLES REPLICATING image_d57d77.jpg ---
-
-const container = { padding: "20px", width: "100%" };
-
-const headerTextWrapper = { textAlign: "center", marginBottom: "40px" };
-
-const mainTitle = { fontSize: "32px", fontWeight: "800", color: "#1a3b5c", marginBottom: "8px" };
-
-const subTitle = { fontSize: "16px", color: "#64748b" };
+const container = { padding: "10px", width: "100%" };
+const headerTextWrapper = { textAlign: "center", marginBottom: "28px" };
+const mainTitle = { fontSize: "26px", fontWeight: "800", color: colors.navy, marginBottom: "6px" };
+const subTitle = { fontSize: "14px", color: colors.textSecondary };
 
 const profileLayoutGrid = {
   display: "grid",
-  gridTemplateColumns: "1fr 0.8fr 1fr", // 3-column layout
-  gap: "25px",
-  maxWidth: "1100px",
+  gridTemplateColumns: "1fr 0.8fr 1fr",
+  gap: "20px",
+  maxWidth: "1050px",
   margin: "0 auto",
-  alignItems: "start"
+  alignItems: "start",
 };
 
-const sideColumn = { display: "flex", flexDirection: "column", gap: "25px" };
+const sideColumn = { display: "flex", flexDirection: "column", gap: "20px" };
 
 const centerSection = {
   display: "flex",
   flexDirection: "column",
   alignItems: "center",
-  paddingTop: "20px"
+  paddingTop: "10px",
 };
 
 const photoWrapper = {
-  width: "160px",
-  height: "160px",
-  borderRadius: "30px", // Rounded square style
-  backgroundColor: "#f1f5f9",
-  marginBottom: "15px",
+  width: "130px",
+  height: "130px",
+  borderRadius: "50%",
+  backgroundColor: colors.bg,
+  marginBottom: "12px",
   position: "relative",
   cursor: "pointer",
   overflow: "hidden",
-  boxShadow: "0 10px 20px rgba(0,0,0,0.1)"
+  boxShadow: shadows.md,
+  border: "3px solid #fff",
 };
 
-const photoPlaceholder = { fontSize: "60px", display: "flex", height: "100%", alignItems: "center", justifyContent: "center" };
+const photoPlaceholder = {
+  fontSize: "50px",
+  display: "flex",
+  height: "100%",
+  alignItems: "center",
+  justifyContent: "center",
+  fontWeight: "700",
+  color: colors.primaryDark,
+};
 
 const avatarImage = { width: "100%", height: "100%", objectFit: "cover" };
 
 const editPhotoBadge = {
   position: "absolute",
-  bottom: "10px",
-  right: "10px",
-  backgroundColor: "#fff",
+  bottom: "4px",
+  right: "4px",
+  backgroundColor: colors.primaryDark,
   borderRadius: "50%",
-  padding: "5px",
+  padding: "6px",
   fontSize: "12px",
-  boxShadow: "0 2px 5px rgba(0,0,0,0.2)"
+  color: "#fff",
+  boxShadow: shadows.sm,
+  lineHeight: "1",
 };
 
-const profileName = { fontSize: "22px", fontWeight: "800", color: "#1a3b5c", margin: "0" };
-
-const profileEmail = { fontSize: "14px", color: "#64748b", marginBottom: "15px" };
+const profileName = { fontSize: "18px", fontWeight: "800", color: colors.navy, margin: 0 };
+const profileEmail = { fontSize: "13px", color: colors.textSecondary, marginBottom: "10px" };
 
 const profileCard = {
-  backgroundColor: "#ffffff",
-  borderRadius: "30px",
-  padding: "25px",
-  boxShadow: "0 10px 25px rgba(0,0,0,0.05)",
-  textAlign: "left"
+  backgroundColor: colors.white,
+  borderRadius: radii.xl,
+  padding: "20px",
+  boxShadow: shadows.sm,
+  textAlign: "left",
 };
 
-const cardHeader = { display: "flex", alignItems: "center", gap: "12px", marginBottom: "15px" };
-
-const smallIconBox = {
-  backgroundColor: "#f0f7ff",
-  padding: "8px",
-  borderRadius: "12px",
-  fontSize: "18px"
-};
-
-const cardTitle = { fontSize: "16px", fontWeight: "800", color: "#1a3b5c", margin: 0 };
-
-const cardDetail = { fontSize: "14px", color: "#64748b", lineHeight: "1.5", marginBottom: "15px" };
-
-const actionBtn = {
-  backgroundColor: "#f0f7ff",
-  color: "#1a73e8",
-  border: "none",
-  padding: "8px 16px",
-  borderRadius: "10px",
-  fontSize: "13px",
-  fontWeight: "700",
-  cursor: "pointer"
-};
-
-const blueActionBtn = { ...actionBtn, backgroundColor: "#1a73e8", color: "#fff" };
-
-const buttonGroup = { display: "flex", gap: "10px" };
+const cardHeader = { display: "flex", alignItems: "center", gap: "10px", marginBottom: "14px" };
+const smallIconBox = { backgroundColor: colors.bg, padding: "8px", borderRadius: radii.sm, fontSize: "16px" };
+const cardTitle = { fontSize: "14px", fontWeight: "800", color: colors.navy, margin: 0 };
+const cardDetail = { fontSize: "13px", color: colors.textSecondary, lineHeight: "1.6", marginBottom: "8px" };
+const fieldGroup = { marginBottom: "12px" };
+const label = { display: "block", fontSize: "12px", color: colors.textSecondary, marginBottom: "4px", fontWeight: "500" };

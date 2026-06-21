@@ -1,30 +1,54 @@
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 export default function Navbar() {
+  const location = useLocation();
+  const { user, profile, signOut } = useAuth();
+
+  const links = [
+    { to: "/", label: "Home" },
+    { to: "/about", label: "About" },
+  ];
+
   return (
-    <nav style={styles.nav}>
-      <h2 style={styles.logo}>Lokal</h2>
-      <div style={styles.links}>
-        <Link to="/" style={styles.link}>Home</Link>
-        <Link to="/find-jobs" style={styles.link}>Jobs</Link>
-        {/* Talent Link Removed From Here */}
-        <Link to="/notifications" style={styles.link}>Notifications</Link>
-        <Link to="/interview-schedule" style={styles.link}>Schedule</Link>
-        <Link to="/about" style={styles.link}>About</Link>
+    <nav className="navbar">
+      <Link to="/" className="navbar-logo">
+        Lok<span>al</span>
+      </Link>
+
+      <div className="navbar-links">
+        {links.map((link) => (
+          <Link
+            key={link.to}
+            to={link.to}
+            className={`navbar-link ${location.pathname === link.to ? "active" : ""}`}
+          >
+            {link.label}
+          </Link>
+        ))}
+
+        {user ? (
+          <>
+            <Link
+              to={profile?.role === "admin" ? "/admin-dashboard" : "/find-jobs"}
+              className="navbar-link dashboard-link"
+            >
+              📊 Dashboard
+            </Link>
+            <span className="navbar-user">
+              {profile?.full_name || user.email?.split("@")[0]}
+            </span>
+            <button className="navbar-link logout-link" onClick={signOut}>
+              Logout
+            </button>
+          </>
+        ) : (
+          <>
+            <Link to="/login" className="navbar-link">Login</Link>
+            <Link to="/roles" className="navbar-cta">Get Started →</Link>
+          </>
+        )}
       </div>
     </nav>
   );
 }
-
-const styles = {
-  nav: {
-    background: "#0f172a",
-    padding: "15px 40px",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center"
-  },
-  logo: { color: "#fff" },
-  links: { display: "flex", gap: "20px" },
-  link: { color: "#cbd5e1", textDecoration: "none" }
-};
