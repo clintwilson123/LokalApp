@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { colors, radii, shadows } from "../uiStyles";
+import { SkeletonCard } from "../components/Skeleton";
 
 export default function Reports() {
   const [stats, setStats] = useState({ jobs: 0, apps: 0, applicants: 0, interviews: 0 });
@@ -8,11 +9,7 @@ export default function Reports() {
   const [appsByJob, setAppsByJob] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchAll();
-  }, []);
-
-  async function fetchAll() {
+  const fetchAll = async () => {
     const [{ count: jobs }, { count: apps }, { count: applicants }, { count: interviews }] =
       await Promise.all([
         supabase.from("jobs").select("*", { count: "exact", head: true }),
@@ -52,7 +49,11 @@ export default function Reports() {
     }
 
     setLoading(false);
-  }
+  };
+
+  useEffect(() => {
+    fetchAll();
+  }, []);
 
   const getStatusColor = (s) => {
     if (s === "accepted") return colors.success;
@@ -61,7 +62,19 @@ export default function Reports() {
   };
 
   if (loading) {
-    return <div style={{ textAlign: "center", padding: "30px", color: colors.textSecondary }}>Loading reports...</div>;
+    return (
+      <div style={{ padding: "5px" }}>
+        <div style={{ display: "flex", gap: "12px", margin: "20px 0", flexWrap: "wrap" }}>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} style={{ flex: "1 1 120px" }}><SkeletonCard lines={1} /></div>
+          ))}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+          <SkeletonCard lines={4} />
+          <SkeletonCard lines={4} />
+        </div>
+      </div>
+    );
   }
 
   return (

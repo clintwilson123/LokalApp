@@ -45,13 +45,16 @@ export const pageWrapper = {
 };
 
 export const card = {
-  backgroundColor: colors.primaryLight,
+  backgroundColor: "#fff",
+  backdropFilter: "blur(20px)",
+  WebkitBackdropFilter: "blur(20px)",
   padding: "50px",
   borderRadius: radii.xxl,
   width: "100%",
   maxWidth: "560px",
   boxShadow: shadows.xl,
   textAlign: "center",
+  border: "1px solid rgba(255,255,255,0.5)",
 };
 
 export const title = {
@@ -59,6 +62,7 @@ export const title = {
   fontWeight: "800",
   color: colors.navy,
   marginBottom: "15px",
+  letterSpacing: "-0.5px",
 };
 
 export const input = {
@@ -67,10 +71,11 @@ export const input = {
   marginBottom: "15px",
   borderRadius: radii.sm,
   border: `1px solid ${colors.border}`,
-  backgroundColor: "#fcfdfe",
+  backgroundColor: "#fff",
   fontSize: "15px",
   outline: "none",
   boxSizing: "border-box",
+  transition: "border-color 0.2s, box-shadow 0.2s",
 };
 
 export const button = {
@@ -82,5 +87,5 @@ export const button = {
   cursor: "pointer",
   fontWeight: "700",
   fontSize: "16px",
-  transition: "background 0.3s, transform 0.2s",
+  transition: "all 0.2s",
 };

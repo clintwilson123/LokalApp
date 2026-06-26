@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 const features = [
   {
@@ -35,6 +36,7 @@ const features = [
 
 export default function Home() {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   return (
     <>
@@ -55,7 +57,7 @@ export default function Home() {
             <button className="hero-btn-primary" onClick={() => navigate("/roles")}>
               Get Started Now →
             </button>
-            <button className="hero-btn-secondary" onClick={() => navigate("/find-jobs")}>
+            <button className="hero-btn-secondary" onClick={() => navigate(user ? "/find-jobs" : "/roles")}>
               Browse Jobs
             </button>
           </div>

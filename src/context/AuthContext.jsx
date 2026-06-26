@@ -15,20 +15,34 @@ export function AuthProvider({ children }) {
 
     try {
       for (let retry = 0; retry < 3; retry++) {
-        // Use RPC to bypass RLS
-        const { data: role } = await supabase.rpc("get_my_role");
+        const { data: profileData } = await supabase.rpc("get_my_profile");
 
-        if (role) {
-          // Fetch full profile using RLS (should work now since we know it exists)
-          const { data: full } = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", userId)
-            .maybeSingle();
-          setProfile(full || { id: userId, role, full_name: "User" });
+        if (profileData) {
+          setProfile(profileData);
           setLoading(false);
           return;
         }
+
+        // Fallback: direct query (works with RLS disabled)
+        const { data: direct } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", userId)
+          .single();
+        if (direct) {
+          setProfile(direct);
+          setLoading(false);
+          return;
+        }
+
+        // Last fallback: try getting just the role
+        const { data: role } = await supabase.rpc("get_my_role");
+        if (role) {
+          setProfile({ id: userId, role, full_name: "User" });
+          setLoading(false);
+          return;
+        }
+
         if (retry < 2) await new Promise((r) => setTimeout(r, 600));
       }
       setProfile(null);
@@ -65,7 +79,7 @@ export function AuthProvider({ children }) {
     return () => listener?.subscription.unsubscribe();
   }, []);
 
-  async function signUp(email, password, fullName, role) {
+  async function signUp(email, password, fullName, role, phone_number = "") {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -79,6 +93,7 @@ export function AuthProvider({ children }) {
         full_name: fullName,
         role,
         status: "active",
+        phone_number,
       });
       if (insertError) throw insertError;
 
@@ -128,6 +143,7 @@ export function AuthProvider({ children }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be inside AuthProvider");

@@ -2,17 +2,14 @@ import React, { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
 import { colors, radii, shadows } from "../uiStyles";
+import { SkeletonLine } from "../components/Skeleton";
 
 export default function InterviewSchedule() {
   const { user } = useAuth();
   const [interviews, setInterviews] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (user) fetchInterviews();
-  }, [user]);
-
-  async function fetchInterviews() {
+  const fetchInterviews = async () => {
     const { data } = await supabase
       .from("interviews")
       .select("*, applications!inner(job_id, user_id, jobs!inner(title))")
@@ -20,10 +17,31 @@ export default function InterviewSchedule() {
       .order("date", { ascending: true });
     if (data) setInterviews(data);
     setLoading(false);
-  }
+  };
+
+  useEffect(() => {
+    if (user) fetchInterviews();
+  }, [user]);
 
   if (loading) {
-    return <div style={{ textAlign: "center", padding: "40px", color: colors.textSecondary }}>Loading...</div>;
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "20px", alignItems: "center", padding: "20px" }}>
+        {Array.from({ length: 2 }).map((_, i) => (
+          <div key={i} style={{ width: "100%", maxWidth: "550px", borderRadius: radii.xxl, overflow: "hidden" }}>
+            <div style={{ padding: "28px 32px", background: colors.navy }}>
+              <SkeletonLine width="60%" height="18px" />
+              <div style={{ height: "12px" }} />
+              <SkeletonLine width="40%" height="14px" />
+              <div style={{ height: "8px" }} />
+              <SkeletonLine width="45%" height="14px" />
+            </div>
+            <div style={{ padding: "24px 32px", backgroundColor: "rgba(255,255,255,0.85)" }}>
+              <SkeletonLine width="70%" height="14px" />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
   }
 
   if (interviews.length === 0) {

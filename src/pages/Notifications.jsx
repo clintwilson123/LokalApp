@@ -2,17 +2,14 @@ import React, { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
 import { colors, shadows } from "../uiStyles";
+import { SkeletonLine } from "../components/Skeleton";
 
 export default function Notifications() {
   const { user } = useAuth();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (user) fetchNotifications();
-  }, [user]);
-
-  async function fetchNotifications() {
+  const fetchNotifications = async () => {
     const { data } = await supabase
       .from("notifications")
       .select("*")
@@ -20,15 +17,42 @@ export default function Notifications() {
       .order("created_at", { ascending: false });
     if (data) setNotifications(data);
     setLoading(false);
-  }
+  };
+
+  useEffect(() => {
+    if (!user) return;
+    fetchNotifications();
+
+    const channel = supabase
+      .channel("notifications-realtime")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          setNotifications((prev) => [payload.new, ...prev]);
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [user]);
 
   async function deleteNotification(id) {
     await supabase.from("notifications").delete().eq("id", id);
-    fetchNotifications();
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
   }
 
   if (loading) {
-    return <div style={{ textAlign: "center", padding: "40px", color: colors.textSecondary }}>Loading...</div>;
+    return (
+      <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "12px", maxWidth: "750px", margin: "0 auto" }}>
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} style={{ padding: "14px 20px", borderRadius: "50px", backgroundColor: colors.white, display: "flex", gap: "12px", alignItems: "center" }}>
+            <div style={{ flex: 1 }}><SkeletonLine width="80%" height="14px" /><div style={{ height: "6px" }} /><SkeletonLine width="40%" height="10px" /></div>
+            <SkeletonLine width="32px" height="32px" />
+          </div>
+        ))}
+      </div>
+    );
   }
 
   return (

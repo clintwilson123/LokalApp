@@ -1,6 +1,6 @@
-import { pageWrapper, card, button } from "../uiStyles";
+import { pageWrapper, button } from "../uiStyles";
 import { useNavigate } from "react-router-dom";
-import { colors, radii } from "../uiStyles";
+import { colors, radii, shadows } from "../uiStyles";
 
 export default function SelectRole() {
   const navigate = useNavigate();
@@ -15,7 +15,7 @@ export default function SelectRole() {
 
   return (
     <div style={pageWrapper}>
-      <div style={{ ...card, textAlign: "center", maxWidth: "500px", padding: "48px 40px" }}>
+      <div style={{ backgroundColor: "#fff", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", padding: "48px 40px", borderRadius: radii.xxl, width: "100%", maxWidth: "500px", boxShadow: shadows.xl, textAlign: "center", border: "1px solid rgba(255,255,255,0.5)" }}>
         <h2
           style={{
             fontSize: "28px",

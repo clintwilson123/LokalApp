@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { colors, radii, shadows } from "../uiStyles";
+import { SkeletonGrid } from "../components/Skeleton";
 
 export default function FindJobs() {
   const navigate = useNavigate();
@@ -9,37 +10,44 @@ export default function FindJobs() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
-  useEffect(() => {
-    fetchJobs();
-  }, []);
-
-  async function fetchJobs() {
+  const fetchJobs = async () => {
     const { data } = await supabase.from("jobs").select("*").order("created_at", { ascending: false });
     if (data) setJobs(data);
     setLoading(false);
-  }
+  };
+
+  useEffect(() => {
+    fetchJobs();
+  }, []);
 
   const filtered = jobs.filter(j =>
     !search || j.title.toLowerCase().includes(search.toLowerCase()) || j.description?.toLowerCase().includes(search.toLowerCase())
   );
 
   if (loading) {
-    return <div style={{ textAlign: "center", padding: "40px", color: colors.textSecondary }}>Loading jobs...</div>;
+    return <div style={{ padding: "20px" }}><SkeletonGrid cards={4} /></div>;
   }
 
   return (
     <div style={container}>
-      <input
-        style={searchInput}
-        placeholder="Search job title or description..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-      />
+      <div style={searchWrap}>
+        <span style={searchIcon}>🔍</span>
+        <input
+          style={searchInput}
+          placeholder="Search job title or description..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        {search && (
+          <button style={clearBtn} onClick={() => setSearch("")}>✕</button>
+        )}
+      </div>
 
       {filtered.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "40px 0" }}>
-          <p style={{ color: colors.textSecondary, fontSize: "15px", marginBottom: "8px" }}>
-            {search ? "No jobs match your search" : "No job openings available right now."}
+        <div style={{ textAlign: "center", padding: "60px 0" }}>
+          <span style={{ fontSize: "48px", display: "block", marginBottom: "12px", opacity: 0.4 }}>🔍</span>
+          <p style={{ color: colors.textSecondary, fontSize: "15px", marginBottom: "4px", fontWeight: "500" }}>
+            {search ? "No jobs match your search" : "No job openings right now"}
           </p>
           {!search && (
             <p style={{ color: colors.textSecondary, fontSize: "13px" }}>
@@ -49,10 +57,10 @@ export default function FindJobs() {
         </div>
       ) : (
         <>
-          <p style={{ fontSize: "13px", color: colors.textSecondary, marginBottom: "16px" }}>
+          <p style={{ fontSize: "13px", color: colors.textSecondary, marginBottom: "16px", fontWeight: "500" }}>
             {filtered.length} job{filtered.length !== 1 ? "s" : ""} found
           </p>
-          <div style={jobGrid}>
+          <div className="stagger-children" style={jobGrid}>
             {filtered.map((job) => (
               <div key={job.id} style={jobCard} onClick={() => navigate(`/apply-job/${job.id}`)}>
                 <div style={cardTop}>
@@ -89,18 +97,33 @@ export default function FindJobs() {
 }
 
 const container = { width: "100%", maxWidth: "800px", margin: "0 auto" };
+const searchWrap = {
+  position: "relative", marginBottom: "20px",
+};
+const searchIcon = {
+  position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)",
+  fontSize: "16px", pointerEvents: "none", opacity: 0.5,
+};
 const searchInput = {
-  width: "100%", padding: "12px 16px", borderRadius: "12px", border: `1px solid ${colors.border}`,
-  fontSize: "14px", outline: "none", marginBottom: "20px", boxSizing: "border-box",
-  backgroundColor: colors.white,
+  width: "100%", padding: "12px 16px 12px 40px", borderRadius: "12px",
+  border: `1px solid ${colors.border}`, fontSize: "14px", outline: "none",
+  boxSizing: "border-box", backgroundColor: colors.white,
+  transition: "border-color 0.2s, box-shadow 0.2s",
+};
+const clearBtn = {
+  position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)",
+  background: "none", border: "none", fontSize: "14px", cursor: "pointer",
+  color: colors.textSecondary, padding: "4px", lineHeight: "1",
 };
 const jobGrid = {
   display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "16px", width: "100%",
 };
 const jobCard = {
-  backgroundColor: colors.white, padding: "20px", borderRadius: radii.xl,
+  backgroundColor: "rgba(255,255,255,0.8)", padding: "20px", borderRadius: radii.xl,
   cursor: "pointer", boxShadow: shadows.md, display: "flex", flexDirection: "column",
-  transition: "transform 0.2s ease, box-shadow 0.2s ease", border: "1px solid transparent",
+  transition: "transform 0.25s ease, box-shadow 0.25s ease, background 0.25s",
+  border: "1px solid rgba(255,255,255,0.5)",
+  backdropFilter: "blur(12px)",
 };
 const cardTop = { display: "flex", alignItems: "center", gap: "14px", marginBottom: "12px" };
 const iconCircle = {

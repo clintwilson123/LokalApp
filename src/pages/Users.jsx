@@ -1,20 +1,21 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { colors, radii, shadows } from "../uiStyles";
+import { SkeletonTable } from "../components/Skeleton";
 
 export default function Users() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchUsers();
-  }, []);
-
-  async function fetchUsers() {
+  const fetchUsers = async () => {
     const { data } = await supabase.rpc("get_profiles_with_email");
     if (data) setUsers(data);
     setLoading(false);
-  }
+  };
+
+  useEffect(() => {
+    fetchUsers();
+  }, []);
 
   async function updateUserStatus(userId, newStatus) {
     await supabase.from("profiles").update({ status: newStatus }).eq("id", userId);
@@ -40,7 +41,7 @@ export default function Users() {
   };
 
   if (loading) {
-    return <div style={{ textAlign: "center", padding: "40px", color: colors.textSecondary }}>Loading users...</div>;
+    return <div style={{ padding: "5px" }}><SkeletonTable rows={5} cols={7} /></div>;
   }
 
   return (
@@ -142,13 +143,16 @@ export default function Users() {
 const container = { padding: "5px" };
 const statsRow = { display: "flex", gap: "12px", margin: "20px 0", flexWrap: "wrap" };
 const statCard = {
-  flex: "1 1 120px", backgroundColor: colors.white, padding: "14px", borderRadius: radii.sm,
+  flex: "1 1 120px", backgroundColor: "rgba(255,255,255,0.8)", padding: "14px", borderRadius: radii.sm,
   display: "flex", alignItems: "center", gap: "12px", boxShadow: shadows.sm,
+  backdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.5)",
 };
 const statNum = { margin: 0, fontSize: "18px", color: colors.navy };
 const statLabel = { margin: 0, fontSize: "11px", color: colors.textSecondary };
 const tableWrapper = {
-  backgroundColor: "rgba(255,255,255,0.7)", borderRadius: radii.lg, padding: "16px", boxShadow: shadows.sm,
+  backgroundColor: "rgba(255,255,255,0.75)", borderRadius: radii.lg, padding: "16px",
+  boxShadow: shadows.sm, backdropFilter: "blur(16px)",
+  border: "1px solid rgba(255,255,255,0.5)",
 };
 const tableStyle = { width: "100%", borderCollapse: "collapse", minWidth: "700px" };
 const headerRow = { textAlign: "left", borderBottom: `1px solid ${colors.border}` };

@@ -30,7 +30,7 @@ export default function Navbar() {
         {user ? (
           <>
             <Link
-              to={profile?.role === "admin" ? "/admin-dashboard" : "/find-jobs"}
+              to={profile?.role === "admin" ? "/admin" : "/find-jobs"}
               className="navbar-link dashboard-link"
             >
               📊 Dashboard

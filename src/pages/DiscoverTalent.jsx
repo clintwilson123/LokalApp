@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { colors, radii, shadows } from "../uiStyles";
+import { SkeletonGrid } from "../components/Skeleton";
 
 export default function DiscoverTalent() {
   const [jobs, setJobs] = useState([]);
@@ -11,24 +12,23 @@ export default function DiscoverTalent() {
   const [selectedApplicant, setSelectedApplicant] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    Promise.all([fetchJobs(), fetchApplicants()]).finally(() => setLoading(false));
-  }, []);
-
-  async function fetchJobs() {
+  const fetchJobs = async () => {
     const { data } = await supabase.from("jobs").select("*");
     if (data) setJobs(data);
-  }
+  };
 
-  async function fetchApplicants() {
+  const fetchApplicants = async () => {
     const { data } = await supabase
       .from("profiles")
-      .select("id, full_name, skills, location, phone, resume_url, created_at")
-      .select("id, full_name, skills, location, phone, resume_url, bio, created_at")
+      .select("id, full_name, skills, location, phone_number, resume_url, bio, created_at")
       .eq("role", "applicant")
       .not("skills", "is", null);
     if (data) setApplicants(data);
-  }
+  };
+
+  useEffect(() => {
+    Promise.all([fetchJobs(), fetchApplicants()]).finally(() => setLoading(false));
+  }, []);
 
   const calculateMatch = (applicant, requirements) => {
     if (!applicant.skills || !requirements?.length) return 0;
@@ -77,7 +77,7 @@ export default function DiscoverTalent() {
   };
 
   if (loading) {
-    return <div style={{ textAlign: "center", color: colors.textSecondary, padding: "40px" }}>Loading...</div>;
+    return <SkeletonGrid cards={4} />;
   }
 
   if (selectedApplicant) {
@@ -121,10 +121,10 @@ export default function DiscoverTalent() {
               </div>
             </div>
           )}
-          {a.phone && (
+          {a.phone_number && (
             <div style={infoRow}>
               <span style={infoLabel}>Phone</span>
-              <span style={{ fontSize: "14px", color: colors.navy }}>{a.phone}</span>
+              <span style={{ fontSize: "14px", color: colors.navy }}>{a.phone_number}</span>
             </div>
           )}
           {a.resume_url && (
