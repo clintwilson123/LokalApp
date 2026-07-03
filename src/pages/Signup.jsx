@@ -1,15 +1,13 @@
 import { useState } from "react";
-import { useNavigate, useLocation, Link, Navigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { pageWrapper, card, title, input, button } from "../uiStyles";
 import { colors, radii, shadows } from "../uiStyles";
 
 export default function Signup() {
   const navigate = useNavigate();
-  const location = useLocation();
   const { signUp } = useAuth();
 
-  const role = location.state?.role || "applicant";
   const [fullName, setFullName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [email, setEmail] = useState("");
@@ -17,10 +15,6 @@ export default function Signup() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
-
-  if (role === "admin") {
-    return <Navigate to="/login" state={{ role: "admin" }} replace />;
-  }
 
   const handleSignup = async () => {
     setError("");
@@ -34,7 +28,7 @@ export default function Signup() {
     }
     setLoading(true);
     try {
-      await signUp(email, password, fullName, role, phoneNumber);
+      await signUp(email, password, fullName, "applicant", phoneNumber);
       setSuccess(true);
     } catch (err) {
       if (err.message.includes("already registered") || err.message.includes("duplicate")) {
@@ -99,7 +93,7 @@ export default function Signup() {
               opacity: success ? 1 : 0,
               transition: "all 0.4s ease 0.9s",
             }}
-            onClick={() => navigate("/login", { state: { role }, replace: true })}
+            onClick={() => navigate("/login", { replace: true })}
           >
             Go to Sign In
           </button>
@@ -109,7 +103,7 @@ export default function Signup() {
         <div style={{ opacity: success ? 0 : 1, transition: "opacity 0.35s ease" }}>
           <h2 style={title}>Create Account</h2>
           <p style={{ color: colors.textSecondary, marginBottom: "28px", fontSize: "14px" }}>
-            Sign up as {role.charAt(0).toUpperCase() + role.slice(1)}
+            Create your account to start applying for jobs.
           </p>
 
           {error && (
@@ -163,7 +157,7 @@ export default function Signup() {
 
           <p style={{ marginTop: "20px", fontSize: "14px", color: colors.textSecondary }}>
             Already have an account?{" "}
-            <Link to="/login" state={{ role }} style={{ color: colors.primaryDark, fontWeight: "600" }}>
+            <Link to="/login" style={{ color: colors.primaryDark, fontWeight: "600" }}>
               Sign in
             </Link>
           </p>

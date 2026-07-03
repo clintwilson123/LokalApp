@@ -118,8 +118,20 @@ export function AuthProvider({ children }) {
       password,
     });
     if (error) throw error;
+
+    // Check suspension BEFORE setting the session (avoids race with onAuthStateChange)
+    const { data: profileData } = await supabase
+      .from("profiles")
+      .select("status, role")
+      .eq("id", data.user.id)
+      .single();
+
+    if (profileData?.status === "suspended") {
+      throw new Error("Your account has been suspended. Contact the administrator.");
+    }
+
     await supabase.auth.setSession(data.session);
-    return data;
+    return { ...data, role: profileData?.role || "applicant" };
   }
 
   async function signOut() {

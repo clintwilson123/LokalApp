@@ -54,10 +54,10 @@ export default function Home() {
           </p>
 
           <div className="hero-buttons">
-            <button className="hero-btn-primary" onClick={() => navigate("/roles")}>
+            <button className="hero-btn-primary" onClick={() => navigate("/login")}>
               Get Started Now →
             </button>
-            <button className="hero-btn-secondary" onClick={() => navigate(user ? "/find-jobs" : "/roles")}>
+            <button className="hero-btn-secondary" onClick={() => navigate(user ? "/find-jobs" : "/login")}>
               Browse Jobs
             </button>
           </div>
@@ -81,7 +81,7 @@ export default function Home() {
         </div>
 
         <div style={{ marginTop: "60px" }}>
-          <button className="hero-btn-primary" onClick={() => navigate("/roles")}>
+          <button className="hero-btn-primary" onClick={() => navigate("/login")}>
             Join Lokal Today →
           </button>
         </div>

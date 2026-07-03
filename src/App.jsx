@@ -6,7 +6,6 @@ import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 
 import Home from "./pages/home";
-import SelectRole from "./pages/SelectRole";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import ForgotPassword from "./pages/ForgotPassword";
@@ -15,7 +14,7 @@ import About from "./pages/About";
 import AdminDashboard from "./pages/AdminDashboard";
 import ApplicantDashboard from "./pages/ApplicantDashboard";
 
-const publicPaths = ["/", "/roles", "/login", "/signup", "/forgot-password", "/update-password", "/about"];
+const publicPaths = ["/", "/login", "/signup", "/forgot-password", "/update-password", "/about"];
 
 function AppContent() {
   const location = useLocation();
@@ -27,7 +26,6 @@ function AppContent() {
       <Routes>
         {/* Public */}
         <Route path="/" element={<Home />} />
-        <Route path="/roles" element={<SelectRole />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />

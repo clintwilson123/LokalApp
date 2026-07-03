@@ -13,12 +13,42 @@ export default function UpdatePassword() {
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) {
-        setError("Invalid or expired reset link. Please request a new one.");
+    let cancelled = false;
+
+    async function init() {
+      // Try to get existing session first
+      const { data: { session } } = await supabase.auth.getSession();
+      if (cancelled) return;
+
+      if (session) {
+        setChecking(false);
+        return;
       }
-      setChecking(false);
-    });
+
+      // No session yet — the recovery hash may still be processing.
+      // Subscribe to auth state changes and pick up the SIGNED_IN event.
+      const { data: listener } = supabase.auth.onAuthStateChange((event, newSession) => {
+        if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+          if (newSession && !cancelled) {
+            setChecking(false);
+          }
+        }
+      });
+
+      // If after 5 seconds we still have no session, show an error
+      setTimeout(() => {
+        if (!cancelled && !session) {
+          setChecking(false);
+          setError("Invalid or expired reset link. Please request a new one.");
+        }
+      }, 5000);
+    }
+
+    init();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleUpdate = async () => {
@@ -28,6 +58,15 @@ export default function UpdatePassword() {
       return;
     }
     setLoading(true);
+
+    // Ensure we have a session before updating
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      setError("Session expired. Please request a new reset link.");
+      setLoading(false);
+      return;
+    }
+
     const { error: err } = await supabase.auth.updateUser({ password });
     if (err) {
       setError(err.message);

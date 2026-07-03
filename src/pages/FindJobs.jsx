@@ -3,9 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { colors, radii, shadows } from "../uiStyles";
 import { SkeletonGrid } from "../components/Skeleton";
+import { useAuth } from "../context/AuthContext";
+import { computeSkillMatch } from "../lib/skillMatch";
 
 export default function FindJobs() {
   const navigate = useNavigate();
+  const { profile } = useAuth();
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -87,6 +90,22 @@ export default function FindJobs() {
                     </span>
                   )}
                 </div>
+                {profile?.skills && job.requirements?.length > 0 && (
+                  <div style={{ marginTop: "10px" }}>
+                    {(() => {
+                      const match = computeSkillMatch(profile.skills, job.requirements);
+                      const color = match.score >= 70 ? colors.success : match.score >= 40 ? colors.warning : colors.danger;
+                      return (
+                        <span style={{
+                          fontSize: "11px", fontWeight: "700", padding: "3px 10px", borderRadius: "20px",
+                          backgroundColor: color + "20", color,
+                        }}>
+                          {match.score}% Match
+                        </span>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
             ))}
           </div>

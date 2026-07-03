@@ -27,16 +27,24 @@ export default function MyApplications() {
   }
 
   async function handleReapply(application) {
-    await supabase
-      .from("applications")
-      .update({ status: "pending" })
-      .eq("id", application.id);
-    await supabase.from("notifications").insert({
-      user_id: user.id,
-      message: `You re-applied for ${application.jobs?.title}. The admin will review your application.`,
-      type: "info",
-    });
-    fetchApplications();
+    try {
+      const { error: updateErr } = await supabase
+        .from("applications")
+        .update({ status: "pending" })
+        .eq("id", application.id);
+      if (updateErr) throw updateErr;
+
+      const { error: notifErr } = await supabase.from("notifications").insert({
+        user_id: user.id,
+        message: `You re-applied for ${application.jobs?.title}. The admin will review your application.`,
+        type: "info",
+      });
+      if (notifErr) throw notifErr;
+
+      fetchApplications();
+    } catch (err) {
+      alert("Failed to re-apply: " + err.message);
+    }
   }
 
   const statusBadge = (status) => {

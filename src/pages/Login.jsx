@@ -1,16 +1,12 @@
-import { useState, useEffect, useRef } from "react";
-import { useLocation, useNavigate, Link } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { supabase } from "../lib/supabaseClient";
 import { pageWrapper, card, title, input, button } from "../uiStyles";
 import { colors, radii, shadows } from "../uiStyles";
 
 export default function Login() {
-  const location = useLocation();
   const navigate = useNavigate();
   const { signIn, user, profile, loading } = useAuth();
-
-  const role = location.state?.role || "applicant";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -18,17 +14,7 @@ export default function Login() {
   const [justSignedIn, setJustSignedIn] = useState(false);
   const [userName, setUserName] = useState("");
 
-  // Redirect when profile loads via context
-  useEffect(() => {
-    if (justSignedIn && !loading && profile) {
-      navigate(
-        profile.role === "admin" ? "/admin" : "/find-jobs",
-        { replace: true }
-      );
-    }
-  }, [profile, loading, justSignedIn, navigate]);
-
-  // Already logged in
+  // Already logged in — redirect immediately
   useEffect(() => {
     if (!justSignedIn && !loading && user && profile) {
       navigate(
@@ -47,21 +33,18 @@ export default function Login() {
     setSubmitting(true);
     try {
       const result = await signIn(email, password);
-      setUserName(result?.user?.user_metadata?.full_name || result?.user?.email?.split("@")[0] || "there");
-
+      setUserName(
+        result?.user?.user_metadata?.full_name ||
+        result?.user?.email?.split("@")[0] ||
+        "there"
+      );
+      const signedInRole = result?.role || "applicant";
       setJustSignedIn(true);
       setSubmitting(false);
 
-      const { data: dbRole } = await supabase.rpc("get_my_role");
-
-      // Morph delay: let the animation play before redirecting
+      // Let the animation play, then redirect
       setTimeout(() => {
-        if (dbRole) {
-          navigate(
-            dbRole === "admin" ? "/admin" : "/find-jobs",
-            { replace: true }
-          );
-        }
+        navigate(signedInRole === "admin" ? "/admin" : "/find-jobs", { replace: true });
       }, 1400);
     } catch (err) {
       if (err.message?.includes("Invalid login credentials")) {
@@ -126,9 +109,6 @@ export default function Login() {
           transition: "opacity 0.35s ease",
         }}>
           <h2 style={title}>Welcome Back</h2>
-          <p style={{ color: colors.textSecondary, marginBottom: "28px", fontSize: "14px" }}>
-            Login as {role.charAt(0).toUpperCase() + role.slice(1)}
-          </p>
 
           {error && (
             <p style={{
@@ -174,7 +154,7 @@ export default function Login() {
 
           <p style={{ marginTop: "20px", fontSize: "14px", color: colors.textSecondary }}>
             Don't have an account?{" "}
-            <Link to="/signup" state={{ role }} style={{ color: colors.primaryDark, fontWeight: "600" }}>
+            <Link to="/signup" style={{ color: colors.primaryDark, fontWeight: "600" }}>
               Sign up
             </Link>
           </p>

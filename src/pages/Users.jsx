@@ -6,6 +6,7 @@ import { SkeletonTable } from "../components/Skeleton";
 export default function Users() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState("");
 
   const fetchUsers = async () => {
     const { data } = await supabase.rpc("get_profiles_with_email");
@@ -18,19 +19,33 @@ export default function Users() {
   }, []);
 
   async function updateUserStatus(userId, newStatus) {
-    await supabase.from("profiles").update({ status: newStatus }).eq("id", userId);
-    fetchUsers();
+    setMessage("");
+    try {
+      const { error } = await supabase.from("profiles").update({ status: newStatus }).eq("id", userId);
+      if (error) throw error;
+      setMessage(`Status updated to "${newStatus}" successfully.`);
+      fetchUsers();
+    } catch (err) {
+      setMessage("Failed to update: " + err.message);
+    }
   }
 
   async function deleteUser(userId) {
     if (!window.confirm("Delete this user? This cannot be undone.")) return;
-    await supabase.from("profiles").delete().eq("id", userId);
-    fetchUsers();
+    setMessage("");
+    try {
+      const { error } = await supabase.from("profiles").delete().eq("id", userId);
+      if (error) throw error;
+      setMessage("User deleted successfully.");
+      fetchUsers();
+    } catch (err) {
+      setMessage("Failed to delete: " + err.message);
+    }
   }
 
   const badge = (val) => {
     const colorsMap = {
-      active: "#22c55e", pending: "#d97706", suspended: "#f87171",
+      active: "#22c55e", pending: "#d97706",
       admin: "#1a73e8", applicant: "#64748b",
     };
     return {
@@ -51,6 +66,16 @@ export default function Users() {
         <p style={{ fontSize: "13px", color: colors.textSecondary, margin: 0 }}>{users.length} total user{users.length !== 1 ? "s" : ""}</p>
       </div>
 
+      {message && (
+        <p style={{
+          padding: "10px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: "600", marginBottom: "16px",
+          backgroundColor: message.includes("Failed") ? "#fee2e2" : "#e2f9eb",
+          color: message.includes("Failed") ? colors.danger : colors.success,
+        }}>
+          {message}
+        </p>
+      )}
+
       <div style={statsRow}>
         <div style={statCard}>
           <span style={{ fontSize: "22px" }}>👥</span>
@@ -64,10 +89,7 @@ export default function Users() {
           <span style={{ fontSize: "22px" }}>⌛</span>
           <div><h4 style={statNum}>{users.filter((u) => u.status === "pending").length}</h4><p style={statLabel}>Pending</p></div>
         </div>
-        <div style={statCard}>
-          <span style={{ fontSize: "22px" }}>🚫</span>
-          <div><h4 style={statNum}>{users.filter((u) => u.status === "suspended").length}</h4><p style={statLabel}>Suspended</p></div>
-        </div>
+
       </div>
 
       <div style={tableWrapper}>
@@ -120,10 +142,6 @@ export default function Users() {
                         {user.status !== "active" && (
                           <button style={smallBtn(colors.success)}
                             onClick={() => updateUserStatus(user.id, "active")}>Approve</button>
-                        )}
-                        {user.status !== "suspended" && (
-                          <button style={smallBtn(colors.danger)}
-                            onClick={() => updateUserStatus(user.id, "suspended")}>Suspend</button>
                         )}
                         <button style={{ ...smallBtn(colors.danger), opacity: 0.6 }}
                           onClick={() => deleteUser(user.id)}>Delete</button>

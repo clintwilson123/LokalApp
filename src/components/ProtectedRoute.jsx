@@ -15,6 +15,9 @@ export default function ProtectedRoute({ children, allowedRoles }) {
   }
 
   if (!user) return <Navigate to="/login" replace />;
+  if (profile?.status === "suspended") {
+    return <Navigate to="/login" replace />;
+  }
   if (allowedRoles && profile && !allowedRoles.includes(profile.role)) {
     return <Navigate to="/" replace />;
   }

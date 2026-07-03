@@ -1,5 +1,10 @@
 import { useNavigate } from "react-router-dom";
 import { colors } from "../uiStyles";
+import clint from "../images/ClintWilsonGonzales.jpeg.jpg";
+import jay from "../images/JayMicaRebias.jpeg.jpg";
+import rechelle from "../images/RechelleCabahug.jpeg.jpg";
+import carey from "../images/CareyAcaylar.jpeg.jpg";
+import arnel from "../images/ArnelVillanueva.jpeg.jpeg";
 
 const highlights = [
   { icon: "🎯", title: "Our Mission", desc: "Connect local talents with nearby employers to strengthen community economies and make hiring simple, transparent, and accessible." },
@@ -16,9 +21,21 @@ const stats = [
 ];
 
 const categories = [
-  { label: "Frontend", items: ["React", "Vite"] },
+  { label: "Frontend", items: ["React 19", "Vite 7", "React Router", "Bootstrap 5"] },
   { label: "Backend", items: ["Supabase", "Deno", "Edge Functions"] },
-  { label: "Database", items: ["PostgreSQL"] },
+  { label: "Database", items: ["PostgreSQL 17"] },
+  { label: "AI /ML", items: ["Gemini API", "Skill Matching"] },
+  { label: "Deployment", items: ["Vercel", "Supabase Cloud"] },
+  { label: "Testing", items: ["Vitest", "Testing Library"] },
+  { label: "Linting", items: ["ESLint 9"] },
+];
+
+const team = [
+  { img: clint, name: "Clint Wilson Gonzales", role: "Lead Developer" },
+  { img: jay, name: "Jay Mica Rebias", role: "Assistant Developer" },
+  { img: rechelle, name: "Rechelle Cabahug", role: "UI/UX Designer" },
+  { img: carey, name: "Carey Acaylar", role: "UI/UX Designer" },
+  { img: arnel, name: "Arnel Villanueva", role: "QA Tester" },
 ];
 
 export default function About() {
@@ -66,6 +83,24 @@ export default function About() {
               <div style={iconCircle}>{h.icon}</div>
               <h3 style={{ color: colors.navy, fontSize: "16px", fontWeight: "800", margin: "0 0 8px" }}>{h.title}</h3>
               <p style={{ color: colors.textSecondary, fontSize: "13px", lineHeight: "1.7", margin: 0 }}>{h.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Meet the Team */}
+      <section style={sectionPadding}>
+        <div style={sectionLabel}>OUR TEAM</div>
+        <h2 style={sectionTitle}>Meet the Developers</h2>
+        <p style={sectionSub}>The people behind Lokal</p>
+        <div style={teamGrid}>
+          {team.map((m, i) => (
+            <div key={i} style={teamCard}>
+              <div style={teamImgWrapper}>
+                <img src={m.img} alt={m.name} style={teamImg} />
+              </div>
+              <h3 style={teamName}>{m.name}</h3>
+              <p style={teamRole}>{m.role}</p>
             </div>
           ))}
         </div>
@@ -168,6 +203,46 @@ const iconCircle = {
   width: "48px", height: "48px", borderRadius: "50%",
   backgroundColor: "#d6e6f7", display: "flex", alignItems: "center",
   justifyContent: "center", fontSize: "22px", margin: "0 auto 14px",
+};
+
+const teamGrid = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+  gap: "20px",
+  marginTop: "10px",
+};
+const teamCard = {
+  backgroundColor: "#fff",
+  padding: "24px 16px",
+  borderRadius: "20px",
+  border: "1px solid #eef2f6",
+  textAlign: "center",
+  transition: "transform 0.2s, box-shadow 0.2s",
+};
+const teamImgWrapper = {
+  width: "90px",
+  height: "90px",
+  borderRadius: "50%",
+  overflow: "hidden",
+  margin: "0 auto 14px",
+  border: `3px solid ${colors.primaryLight}`,
+};
+const teamImg = {
+  width: "100%",
+  height: "100%",
+  objectFit: "cover",
+};
+const teamName = {
+  color: colors.navy,
+  fontSize: "14px",
+  fontWeight: "800",
+  margin: "0 0 4px",
+};
+const teamRole = {
+  color: colors.primaryDark,
+  fontSize: "12px",
+  fontWeight: "600",
+  margin: 0,
 };
 
 const catRow = {
