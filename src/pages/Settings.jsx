@@ -20,10 +20,14 @@ export default function Settings() {
     const { error } = await supabase.from("profiles").update(form).eq("id", user.id);
     if (error) {
       setMessage("Error: " + error.message);
-    } else {
-      setMessage("Account updated successfully!");
-      loadProfile(user.id);
+      setSaving(false);
+      return;
     }
+    if (form.phone_number !== profile?.phone_number) {
+      await supabase.auth.updateUser({ phone: form.phone_number });
+    }
+    setMessage("Account updated successfully!");
+    loadProfile(user.id);
     setSaving(false);
   }
 

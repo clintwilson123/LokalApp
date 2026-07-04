@@ -1,7 +1,7 @@
 import React from "react";
 import { NavLink, useLocation, Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { colors } from "../uiStyles";
+import { colors, dashStatCard, dashStatNum, dashStatLabel } from "../uiStyles";
 
 import { supabase } from "../lib/supabaseClient";
 import ManageJobs from "./ManageJobs";
@@ -13,6 +13,7 @@ const menuItems = [
   { name: "Jobs", path: "/admin/jobs", icon: "💼", desc: "Post & Manage" },
   { name: "Applicants", path: "/admin/applicants", icon: "🔍", desc: "Skill Match" },
   { name: "Users", path: "/admin/users", icon: "👥", desc: "Manage" },
+
 ];
 
 export default function AdminDashboard() {
@@ -124,27 +125,27 @@ function AdminDashboardHome() {
 
   return (
     <div>
-      <h2 style={{ fontSize: "20px", color: colors.navy, fontWeight: "800", margin: "0 0 20px" }}>Dashboard Overview</h2>
+      <h2 style={{ fontSize: "20px", color: "#fff", fontWeight: "800", margin: "0 0 20px" }}>Dashboard Overview</h2>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
-        <div style={statCard}>
+        <div style={dashStatCard}>
           <span style={{ fontSize: "32px" }}>💼</span>
           <div>
-            <h3 style={{ margin: 0, fontSize: "28px", color: colors.navy }}>{stats.jobs}</h3>
-            <p style={{ margin: 0, fontSize: "13px", color: colors.textSecondary }}>Total Jobs</p>
+            <h3 style={dashStatNum}>{stats.jobs}</h3>
+            <p style={dashStatLabel}>Total Jobs</p>
           </div>
         </div>
-        <div style={statCard}>
+        <div style={dashStatCard}>
           <span style={{ fontSize: "32px" }}>👤</span>
           <div>
-            <h3 style={{ margin: 0, fontSize: "28px", color: colors.navy }}>{stats.applicants}</h3>
-            <p style={{ margin: 0, fontSize: "13px", color: colors.textSecondary }}>Applicants</p>
+            <h3 style={dashStatNum}>{stats.applicants}</h3>
+            <p style={dashStatLabel}>Applicants</p>
           </div>
         </div>
-        <div style={statCard}>
+        <div style={dashStatCard}>
           <span style={{ fontSize: "32px" }}>📋</span>
           <div>
-            <h3 style={{ margin: 0, fontSize: "28px", color: colors.navy }}>{stats.applications}</h3>
-            <p style={{ margin: 0, fontSize: "13px", color: colors.textSecondary }}>Applications</p>
+            <h3 style={dashStatNum}>{stats.applications}</h3>
+            <p style={dashStatLabel}>Applications</p>
           </div>
         </div>
       </div>
@@ -152,13 +153,7 @@ function AdminDashboardHome() {
   );
 }
 
-const statCard = {
-  backgroundColor: colors.white, padding: "20px", borderRadius: "16px",
-  display: "flex", alignItems: "center", gap: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
-  border: `1px solid ${colors.border}`,
-};
-
-const dashboardLayout = { display: "flex", minHeight: "100vh", background: "linear-gradient(135deg, #f0f4f8 0%, #e8edf4 100%)" };
+const dashboardLayout = { display: "flex", minHeight: "100vh", background: colors.bg };
 const sidebar = { width: "270px", background: `linear-gradient(180deg, ${colors.navy} 0%, #0f2840 100%)`, display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh" };
 const sidebarInner = { padding: "28px 18px", display: "flex", flexDirection: "column", height: "100%" };
 const logoText = { fontSize: "24px", fontWeight: "800", color: "#fff", marginBottom: "36px", paddingLeft: "6px" };
@@ -172,8 +167,8 @@ const avatarSmall = { width: "36px", height: "36px", borderRadius: "10px", backg
 const logoutBtn = { width: "100%", padding: "10px", background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.2)", borderRadius: "10px", color: colors.danger, cursor: "pointer", fontSize: "13px", fontWeight: "600", display: "flex", alignItems: "center", gap: "8px", justifyContent: "center", transition: "all 0.2s" };
 const mainArea = { flex: 1, padding: "32px 40px", overflow: "auto" };
 const topBar = { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "28px" };
-const pageTitle = { fontSize: "26px", fontWeight: "800", color: colors.navy, margin: 0 };
-const pageBreadcrumb = { fontSize: "12px", color: colors.textSecondary, marginTop: "2px" };
+const pageTitle = { fontSize: "26px", fontWeight: "800", color: "#fff", margin: 0 };
+const pageBreadcrumb = { fontSize: "12px", color: "rgba(255,255,255,0.5)", marginTop: "2px" };
 const headerRight = { display: "flex", alignItems: "center", gap: "12px" };
-const dateBadge = { fontSize: "12px", color: colors.textSecondary, background: "#fff", padding: "6px 14px", borderRadius: "20px", fontWeight: "500", border: "1px solid #e2eaf4" };
-const contentCard = { background: "rgba(255,255,255,0.75)", backdropFilter: "blur(20px)", borderRadius: "24px", padding: "32px", minHeight: "600px", border: "1px solid rgba(255,255,255,0.5)", boxShadow: "0 8px 32px rgba(0,0,0,0.04)" };
+const dateBadge = { fontSize: "12px", color: "rgba(255,255,255,0.6)", background: "rgba(255,255,255,0.08)", padding: "6px 14px", borderRadius: "20px", fontWeight: "500", border: "1px solid rgba(255,255,255,0.1)" };
+const contentCard = { background: "rgba(255, 255, 255, 0.06)", backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)", borderRadius: "24px", padding: "32px", minHeight: "600px", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 20px 60px rgba(26,59,92,0.15)" };

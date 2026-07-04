@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
-import { colors, radii, shadows } from "../uiStyles";
+import { colors, radii } from "../uiStyles";
 import { SkeletonCard } from "../components/Skeleton";
 
 export default function MyApplications() {
@@ -49,11 +49,11 @@ export default function MyApplications() {
 
   const statusBadge = (status) => {
     const map = {
-      pending: { bg: "#d9770620", color: "#d97706" },
-      reviewed: { bg: "#1a73e820", color: "#1a73e8" },
-      interviewed: { bg: "#8b5cf620", color: "#8b5cf6" },
-      rejected: { bg: "#f8717120", color: "#f87171" },
-      hired: { bg: "#22c55e20", color: "#22c55e" },
+      pending: { bg: "rgba(217,119,6,0.2)", color: "#fbbf24" },
+      reviewed: { bg: "rgba(26,115,232,0.2)", color: "#93c5fd" },
+      interviewed: { bg: "rgba(139,92,246,0.2)", color: "#c4b5fd" },
+      rejected: { bg: "rgba(248,113,113,0.2)", color: "#fca5a5" },
+      hired: { bg: "rgba(34,197,94,0.2)", color: "#86efac" },
     };
     const s = map[status] || map.pending;
     return {
@@ -68,39 +68,39 @@ export default function MyApplications() {
 
   return (
     <div style={container}>
-      <h2 style={{ fontSize: "20px", color: colors.navy, fontWeight: "800", margin: "0 0 4px" }}>My Applications</h2>
-      <p style={{ fontSize: "13px", color: colors.textSecondary, margin: "0 0 20px" }}>
+      <h2 style={{ fontSize: "20px", color: "#fff", fontWeight: "800", margin: "0 0 4px" }}>My Applications</h2>
+      <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)", margin: "0 0 20px" }}>
         {applications.length} application{applications.length !== 1 ? "s" : ""} submitted
       </p>
 
       {applications.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "60px 0", color: colors.textSecondary }}>
-          <span style={{ fontSize: "48px", display: "block", marginBottom: "12px", opacity: 0.4 }}>📋</span>
-          <p style={{ fontWeight: "500" }}>You haven't applied to any jobs yet.</p>
-          <p style={{ fontSize: "13px" }}>Browse jobs and submit your first application!</p>
+        <div style={{ textAlign: "center", padding: "60px 0" }}>
+          <span style={{ fontSize: "48px", display: "block", marginBottom: "12px", opacity: 0.3 }}>📋</span>
+          <p style={{ color: "rgba(255,255,255,0.6)", fontWeight: "500" }}>You haven't applied to any jobs yet.</p>
+          <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "13px" }}>Browse jobs and submit your first application!</p>
         </div>
       ) : (
-        <div className="stagger-children" style={grid}>
+        <div style={grid}>
           {applications.map((app) => (
             <div key={app.id} style={card}>
               <div style={cardTop}>
                 <span style={{ fontSize: "28px" }}>{app.jobs?.icon || "💼"}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <h4 style={{ margin: 0, color: colors.navy, fontSize: "15px" }}>{app.jobs?.title}</h4>
-                  <p style={{ margin: "2px 0 0", fontSize: "12px", color: colors.textSecondary }}>
+                  <h4 style={{ margin: 0, color: "#fff", fontSize: "15px" }}>{app.jobs?.title}</h4>
+                  <p style={{ margin: "2px 0 0", fontSize: "12px", color: "rgba(255,255,255,0.5)" }}>
                     {app.jobs?.company} • {app.jobs?.location}
                   </p>
                 </div>
                 <span style={statusBadge(app.status)}>{app.status}</span>
               </div>
               <div style={cardBottom}>
-                <span style={{ fontSize: "12px", color: colors.textSecondary }}>
+                <span style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)" }}>
                   Applied: {new Date(app.created_at).toLocaleDateString()}
                 </span>
                 {app.score && (
                   <span style={{
-                    fontSize: "12px", fontWeight: "700", color: colors.primaryDark,
-                    background: colors.primaryLight, padding: "2px 8px", borderRadius: "12px",
+                    fontSize: "12px", fontWeight: "700", color: "#93c5fd",
+                    background: "rgba(74,144,226,0.2)", padding: "2px 8px", borderRadius: "12px",
                   }}>
                     Score: {app.score}%
                   </span>
@@ -111,8 +111,8 @@ export default function MyApplications() {
                   onClick={() => handleReapply(app)}
                   style={{
                     marginTop: "10px", width: "100%", padding: "8px", fontSize: "12px", fontWeight: "700",
-                    backgroundColor: colors.primaryDark, color: "#fff", border: "none",
-                    borderRadius: "8px", cursor: "pointer", transition: "all 0.2s",
+                    background: "linear-gradient(135deg, #4a90e2, #1a73e8)", color: "#fff", border: "none",
+                    borderRadius: "8px", cursor: "pointer", boxShadow: "0 4px 16px rgba(26,115,232,0.3)",
                   }}
                 >
                   🔄 Apply Again
@@ -120,7 +120,7 @@ export default function MyApplications() {
               )}
               {app.status === "hired" && (
                 <div style={{
-                  marginTop: "10px", fontSize: "12px", color: "#22c55e",
+                  marginTop: "10px", fontSize: "12px", color: "#86efac",
                   fontWeight: "600", textAlign: "center",
                 }}>
                   ✅ You're hired for this position!
@@ -137,9 +137,8 @@ export default function MyApplications() {
 const container = { padding: "5px" };
 const grid = { display: "flex", flexDirection: "column", gap: "12px" };
 const card = {
-  backgroundColor: "rgba(255,255,255,0.8)", borderRadius: radii.md, padding: "16px",
-  boxShadow: shadows.sm, border: "1px solid rgba(255,255,255,0.5)",
-  backdropFilter: "blur(12px)", transition: "background 0.2s, transform 0.2s, box-shadow 0.2s",
+  backgroundColor: "rgba(255,255,255,0.06)", borderRadius: radii.md, padding: "16px",
+  border: "1px solid rgba(255,255,255,0.1)",
 };
 const cardTop = { display: "flex", alignItems: "center", gap: "14px" };
-const cardBottom = { display: "flex", justifyContent: "space-between", marginTop: "12px", paddingTop: "10px", borderTop: `1px solid ${colors.border}` };
+const cardBottom = { display: "flex", justifyContent: "space-between", marginTop: "12px", paddingTop: "10px", borderTop: "1px solid rgba(255,255,255,0.08)" };

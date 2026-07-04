@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { colors, radii, shadows } from "../uiStyles";
+import { colors, radii, dashGrid } from "../uiStyles";
 import { SkeletonLine, SkeletonCard } from "../components/Skeleton";
 import { aiSkillMatch } from "../lib/aiSkillMatch";
 
@@ -70,7 +70,7 @@ export default function AdminApplicants() {
           ← Back to applicants
         </button>
         <div style={detailCard}>
-          <h3 style={{ color: colors.navy, marginBottom: "16px" }}>
+          <h3 style={{ color: "#fff", marginBottom: "16px" }}>
             {selectedApplicant.full_name || "Unnamed"}
           </h3>
           {match && (
@@ -89,8 +89,8 @@ export default function AdminApplicants() {
               <span style={comparisonLabel}>🔍 Basic Match</span>
               <span style={comparisonValue}>{match.basicScore}%</span>
               <span style={comparisonArrow}>→</span>
-              <span style={{ ...comparisonLabel, color: "#1a73e8" }}>🤖 AI Match</span>
-              <span style={{ ...comparisonValue, color: "#1a73e8" }}>{match.score}%</span>
+              <span style={{ ...comparisonLabel, color: "#93c5fd" }}>🤖 AI Match</span>
+              <span style={{ ...comparisonValue, color: "#93c5fd" }}>{match.score}%</span>
             </div>
           )}
           <div style={detailGrid}>
@@ -109,7 +109,7 @@ export default function AdminApplicants() {
             {selectedApplicant.resume_url && (
               <div style={detailItem}>
                 <strong>Resume:</strong>{" "}
-                <a href={selectedApplicant.resume_url} target="_blank" rel="noreferrer" style={{ color: colors.primaryDark }}>
+                <a href={selectedApplicant.resume_url} target="_blank" rel="noreferrer" style={{ color: "#93c5fd" }}>
                   View Resume ↗
                 </a>
               </div>
@@ -142,10 +142,10 @@ export default function AdminApplicants() {
 
   return (
     <div style={container}>
-      <h2 style={{ fontSize: "20px", color: colors.navy, fontWeight: "800", margin: "0 0 4px" }}>
+      <h2 style={{ fontSize: "20px", color: "#fff", fontWeight: "800", margin: "0 0 4px" }}>
         Applicants
       </h2>
-      <p style={{ fontSize: "13px", color: colors.textSecondary, margin: "0 0 20px" }}>
+      <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)", margin: "0 0 20px" }}>
         {applicants.length} applicant{applicants.length !== 1 ? "s" : ""} registered
       </p>
 
@@ -171,8 +171,9 @@ export default function AdminApplicants() {
       {selectedJob && (
         <>
           <div style={jobInfo}>
-            <strong>{selectedJob.icon} {selectedJob.title}</strong> — {selectedJob.company}, {selectedJob.location}
-            <div style={{ fontSize: "12px", color: colors.textSecondary, marginTop: "4px" }}>
+            <strong style={{ color: "#fff" }}>{selectedJob.icon} {selectedJob.title}</strong>
+            <span style={{ color: "rgba(255,255,255,0.5)" }}> — {selectedJob.company}, {selectedJob.location}</span>
+            <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.4)", marginTop: "4px" }}>
               Requirements: {selectedJob.requirements?.join(", ") || "None"}
             </div>
           </div>
@@ -181,10 +182,10 @@ export default function AdminApplicants() {
             <div style={analyzingOverlay}>
               <div style={analyzingContent}>
                 <span style={{ fontSize: "40px" }}>🧠</span>
-                <p style={{ fontSize: "16px", fontWeight: "700", color: colors.navy, margin: "12px 0 4px" }}>
+                <p style={{ fontSize: "16px", fontWeight: "700", color: "#fff", margin: "12px 0 4px" }}>
                   AI Analyzing Applicants
                 </p>
-                <p style={{ fontSize: "13px", color: colors.textSecondary, margin: 0 }}>
+                <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)", margin: 0 }}>
                   Gemini comparing skills against job requirements...
                 </p>
                 <div style={progressWrap}>
@@ -198,20 +199,20 @@ export default function AdminApplicants() {
               </div>
             </div>
           ) : rankedApplicants.length === 0 ? (
-            <p style={{ color: colors.textSecondary, textAlign: "center", padding: "40px" }}>
+            <p style={{ color: "rgba(255,255,255,0.5)", textAlign: "center", padding: "40px" }}>
               No applicants with skills found.
             </p>
           ) : (
-            <div style={grid}>
+            <div style={dashGrid}>
               {rankedApplicants.map((a) => (
                 <div key={a.id} style={candidateCard} onClick={() => setSelectedApplicant(a)}>
                   <div style={candidateHeader}>
                     <div style={avatarCircle}>{a.full_name?.[0] || "?"}</div>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: "600", color: colors.navy, fontSize: "14px" }}>
+                      <div style={{ fontWeight: "600", color: "#fff", fontSize: "14px" }}>
                         {a.full_name || "Unnamed"}
                       </div>
-                      <div style={{ fontSize: "12px", color: colors.textSecondary }}>
+                      <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)" }}>
                         {a.location || "No location"}
                       </div>
                     </div>
@@ -219,22 +220,22 @@ export default function AdminApplicants() {
                   </div>
                   {a.match?.basicScore !== undefined && a.match.basicScore !== a.match.score && (
                     <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px" }}>
-                      <span style={{ fontSize: "10px", color: colors.textSecondary }}>🔍 {a.match.basicScore}%</span>
-                      <span style={{ fontSize: "10px", color: colors.textSecondary }}>→</span>
+                      <span style={{ fontSize: "10px", color: "rgba(255,255,255,0.5)" }}>🔍 {a.match.basicScore}%</span>
+                      <span style={{ fontSize: "10px", color: "rgba(255,255,255,0.4)" }}>→</span>
                       <span style={aiBadge}>AI</span>
-                      <span style={{ fontSize: "10px", color: "#1a73e8", fontWeight: "600" }}>{a.match.score}%</span>
+                      <span style={{ fontSize: "10px", color: "#93c5fd", fontWeight: "600" }}>{a.match.score}%</span>
                     </div>
                   )}
                   {!a.match?.basicScore || a.match.basicScore === a.match.score ? (
                     <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px" }}>
                       <span style={aiBadge}>AI</span>
-                      <span style={{ fontSize: "11px", color: colors.textSecondary }}>Skill Match</span>
+                      <span style={{ fontSize: "11px", color: "rgba(255,255,255,0.5)" }}>Skill Match</span>
                     </div>
                   ) : null}
                   <div style={matchBar}>
                     <div style={matchBarFill(a.match.score)} />
                   </div>
-                  <div style={{ fontSize: "12px", color: colors.textSecondary, marginTop: "8px" }}>
+                  <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)", marginTop: "8px" }}>
                     Matched {a.match.matched}/{a.match.total} requirements
                   </div>
                 </div>
@@ -251,73 +252,72 @@ const scoreCircle = (score) => ({
   width: "44px", height: "44px", borderRadius: "50%",
   display: "flex", alignItems: "center", justifyContent: "center",
   fontWeight: "800", fontSize: "13px",
-  color: score >= 80 ? "#22c55e" : score >= 50 ? "#d97706" : "#f87171",
-  backgroundColor: score >= 80 ? "#22c55e20" : score >= 50 ? "#d9770620" : "#f8717120",
+  color: score >= 80 ? "#86efac" : score >= 50 ? "#fbbf24" : "#fca5a5",
+  backgroundColor: score >= 80 ? "rgba(34,197,94,0.2)" : score >= 50 ? "rgba(217,119,6,0.2)" : "rgba(239,68,68,0.2)",
   flexShrink: 0,
 });
 
 const container = { padding: "5px" };
 const fieldGroup = { marginBottom: "16px" };
-const label = { display: "block", fontSize: "12px", color: colors.textSecondary, marginBottom: "4px", fontWeight: "500" };
+const label = { display: "block", fontSize: "12px", color: "rgba(255,255,255,0.5)", marginBottom: "4px", fontWeight: "500" };
 const select = {
-  width: "100%", padding: "10px 12px", borderRadius: "8px", border: `1px solid ${colors.border}`,
-  fontSize: "14px", outline: "none", backgroundColor: colors.white, cursor: "pointer",
+  width: "100%", padding: "10px 12px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.15)",
+  fontSize: "14px", outline: "none", backgroundColor: "rgba(255,255,255,0.06)", color: "#fff", cursor: "pointer",
 };
 const jobInfo = {
-  backgroundColor: colors.white, padding: "14px 16px", borderRadius: radii.md,
-  marginBottom: "20px", border: `1px solid ${colors.border}`, fontSize: "14px", color: colors.navy,
+  backgroundColor: "rgba(255,255,255,0.06)", padding: "14px 16px", borderRadius: radii.md,
+  marginBottom: "20px", border: "1px solid rgba(255,255,255,0.1)", fontSize: "14px",
 };
-const grid = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" };
 const candidateCard = {
-  backgroundColor: colors.white, borderRadius: radii.md, padding: "16px",
-  boxShadow: shadows.sm, cursor: "pointer", border: `1px solid ${colors.border}`,
-  transition: "all 0.15s",
+  backgroundColor: "rgba(255,255,255,0.06)", borderRadius: radii.md, padding: "16px",
+  cursor: "pointer", border: "1px solid rgba(255,255,255,0.1)",
+  backdropFilter: "blur(8px)",
 };
 const candidateHeader = { display: "flex", alignItems: "center", gap: "12px" };
 const avatarCircle = {
   width: "36px", height: "36px", borderRadius: "50%",
-  backgroundColor: colors.primaryDark, color: "#fff",
+  background: "linear-gradient(135deg, #4a90e2, #1a73e8)", color: "#fff",
   display: "flex", alignItems: "center", justifyContent: "center",
   fontWeight: "700", fontSize: "14px", flexShrink: 0,
 };
 const matchBar = {
-  height: "6px", backgroundColor: colors.bg, borderRadius: "3px", marginTop: "10px", overflow: "hidden",
+  height: "6px", backgroundColor: "rgba(255,255,255,0.06)", borderRadius: "3px", marginTop: "10px", overflow: "hidden",
 };
 const matchBarFill = (score) => ({
   height: "100%", borderRadius: "3px",
-  backgroundColor: score >= 80 ? "#22c55e" : score >= 50 ? "#d97706" : "#f87171",
-  width: `${score}%`, transition: "width 0.3s",
+  backgroundColor: score >= 80 ? "#22c55e" : score >= 50 ? "#d97706" : "#ef4444",
+  width: `${score}%`,
 });
 const backBtn = {
-  background: "none", border: "none", color: colors.primaryDark, cursor: "pointer",
+  background: "none", border: "none", color: "#93c5fd", cursor: "pointer",
   fontSize: "13px", fontWeight: "600", padding: 0, marginBottom: "16px",
 };
 const detailCard = {
-  backgroundColor: colors.white, borderRadius: radii.lg, padding: "24px",
-  boxShadow: shadows.md,
+  backgroundColor: "rgba(255,255,255,0.06)", borderRadius: radii.lg, padding: "24px",
+  border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(12px)",
 };
 const scoreLarge = {
-  fontSize: "24px", fontWeight: "700", color: colors.navy, marginBottom: "16px",
+  fontSize: "24px", fontWeight: "700", color: "#fff", marginBottom: "16px",
 };
 const detailGrid = { display: "flex", flexDirection: "column", gap: "12px" };
-const detailItem = { fontSize: "13px", color: colors.navy, lineHeight: "1.6" };
+const detailItem = { fontSize: "13px", color: "rgba(255,255,255,0.85)", lineHeight: "1.6" };
 const matchBadge = {
   fontSize: "11px", padding: "3px 8px", borderRadius: "12px",
-  backgroundColor: "#22c55e20", color: "#22c55e", fontWeight: "600",
+  backgroundColor: "rgba(34,197,94,0.2)", color: "#86efac", fontWeight: "600",
 };
 const missingBadge = {
   fontSize: "11px", padding: "3px 8px", borderRadius: "12px",
-  backgroundColor: "#f8717120", color: "#f87171", fontWeight: "600",
+  backgroundColor: "rgba(239,68,68,0.2)", color: "#fca5a5", fontWeight: "600",
 };
-const aiBadge = { fontSize: "9px", fontWeight: "800", padding: "2px 5px", borderRadius: "4px", backgroundColor: "#1a73e8", color: "#fff", letterSpacing: "0.5px" };
+const aiBadge = { fontSize: "9px", fontWeight: "800", padding: "2px 5px", borderRadius: "4px", backgroundColor: "#4a90e2", color: "#fff", letterSpacing: "0.5px" };
 const analyzingOverlay = { display: "flex", justifyContent: "center", padding: "60px 20px" };
 const analyzingContent = { textAlign: "center" };
-const aiExplanation = { fontSize: "13px", color: colors.navy, backgroundColor: "#1a73e810", padding: "12px", borderRadius: "8px", marginBottom: "16px", lineHeight: "1.5" };
-const comparisonRow = { display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", marginBottom: "16px", padding: "8px 12px", backgroundColor: colors.bg, borderRadius: "8px" };
-const comparisonLabel = { color: colors.textSecondary, fontWeight: "500" };
-const comparisonValue = { fontWeight: "700", color: colors.navy };
-const comparisonArrow = { color: colors.textSecondary };
+const aiExplanation = { fontSize: "13px", color: "rgba(255,255,255,0.85)", backgroundColor: "rgba(74,144,226,0.1)", padding: "12px", borderRadius: "8px", marginBottom: "16px", lineHeight: "1.5" };
+const comparisonRow = { display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", marginBottom: "16px", padding: "8px 12px", backgroundColor: "rgba(255,255,255,0.04)", borderRadius: "8px" };
+const comparisonLabel = { color: "rgba(255,255,255,0.5)", fontWeight: "500" };
+const comparisonValue = { fontWeight: "700", color: "rgba(255,255,255,0.85)" };
+const comparisonArrow = { color: "rgba(255,255,255,0.4)" };
 const progressWrap = { marginTop: "20px", textAlign: "center" };
-const progressTrack = { height: "8px", backgroundColor: colors.bg, borderRadius: "4px", overflow: "hidden", marginBottom: "8px" };
-const progressFill = { height: "100%", backgroundColor: colors.primaryDark, borderRadius: "4px", transition: "width 0.4s" };
-const progressText = { fontSize: "13px", color: colors.textSecondary, fontWeight: "500" };
+const progressTrack = { height: "8px", backgroundColor: "rgba(255,255,255,0.06)", borderRadius: "4px", overflow: "hidden", marginBottom: "8px" };
+const progressFill = { height: "100%", backgroundColor: "#4a90e2", borderRadius: "4px" };
+const progressText = { fontSize: "13px", color: "rgba(255,255,255,0.5)", fontWeight: "500" };

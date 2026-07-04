@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { colors, radii, shadows } from "../uiStyles";
+import { colors, radii, dashTable, dashTh, dashTd, dashRow, dashGrid } from "../uiStyles";
 import { SkeletonTable } from "../components/Skeleton";
 import { aiSkillMatch } from "../lib/aiSkillMatch";
 
@@ -157,6 +157,15 @@ export default function ManageJobs() {
     }
   }
 
+  const msg = (text) => {
+    const ok = text.includes("success") || text.includes("updated") || text.includes("deleted") || text.includes("created");
+    return {
+      padding: "10px", borderRadius: "8px", marginBottom: "16px", fontSize: "13px", fontWeight: "600",
+      backgroundColor: ok ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
+      color: ok ? colors.success : colors.danger, textAlign: "center",
+    };
+  };
+
   if (viewingJob && !selectedApplicant) {
     const job = viewingJob;
     return (
@@ -164,13 +173,13 @@ export default function ManageJobs() {
         <button style={backBtn} onClick={() => { setViewingJob(null); setApplicants([]); }}>
           ← Back to Jobs
         </button>
-        <h2 style={{ fontSize: "20px", color: colors.navy, fontWeight: "800", margin: "16px 0 4px" }}>
+        <h2 style={{ fontSize: "20px", color: "#fff", fontWeight: "800", margin: "16px 0 4px" }}>
           {job.icon} {job.title}
         </h2>
-        <p style={{ fontSize: "13px", color: colors.textSecondary, margin: "0 0 4px" }}>
+        <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)", margin: "0 0 4px" }}>
           {job.company} • {job.location}
         </p>
-        <p style={{ fontSize: "12px", color: colors.textSecondary, margin: "0 0 16px" }}>
+        <p style={{ fontSize: "12px", color: "rgba(255,255,255,0.4)", margin: "0 0 16px" }}>
           Requirements: {job.requirements?.join(", ") || "None"}
         </p>
 
@@ -178,10 +187,10 @@ export default function ManageJobs() {
           <div style={analyzingOverlay}>
             <div style={analyzingContent}>
               <span style={{ fontSize: "40px" }}>🧠</span>
-              <p style={{ fontSize: "16px", fontWeight: "700", color: colors.navy, margin: "12px 0 4px" }}>
+              <p style={{ fontSize: "16px", fontWeight: "700", color: "#fff", margin: "12px 0 4px" }}>
                 AI Analyzing Applicants
               </p>
-              <p style={{ fontSize: "13px", color: colors.textSecondary, margin: 0 }}>
+              <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)", margin: 0 }}>
                 Gemini comparing skills against job requirements...
               </p>
               <div style={progressWrap}>
@@ -195,20 +204,20 @@ export default function ManageJobs() {
             </div>
           </div>
         ) : applicants.length === 0 ? (
-          <p style={{ color: colors.textSecondary, textAlign: "center", padding: "40px" }}>
+          <p style={{ color: "rgba(255,255,255,0.5)", textAlign: "center", padding: "40px" }}>
             No applicants for this job yet.
           </p>
         ) : (
-          <div style={grid}>
+          <div style={dashGrid}>
             {applicants.map((a) => (
               <div key={a.id} style={candidateCard} onClick={() => setSelectedApplicant(a)}>
                 <div style={candidateHeader}>
                   <div style={avatarCircle}>{a.full_name?.[0] || "?"}</div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: "600", color: colors.navy, fontSize: "14px" }}>
+                    <div style={{ fontWeight: "600", color: "#fff", fontSize: "14px" }}>
                       {a.full_name || "Unnamed"}
                     </div>
-                    <div style={{ fontSize: "12px", color: colors.textSecondary }}>
+                    <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)" }}>
                       {a.location || "No location"}
                     </div>
                   </div>
@@ -216,7 +225,7 @@ export default function ManageJobs() {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px" }}>
                   <span style={aiBadge}>AI</span>
-                  <span style={{ fontSize: "11px", color: colors.textSecondary }}>
+                  <span style={{ fontSize: "11px", color: "rgba(255,255,255,0.5)" }}>
                     {a.match.basicScore !== undefined && a.match.basicScore !== a.match.score
                       ? `Basic ${a.match.basicScore}% → ${a.match.score}%`
                       : "AI Skill Match"}
@@ -225,7 +234,7 @@ export default function ManageJobs() {
                 <div style={matchBarOuter}>
                   <div style={matchBarInner(a.match.score)} />
                 </div>
-                <div style={{ fontSize: "12px", color: colors.textSecondary, marginTop: "8px" }}>
+                <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)", marginTop: "8px" }}>
                   Matched {a.match.matched}/{a.match.total} requirements
                 </div>
                 <div style={{ fontSize: "11px", marginTop: "6px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -233,7 +242,7 @@ export default function ManageJobs() {
                     <span key={s} style={matchTag}>✅ {s}</span>
                   ))}
                   {a.match.matchedItems.length > 3 && (
-                    <span style={{ fontSize: "11px", color: colors.textSecondary }}>+{a.match.matchedItems.length - 3} more</span>
+                    <span style={{ fontSize: "11px", color: "rgba(255,255,255,0.4)" }}>+{a.match.matchedItems.length - 3} more</span>
                   )}
                 </div>
               </div>
@@ -252,23 +261,23 @@ export default function ManageJobs() {
           ← Back to applicants
         </button>
         <div style={detailCard}>
-          <h3 style={{ color: colors.navy, marginBottom: "8px" }}>{a.full_name || "Unnamed"}</h3>
+          <h3 style={{ color: "#fff", marginBottom: "8px" }}>{a.full_name || "Unnamed"}</h3>
           <div style={scoreLarge}>
             <span style={aiBadge}>AI</span>{" "}
-            Match: <strong>{a.match.score}%</strong> ({a.match.matched}/{a.match.total} skills)
+            Match: <strong>{(a.match?.score) || 0}%</strong> ({(a.match?.matched) || 0}/{(a.match?.total) || 0} skills)
           </div>
-          {a.match.explanation && (
+          {a.match?.explanation && (
             <div style={aiExplanation}>
               <strong>🤖 Gemini Analysis:</strong> {a.match.explanation}
             </div>
           )}
-          {a.match.basicScore !== undefined && a.match.basicScore !== a.match.score && (
+          {a.match?.basicScore !== undefined && a.match.basicScore !== a.match.score && (
             <div style={comparisonRow}>
               <span style={comparisonLabel}>🔍 Basic Match</span>
               <span style={comparisonValue}>{a.match.basicScore}%</span>
               <span style={comparisonArrow}>→</span>
-              <span style={{ ...comparisonLabel, color: "#1a73e8" }}>🤖 AI Match</span>
-              <span style={{ ...comparisonValue, color: "#1a73e8" }}>{a.match.score}%</span>
+              <span style={{ ...comparisonLabel, color: "#93c5fd" }}>🤖 AI Match</span>
+              <span style={{ ...comparisonValue, color: "#93c5fd" }}>{a.match.score}%</span>
             </div>
           )}
           <div style={detailGrid}>
@@ -279,14 +288,14 @@ export default function ManageJobs() {
             {a.resume_url && (
               <div style={detailItem}>
                 <strong>Resume:</strong>{" "}
-                <a href={a.resume_url} target="_blank" rel="noreferrer" style={{ color: colors.primaryDark }}>View Resume ↗</a>
+                <a href={a.resume_url} target="_blank" rel="noreferrer" style={{ color: "#93c5fd" }}>View Resume ↗</a>
               </div>
             )}
             <div style={detailItem}>
               <strong>Status:</strong>{" "}
               <span style={{
                 textTransform: "capitalize", fontWeight: "600",
-                color: a.application?.status === "hired" ? "#22c55e" : a.application?.status === "rejected" ? "#f87171" : "#d97706",
+                color: a.application?.status === "hired" ? "#86efac" : a.application?.status === "rejected" ? "#fca5a5" : "#fbbf24",
               }}>
                 {a.application?.status || "pending"}
               </span>
@@ -298,12 +307,12 @@ export default function ManageJobs() {
                   borderRadius: "8px", fontWeight: "700", fontSize: "13px", cursor: "pointer",
                 }}>Hire</button>
                 <button onClick={() => updateApplicantStatus(a.application.id, "rejected")} style={{
-                  flex: 1, padding: "10px", backgroundColor: "#f87171", color: "#fff", border: "none",
+                  flex: 1, padding: "10px", backgroundColor: "#ef4444", color: "#fff", border: "none",
                   borderRadius: "8px", fontWeight: "700", fontSize: "13px", cursor: "pointer",
                 }}>Reject</button>
               </div>
             )}
-            {a.match.matchedItems.length > 0 && (
+            {a.match?.matchedItems?.length > 0 && (
               <div style={detailItem}>
                 <strong>Matched Skills:</strong>
                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
@@ -311,7 +320,7 @@ export default function ManageJobs() {
                 </div>
               </div>
             )}
-            {a.match.missingItems.length > 0 && (
+            {a.match?.missingItems?.length > 0 && (
               <div style={detailItem}>
                 <strong>Missing Skills:</strong>
                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
@@ -333,28 +342,19 @@ export default function ManageJobs() {
     <div style={container}>
       <div style={headerRow}>
         <div>
-          <h2 style={{ fontSize: "20px", color: colors.navy, fontWeight: "800", margin: "0 0 4px" }}>Manage Jobs</h2>
-          <p style={{ fontSize: "13px", color: colors.textSecondary, margin: 0 }}>{jobs.length} job{jobs.length !== 1 ? "s" : ""} listed</p>
+          <h2 style={{ fontSize: "20px", color: "#fff", fontWeight: "800", margin: "0 0 4px" }}>Manage Jobs</h2>
+          <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)", margin: 0 }}>{jobs.length} job{jobs.length !== 1 ? "s" : ""} listed</p>
         </div>
         <button style={addBtn} onClick={() => { resetForm(); setShowForm(true); }}>+ New Job</button>
       </div>
 
-      {message && (
-        <p style={{
-          padding: "10px", borderRadius: "8px", marginBottom: "16px", fontSize: "13px", fontWeight: "600",
-          backgroundColor: message.includes("success") || message.includes("updated") || message.includes("deleted") || message.includes("created") ? "#e2f9eb" : "#fee2e2",
-          color: message.includes("success") || message.includes("updated") || message.includes("deleted") || message.includes("created") ? colors.success : colors.danger,
-          textAlign: "center",
-        }}>
-          {message}
-        </p>
-      )}
+      {message && <p style={msg(message)}>{message}</p>}
 
       {showForm && (
         <div style={formOverlay}>
           <div style={formModal}>
             <div style={formHeader}>
-              <h3 style={{ margin: 0, color: colors.navy }}>{editing ? "Edit Job" : "Create New Job"}</h3>
+              <h3 style={{ margin: 0, color: "#fff" }}>{editing ? "Edit Job" : "Create New Job"}</h3>
               <button onClick={resetForm} style={closeBtn}>✕</button>
             </div>
             <div style={formBody}>
@@ -370,7 +370,7 @@ export default function ManageJobs() {
                       <span key={ic} onClick={() => setForm({ ...form, icon: ic })}
                         style={{
                           ...iconOption,
-                          border: form.icon === ic ? `2px solid ${colors.primaryDark}` : "2px solid transparent",
+                          border: form.icon === ic ? "2px solid #93c5fd" : "2px solid transparent",
                           transform: form.icon === ic ? "scale(1.15)" : "scale(1)",
                         }}>
                         {ic}
@@ -412,23 +412,23 @@ export default function ManageJobs() {
         </div>
       )}
 
-      <div style={tableWrapper}>
+      <div style={dashTable}>
         <table style={tableStyle}>
           <thead>
-            <tr style={{ textAlign: "left", borderBottom: `1px solid ${colors.border}` }}>
-              <th style={thStyle}>Icon</th>
-              <th style={thStyle}>Title</th>
-              <th style={thStyle}>Company</th>
-              <th style={thStyle}>Location</th>
-              <th style={thStyle}>Salary</th>
-              <th style={thStyle}>Applicants</th>
-              <th style={thStyle}>Actions</th>
+            <tr style={dashRow}>
+              <th style={dashTh}>Icon</th>
+              <th style={dashTh}>Title</th>
+              <th style={dashTh}>Company</th>
+              <th style={dashTh}>Location</th>
+              <th style={dashTh}>Salary</th>
+              <th style={dashTh}>Applicants</th>
+              <th style={dashTh}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {jobs.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ textAlign: "center", padding: "30px", color: colors.textSecondary }}>
+                <td colSpan={7} style={{ textAlign: "center", padding: "30px", color: "rgba(255,255,255,0.5)" }}>
                   No jobs yet. Click "+ New Job" to create one.
                 </td>
               </tr>
@@ -456,14 +456,14 @@ function JobRow({ job, onEdit, onDelete, onViewApplicants }) {
   }, [job.id]);
 
   return (
-    <tr style={rowStyle}>
-      <td style={tdStyle}><span style={{ fontSize: "20px" }}>{job.icon || "💼"}</span></td>
-      <td style={{ ...tdStyle, fontWeight: "600", color: colors.navy }}>{job.title}</td>
-      <td style={tdStyle}>{job.company}</td>
-      <td style={tdStyle}>{job.location}</td>
-      <td style={{ ...tdStyle, fontSize: "12px" }}>{job.salary || "—"}</td>
-      <td style={{ ...tdStyle, textAlign: "center" }}>{appCount ?? "—"}</td>
-      <td style={tdStyle}>
+    <tr style={dashRow}>
+      <td style={dashTd}><span style={{ fontSize: "20px" }}>{job.icon || "💼"}</span></td>
+      <td style={{ ...dashTd, fontWeight: "600" }}>{job.title}</td>
+      <td style={dashTd}>{job.company}</td>
+      <td style={dashTd}>{job.location}</td>
+      <td style={{ ...dashTd, fontSize: "12px" }}>{job.salary || "—"}</td>
+      <td style={{ ...dashTd, textAlign: "center" }}>{appCount ?? "—"}</td>
+      <td style={dashTd}>
         <div style={{ display: "flex", gap: "6px" }}>
           <button style={viewBtn} onClick={() => onViewApplicants(job)}>Applicants</button>
           <button style={editBtn} onClick={() => onEdit(job)}>Edit</button>
@@ -477,60 +477,55 @@ function JobRow({ job, onEdit, onDelete, onViewApplicants }) {
 const JOB_ICONS = ["🏪", "🛍️", "💻", "🖥️", "🔧", "🛠️", "⚙️", "🧰", "🔌", "🖱️", "📋", "👥", "💰", "📦", "🎯", "⭐"];
 
 const iconGrid = { display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "4px" };
-const iconOption = { fontSize: "22px", cursor: "pointer", padding: "4px", borderRadius: "8px", transition: "all 0.15s", lineHeight: "1" };
+const iconOption = { fontSize: "22px", cursor: "pointer", padding: "4px", borderRadius: "8px", lineHeight: "1" };
 const progressWrap = { marginTop: "20px", textAlign: "center" };
-const progressTrack = { height: "8px", backgroundColor: colors.bg, borderRadius: "4px", overflow: "hidden", marginBottom: "8px" };
-const progressFill = { height: "100%", backgroundColor: colors.primaryDark, borderRadius: "4px", transition: "width 0.4s" };
-const progressText = { fontSize: "13px", color: colors.textSecondary, fontWeight: "500" };
-const aiExplanation = { fontSize: "13px", color: colors.navy, backgroundColor: "#1a73e810", padding: "12px", borderRadius: "8px", marginBottom: "16px", lineHeight: "1.5" };
-const comparisonRow = { display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", marginBottom: "16px", padding: "8px 12px", backgroundColor: colors.bg, borderRadius: "8px" };
-const comparisonLabel = { color: colors.textSecondary, fontWeight: "500" };
-const comparisonValue = { fontWeight: "700", color: colors.navy };
-const comparisonArrow = { color: colors.textSecondary };
+const progressTrack = { height: "8px", backgroundColor: "rgba(255,255,255,0.06)", borderRadius: "4px", overflow: "hidden", marginBottom: "8px" };
+const progressFill = { height: "100%", backgroundColor: "#4a90e2", borderRadius: "4px" };
+const progressText = { fontSize: "13px", color: "rgba(255,255,255,0.5)", fontWeight: "500" };
+const aiExplanation = { fontSize: "13px", color: "rgba(255,255,255,0.85)", backgroundColor: "rgba(74,144,226,0.1)", padding: "12px", borderRadius: "8px", marginBottom: "16px", lineHeight: "1.5" };
+const comparisonRow = { display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", marginBottom: "16px", padding: "8px 12px", backgroundColor: "rgba(255,255,255,0.04)", borderRadius: "8px" };
+const comparisonLabel = { color: "rgba(255,255,255,0.5)", fontWeight: "500" };
+const comparisonValue = { fontWeight: "700", color: "rgba(255,255,255,0.85)" };
+const comparisonArrow = { color: "rgba(255,255,255,0.4)" };
 
 const container = { padding: "5px" };
 const headerRow = { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "12px" };
-const addBtn = { backgroundColor: colors.primaryDark, color: "#fff", border: "none", padding: "10px 20px", borderRadius: "10px", fontWeight: "700", fontSize: "13px", cursor: "pointer" };
+const addBtn = { background: "linear-gradient(135deg, #4a90e2, #1a73e8)", color: "#fff", border: "none", padding: "10px 20px", borderRadius: "10px", fontWeight: "700", fontSize: "13px", cursor: "pointer", boxShadow: "0 4px 16px rgba(26,115,232,0.3)" };
 
-const formOverlay = { position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" };
-const formModal = { backgroundColor: "#fff", borderRadius: radii.xl, width: "100%", maxWidth: "580px", maxHeight: "90vh", overflow: "auto", boxShadow: shadows.xl };
-const formHeader = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 24px", borderBottom: `1px solid ${colors.border}` };
-const closeBtn = { background: "none", border: "none", fontSize: "18px", cursor: "pointer", color: colors.textSecondary, width: "32px", height: "32px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center" };
+const formOverlay = { position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" };
+const formModal = { backgroundColor: "rgba(15,23,42,0.95)", borderRadius: radii.xl, width: "100%", maxWidth: "580px", maxHeight: "90vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)" };
+const formHeader = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 24px", borderBottom: "1px solid rgba(255,255,255,0.08)" };
+const closeBtn = { background: "none", border: "none", fontSize: "18px", cursor: "pointer", color: "rgba(255,255,255,0.5)", width: "32px", height: "32px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center" };
 const formBody = { padding: "20px 24px" };
-const formFooter = { display: "flex", justifyContent: "flex-end", gap: "10px", padding: "16px 24px", borderTop: `1px solid ${colors.border}` };
+const formFooter = { display: "flex", justifyContent: "flex-end", gap: "10px", padding: "16px 24px", borderTop: "1px solid rgba(255,255,255,0.08)" };
 const fieldRow = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" };
 const fieldHalf = { marginBottom: "14px" };
 const fieldGroup = { marginBottom: "14px" };
-const label = { display: "block", fontSize: "12px", color: colors.textSecondary, marginBottom: "4px", fontWeight: "500" };
-const input = { width: "100%", padding: "10px 12px", borderRadius: "8px", border: `1px solid ${colors.border}`, fontSize: "14px", outline: "none", boxSizing: "border-box", backgroundColor: colors.white, fontFamily: "inherit" };
-const cancelBtn = { padding: "10px 20px", backgroundColor: colors.bg, color: colors.textSecondary, border: `1px solid ${colors.border}`, borderRadius: "8px", cursor: "pointer", fontWeight: "600", fontSize: "13px" };
-const saveBtn = { padding: "10px 20px", backgroundColor: colors.primaryDark, color: "#fff", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "700", fontSize: "13px" };
+const label = { display: "block", fontSize: "12px", color: "rgba(255,255,255,0.5)", marginBottom: "4px", fontWeight: "500" };
+const input = { width: "100%", padding: "10px 12px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.15)", fontSize: "14px", outline: "none", boxSizing: "border-box", backgroundColor: "rgba(255,255,255,0.06)", color: "#fff", fontFamily: "inherit" };
+const cancelBtn = { padding: "10px 20px", backgroundColor: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "8px", cursor: "pointer", fontWeight: "600", fontSize: "13px" };
+const saveBtn = { padding: "10px 20px", background: "linear-gradient(135deg, #4a90e2, #1a73e8)", color: "#fff", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "700", fontSize: "13px", boxShadow: "0 4px 16px rgba(26,115,232,0.3)" };
 
-const tableWrapper = { backgroundColor: "rgba(255,255,255,0.7)", borderRadius: radii.lg, padding: "16px", boxShadow: shadows.sm, overflowX: "auto" };
 const tableStyle = { width: "100%", borderCollapse: "collapse", minWidth: "700px" };
-const thStyle = { padding: "10px", color: colors.textSecondary, fontSize: "12px", fontWeight: "500", whiteSpace: "nowrap" };
-const rowStyle = { borderBottom: `1px solid ${colors.border}` };
-const tdStyle = { padding: "10px", fontSize: "13px", color: colors.navy };
-const editBtn = { padding: "4px 10px", fontSize: "11px", border: "none", borderRadius: "6px", backgroundColor: colors.primaryLight, color: colors.primaryDark, cursor: "pointer", fontWeight: "600" };
-const delBtn = { padding: "4px 10px", fontSize: "11px", border: "none", borderRadius: "6px", backgroundColor: "#fee2e2", color: colors.danger, cursor: "pointer", fontWeight: "600" };
-const viewBtn = { padding: "4px 10px", fontSize: "11px", border: "none", borderRadius: "6px", backgroundColor: "#22c55e20", color: "#22c55e", cursor: "pointer", fontWeight: "600" };
+const editBtn = { padding: "4px 10px", fontSize: "11px", border: "none", borderRadius: "6px", backgroundColor: "rgba(74,144,226,0.2)", color: "#93c5fd", cursor: "pointer", fontWeight: "600" };
+const delBtn = { padding: "4px 10px", fontSize: "11px", border: "none", borderRadius: "6px", backgroundColor: "rgba(239,68,68,0.2)", color: "#fca5a5", cursor: "pointer", fontWeight: "600" };
+const viewBtn = { padding: "4px 10px", fontSize: "11px", border: "none", borderRadius: "6px", backgroundColor: "rgba(34,197,94,0.2)", color: "#86efac", cursor: "pointer", fontWeight: "600" };
 
-const backBtn = { background: "none", border: "none", color: colors.primaryDark, cursor: "pointer", fontSize: "13px", fontWeight: "600", padding: 0, marginBottom: "8px" };
-const grid = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" };
-const candidateCard = { backgroundColor: colors.white, borderRadius: radii.md, padding: "16px", boxShadow: shadows.sm, cursor: "pointer", border: `1px solid ${colors.border}` };
+const backBtn = { background: "none", border: "none", color: "#93c5fd", cursor: "pointer", fontSize: "13px", fontWeight: "600", padding: 0, marginBottom: "8px" };
+const candidateCard = { backgroundColor: "rgba(255,255,255,0.06)", borderRadius: radii.md, padding: "16px", cursor: "pointer", border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(8px)" };
 const candidateHeader = { display: "flex", alignItems: "center", gap: "12px" };
-const avatarCircle = { width: "36px", height: "36px", borderRadius: "50%", backgroundColor: colors.primaryDark, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "700", fontSize: "14px", flexShrink: 0 };
-const scoreCircle = (score) => ({ width: "44px", height: "44px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "800", fontSize: "13px", color: score >= 80 ? "#22c55e" : score >= 50 ? "#d97706" : "#f87171", backgroundColor: score >= 80 ? "#22c55e20" : score >= 50 ? "#d9770620" : "#f8717120", flexShrink: 0 });
-const matchBarOuter = { height: "6px", backgroundColor: colors.bg, borderRadius: "3px", marginTop: "10px", overflow: "hidden" };
-const matchBarInner = (score) => ({ height: "100%", borderRadius: "3px", backgroundColor: score >= 80 ? "#22c55e" : score >= 50 ? "#d97706" : "#f87171", width: `${score}%`, transition: "width 0.3s" });
-const matchTag = { fontSize: "11px", color: "#22c55e", fontWeight: "500" };
-const aiBadge = { fontSize: "9px", fontWeight: "800", padding: "2px 5px", borderRadius: "4px", backgroundColor: "#1a73e8", color: "#fff", letterSpacing: "0.5px" };
+const avatarCircle = { width: "36px", height: "36px", borderRadius: "50%", background: "linear-gradient(135deg, #4a90e2, #1a73e8)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "700", fontSize: "14px", flexShrink: 0 };
+const scoreCircle = (score) => ({ width: "44px", height: "44px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "800", fontSize: "13px", color: score >= 80 ? "#86efac" : score >= 50 ? "#fbbf24" : "#fca5a5", backgroundColor: score >= 80 ? "rgba(34,197,94,0.2)" : score >= 50 ? "rgba(217,119,6,0.2)" : "rgba(239,68,68,0.2)", flexShrink: 0 });
+const matchBarOuter = { height: "6px", backgroundColor: "rgba(255,255,255,0.06)", borderRadius: "3px", marginTop: "10px", overflow: "hidden" };
+const matchBarInner = (score) => ({ height: "100%", borderRadius: "3px", backgroundColor: score >= 80 ? "#22c55e" : score >= 50 ? "#d97706" : "#ef4444", width: `${score}%` });
+const matchTag = { fontSize: "11px", color: "#86efac", fontWeight: "500" };
+const aiBadge = { fontSize: "9px", fontWeight: "800", padding: "2px 5px", borderRadius: "4px", backgroundColor: "#4a90e2", color: "#fff", letterSpacing: "0.5px" };
 const analyzingOverlay = { display: "flex", justifyContent: "center", padding: "60px 20px" };
 const analyzingContent = { textAlign: "center" };
 
-const detailCard = { backgroundColor: colors.white, borderRadius: radii.lg, padding: "24px", boxShadow: shadows.md };
-const scoreLarge = { fontSize: "20px", fontWeight: "700", color: colors.navy, marginBottom: "16px" };
+const detailCard = { backgroundColor: "rgba(255,255,255,0.06)", borderRadius: radii.lg, padding: "24px", border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(12px)" };
+const scoreLarge = { fontSize: "20px", fontWeight: "700", color: "#fff", marginBottom: "16px" };
 const detailGrid = { display: "flex", flexDirection: "column", gap: "12px" };
-const detailItem = { fontSize: "13px", color: colors.navy, lineHeight: "1.6" };
-const matchBadge = { fontSize: "11px", padding: "3px 8px", borderRadius: "12px", backgroundColor: "#22c55e20", color: "#22c55e", fontWeight: "600" };
-const missingBadge = { fontSize: "11px", padding: "3px 8px", borderRadius: "12px", backgroundColor: "#f8717120", color: "#f87171", fontWeight: "600" };
+const detailItem = { fontSize: "13px", color: "rgba(255,255,255,0.85)", lineHeight: "1.6" };
+const matchBadge = { fontSize: "11px", padding: "3px 8px", borderRadius: "12px", backgroundColor: "rgba(34,197,94,0.2)", color: "#86efac", fontWeight: "600" };
+const missingBadge = { fontSize: "11px", padding: "3px 8px", borderRadius: "12px", backgroundColor: "rgba(239,68,68,0.2)", color: "#fca5a5", fontWeight: "600" };

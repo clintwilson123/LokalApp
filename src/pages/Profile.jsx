@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
-import { colors, radii, shadows } from "../uiStyles";
+import { colors, radii } from "../uiStyles";
 
 export default function Profile() {
   const { user, profile, loadProfile } = useAuth();
@@ -92,11 +92,16 @@ export default function Profile() {
     setSaving(false);
   }
 
+  const msgBg = message.includes("success") || message.includes("saved") || message.includes("updated")
+    ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)";
+  const msgColor = message.includes("success") || message.includes("saved") || message.includes("updated")
+    ? colors.success : colors.danger;
+
   return (
     <div style={container}>
       <div style={{ marginBottom: "20px" }}>
-        <h2 style={{ fontSize: "20px", color: colors.navy, fontWeight: "800", margin: "0 0 4px" }}>My Profile</h2>
-        <p style={{ fontSize: "13px", color: colors.textSecondary, margin: 0 }}>
+        <h2 style={{ fontSize: "20px", color: "#fff", fontWeight: "800", margin: "0 0 4px" }}>My Profile</h2>
+        <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)", margin: 0 }}>
           Manage your personal details, skills, and resume
         </p>
       </div>
@@ -104,9 +109,7 @@ export default function Profile() {
       {message && (
         <p style={{
           padding: "10px", borderRadius: "8px", marginBottom: "16px", fontSize: "13px", fontWeight: "600",
-          backgroundColor: message.includes("success") || message.includes("saved") || message.includes("updated") ? "#e2f9eb" : "#fee2e2",
-          color: message.includes("success") || message.includes("saved") || message.includes("updated") ? colors.success : colors.danger,
-          textAlign: "center",
+          backgroundColor: msgBg, color: msgColor, textAlign: "center",
         }}>
           {message}
         </p>
@@ -129,14 +132,14 @@ export default function Profile() {
               <input type="file" ref={avatarInputRef} onChange={handleAvatarUpload}
                 style={{ display: "none" }} accept="image/*" />
               <div>
-                <h3 style={{ margin: 0, color: colors.navy, fontSize: "16px" }}>
+                <h3 style={{ margin: 0, color: "#fff", fontSize: "16px" }}>
                   {profile?.full_name || "User"}
                 </h3>
-                <p style={{ margin: "2px 0 0", fontSize: "12px", color: colors.textSecondary }}>
+                <p style={{ margin: "2px 0 0", fontSize: "12px", color: "rgba(255,255,255,0.5)" }}>
                   {user?.email}
                 </p>
-                <p style={{ margin: "2px 0 0", fontSize: "12px", color: colors.textSecondary }}>
-                  Status: <strong style={{ color: colors.primary }}>{profile?.status}</strong>
+                <p style={{ margin: "2px 0 0", fontSize: "12px", color: "rgba(255,255,255,0.5)" }}>
+                  Status: <strong style={{ color: "#93c5fd" }}>{profile?.status}</strong>
                 </p>
               </div>
             </div>
@@ -146,21 +149,21 @@ export default function Profile() {
             <h4 style={sectionTitle}>Contact Information</h4>
             <div style={fieldGroup}>
               <label style={label}>Full Name</label>
-              <input className="input" value={form.full_name}
+              <input style={input} value={form.full_name}
                 onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
             </div>
             <div style={fieldGroup}>
               <label style={label}>Email</label>
-              <input className="input" value={user?.email || ""} disabled />
+              <input style={{ ...input, opacity: 0.5 }} value={user?.email || ""} disabled />
             </div>
             <div style={fieldGroup}>
               <label style={label}>Phone</label>
-              <input className="input" value={form.phone_number}
+              <input style={input} value={form.phone_number}
                 onChange={(e) => setForm({ ...form, phone_number: e.target.value })} />
             </div>
             <div style={fieldGroup}>
               <label style={label}>Location</label>
-              <input className="input" value={form.location} placeholder="e.g., Toledo City, Cebu"
+              <input style={input} value={form.location} placeholder="e.g., Toledo City, Cebu"
                 onChange={(e) => setForm({ ...form, location: e.target.value })} />
             </div>
           </div>
@@ -171,14 +174,14 @@ export default function Profile() {
             <h4 style={sectionTitle}>Skills & Resume</h4>
             <div style={fieldGroup}>
               <label style={label}>Skills (comma-separated)</label>
-              <textarea className="input" style={{ minHeight: "60px", resize: "vertical" }}
+              <textarea style={{ ...input, minHeight: "60px", resize: "vertical" }}
                 value={form.skills}
                 onChange={(e) => setForm({ ...form, skills: e.target.value })}
                 placeholder="e.g., Customer Service, Sales, Communication" />
             </div>
             <div style={fieldGroup}>
               <label style={label}>Resume (Google Drive link)</label>
-              <input className="input" type="url" value={resumeLink}
+              <input style={input} type="url" value={resumeLink}
                 onChange={(e) => setResumeLink(e.target.value)}
                 placeholder="https://drive.google.com/file/d/..." />
             </div>
@@ -186,13 +189,13 @@ export default function Profile() {
 
           <div style={card}>
             <h4 style={sectionTitle}>About Me</h4>
-            <textarea className="input" style={{ minHeight: "80px", resize: "vertical" }}
+            <textarea style={{ ...input, minHeight: "80px", resize: "vertical" }}
               value={form.bio}
               onChange={(e) => setForm({ ...form, bio: e.target.value })}
               placeholder="Tell employers about yourself..." />
           </div>
 
-          <button className="btn btn-primary" style={{ width: "100%", padding: "12px" }}
+          <button style={{ width: "100%", padding: "12px", background: "linear-gradient(135deg, #4a90e2, #1a73e8)", color: "#fff", border: "none", borderRadius: "10px", fontWeight: "700", fontSize: "14px", cursor: "pointer", boxShadow: "0 4px 16px rgba(26,115,232,0.3)" }}
             onClick={handleSave} disabled={saving}>
             {saving ? "Saving..." : "Save Profile"}
           </button>
@@ -207,26 +210,33 @@ const layout = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" };
 const leftCol = { display: "flex", flexDirection: "column", gap: "16px" };
 const rightCol = { display: "flex", flexDirection: "column", gap: "16px" };
 const card = {
-  backgroundColor: "rgba(255,255,255,0.8)", padding: "20px", borderRadius: radii.lg,
-  boxShadow: shadows.sm, border: "1px solid rgba(255,255,255,0.5)",
-  backdropFilter: "blur(12px)", transition: "background 0.2s",
+  backgroundColor: "rgba(255,255,255,0.06)", padding: "20px", borderRadius: radii.lg,
+  border: "1px solid rgba(255,255,255,0.1)",
+  backdropFilter: "blur(12px)",
 };
-const sectionTitle = { margin: "0 0 14px", color: colors.navy, fontSize: "14px", fontWeight: "700" };
+const sectionTitle = { margin: "0 0 14px", color: "#fff", fontSize: "14px", fontWeight: "700" };
 const fieldGroup = { marginBottom: "12px" };
-const label = { display: "block", fontSize: "12px", color: colors.textSecondary, marginBottom: "4px", fontWeight: "500" };
+const label = { display: "block", fontSize: "12px", color: "rgba(255,255,255,0.5)", marginBottom: "4px", fontWeight: "500" };
+const input = {
+  width: "100%", padding: "12px 16px", borderRadius: radii.sm,
+  border: "1px solid rgba(255,255,255,0.15)",
+  backgroundColor: "rgba(255,255,255,0.06)", color: "#fff",
+  fontSize: "14px", outline: "none", boxSizing: "border-box",
+  fontFamily: "'Inter', sans-serif",
+};
 
 const photoWrapper = {
   width: "72px", height: "72px", borderRadius: "50%",
-  backgroundColor: colors.bg, position: "relative", cursor: "pointer",
-  overflow: "hidden", flexShrink: 0, border: `2px solid ${colors.border}`,
+  backgroundColor: "rgba(255,255,255,0.06)", position: "relative", cursor: "pointer",
+  overflow: "hidden", flexShrink: 0, border: "2px solid rgba(255,255,255,0.15)",
 };
 const photoPlaceholder = {
   fontSize: "28px", display: "flex", height: "100%",
-  alignItems: "center", justifyContent: "center", fontWeight: "700", color: colors.primaryDark,
+  alignItems: "center", justifyContent: "center", fontWeight: "700", color: "#93c5fd",
 };
 const avatarImage = { width: "100%", height: "100%", objectFit: "cover" };
 const editBadge = {
   position: "absolute", bottom: 0, right: 0,
-  backgroundColor: colors.primaryDark, borderRadius: "50%",
+  background: "linear-gradient(135deg, #4a90e2, #1a73e8)", borderRadius: "50%",
   padding: "3px", fontSize: "10px", color: "#fff", lineHeight: "1",
 };

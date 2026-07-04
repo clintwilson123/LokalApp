@@ -14,6 +14,7 @@ import About from "./pages/About";
 import AdminDashboard from "./pages/AdminDashboard";
 import ApplicantDashboard from "./pages/ApplicantDashboard";
 
+
 const publicPaths = ["/", "/login", "/signup", "/forgot-password", "/update-password", "/about"];
 
 function AppContent() {
@@ -37,6 +38,7 @@ function AppContent() {
         <Route path="/apply-job/:jobId" element={<ProtectedRoute allowedRoles={["applicant"]}><ApplicantDashboard /></ProtectedRoute>} />
         <Route path="/my-applications" element={<ProtectedRoute allowedRoles={["applicant"]}><ApplicantDashboard /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute allowedRoles={["applicant"]}><ApplicantDashboard /></ProtectedRoute>} />
+
 
         {/* Admin routes */}
         <Route path="/admin" element={<ProtectedRoute allowedRoles={["admin"]}><AdminDashboard /></ProtectedRoute>} />

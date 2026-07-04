@@ -1,8 +1,16 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { pageWrapper, card, title, input, button } from "../uiStyles";
-import { colors, radii, shadows } from "../uiStyles";
+import { pageWrapper, card, title, subtitle, input, inputWrapper, inputIcon, button, link, linkHighlight, radii } from "../uiStyles";
+
+const bgBlob = {
+  position: "absolute",
+  borderRadius: "50%",
+  filter: "blur(80px)",
+  opacity: 0.15,
+  pointerEvents: "none",
+  zIndex: 1,
+};
 
 export default function Login() {
   const navigate = useNavigate();
@@ -14,13 +22,9 @@ export default function Login() {
   const [justSignedIn, setJustSignedIn] = useState(false);
   const [userName, setUserName] = useState("");
 
-  // Already logged in — redirect immediately
   useEffect(() => {
     if (!justSignedIn && !loading && user && profile) {
-      navigate(
-        profile.role === "admin" ? "/admin" : "/find-jobs",
-        { replace: true }
-      );
+      navigate(profile.role === "admin" ? "/admin" : "/find-jobs", { replace: true });
     }
   }, [user, profile, loading, justSignedIn, navigate]);
 
@@ -41,8 +45,6 @@ export default function Login() {
       const signedInRole = result?.role || "applicant";
       setJustSignedIn(true);
       setSubmitting(false);
-
-      // Let the animation play, then redirect
       setTimeout(() => {
         navigate(signedInRole === "admin" ? "/admin" : "/find-jobs", { replace: true });
       }, 1400);
@@ -58,35 +60,124 @@ export default function Login() {
     }
   };
 
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") handleLogin();
+  };
+
   return (
     <div style={pageWrapper}>
-      <div style={{ ...card, maxWidth: "420px", padding: "40px", position: "relative", overflow: "hidden", backgroundColor: "#fff", backdropFilter: "blur(20px)", borderRadius: radii.xxl, border: "1px solid rgba(255,255,255,0.5)", boxShadow: shadows.xl }}>
-        {/* Morph overlay: fades in over the form */}
+      <div style={{ ...bgBlob, width: "400px", height: "400px", background: "#4a90e2", top: "-10%", left: "-5%" }} />
+      <div style={{ ...bgBlob, width: "300px", height: "300px", background: "#a78bfa", bottom: "-5%", right: "-5%" }} />
+      <div style={{ ...bgBlob, width: "200px", height: "200px", background: "#22c55e", top: "50%", left: "50%", transform: "translate(-50%, -50%)" }} />
+
+      <div style={card}>
+        <div style={{
+          opacity: justSignedIn ? 0 : 1,
+          transition: "opacity 0.35s ease",
+        }}>
+          <div style={{ fontSize: "42px", marginBottom: "8px" }}>🔐</div>
+          <h2 style={title}>Welcome Back</h2>
+          <p style={subtitle}>Sign in to your Lokal account</p>
+
+          {error && (
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              background: "rgba(239, 68, 68, 0.15)",
+              border: "1px solid rgba(239, 68, 68, 0.3)",
+              color: "#fca5a5",
+              fontSize: "13px",
+              padding: "12px 16px",
+              borderRadius: "10px",
+              marginBottom: "16px",
+              textAlign: "left",
+            }}>
+              <span>⚠️</span>
+              <span>{error}</span>
+            </div>
+          )}
+
+          <div style={inputWrapper}>
+            <span style={inputIcon}>✉️</span>
+            <input
+              style={input}
+              placeholder="Email address"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={handleKeyDown}
+            />
+          </div>
+          <div style={inputWrapper}>
+            <span style={inputIcon}>🔑</span>
+            <input
+              style={input}
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={handleKeyDown}
+            />
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "6px" }}>
+            <Link to="/forgot-password" style={link}>
+              Forgot password?
+            </Link>
+          </div>
+
+          <button
+            style={{ ...button, opacity: submitting ? 0.7 : 1, cursor: submitting ? "not-allowed" : "pointer" }}
+            onClick={handleLogin}
+            disabled={submitting}
+          >
+            {submitting ? (
+              <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                <span style={{ display: "inline-block", width: "18px", height: "18px", border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.6s linear infinite" }} />
+                Signing in...
+              </span>
+            ) : (
+              "Sign In"
+            )}
+          </button>
+
+          <p style={{ marginTop: "24px", fontSize: "14px", color: "rgba(255, 255, 255, 0.5)" }}>
+            Don't have an account?{" "}
+            <Link to="/signup" style={linkHighlight}>
+              Sign up
+            </Link>
+          </p>
+        </div>
+
+        {/* Success overlay */}
         <div style={{
           position: "absolute", inset: 0,
           display: "flex", flexDirection: "column",
           alignItems: "center", justifyContent: "center",
-          backgroundColor: colors.white,
+          background: "rgba(15, 23, 42, 0.95)",
+          backdropFilter: "blur(20px)",
+          borderRadius: radii.xxl,
           opacity: justSignedIn ? 1 : 0,
           pointerEvents: justSignedIn ? "auto" : "none",
           transition: "opacity 0.5s ease",
           zIndex: 10, padding: "40px",
         }}>
-          <svg width="56" height="56" viewBox="0 0 56 56" style={{ marginBottom: "16px" }}>
-            <circle cx="28" cy="28" r="26" fill="none" stroke={colors.primaryDark} strokeWidth="3"
+          <svg width="64" height="64" viewBox="0 0 64 64">
+            <circle cx="32" cy="32" r="30" fill="none" stroke="#4a90e2" strokeWidth="3"
               style={{
-                strokeDasharray: 163, strokeDashoffset: justSignedIn ? 0 : 163,
+                strokeDasharray: 188.5, strokeDashoffset: justSignedIn ? 0 : 188.5,
                 transition: "stroke-dashoffset 0.6s ease 0.2s",
               }} />
-            <polyline points="18,28 25,35 38,21" fill="none" stroke={colors.primaryDark} strokeWidth="3"
+            <polyline points="20,32 28,40 44,24" fill="none" stroke="#4a90e2" strokeWidth="3"
               strokeLinecap="round" strokeLinejoin="round"
               style={{
-                strokeDasharray: 30, strokeDashoffset: justSignedIn ? 0 : 30,
+                strokeDasharray: 34, strokeDashoffset: justSignedIn ? 0 : 34,
                 transition: "stroke-dashoffset 0.4s ease 0.7s",
               }} />
           </svg>
           <h2 style={{
-            margin: 0, color: colors.navy, fontSize: "20px", fontWeight: "700",
+            margin: "16px 0 0", color: "#fff", fontSize: "22px", fontWeight: "700",
             transform: justSignedIn ? "translateY(0)" : "translateY(12px)",
             opacity: justSignedIn ? 1 : 0,
             transition: "all 0.4s ease 0.6s",
@@ -94,69 +185,12 @@ export default function Login() {
             Welcome back, {userName}!
           </h2>
           <p style={{
-            color: colors.textSecondary, fontSize: "13px", margin: "8px 0 0",
+            color: "rgba(255,255,255,0.5)", fontSize: "13px", margin: "8px 0 0",
             transform: justSignedIn ? "translateY(0)" : "translateY(12px)",
             opacity: justSignedIn ? 1 : 0,
             transition: "all 0.4s ease 0.75s",
           }}>
             Taking you to your dashboard...
-          </p>
-        </div>
-
-        {/* Login form — fades out when justSignedIn */}
-        <div style={{
-          opacity: justSignedIn ? 0 : 1,
-          transition: "opacity 0.35s ease",
-        }}>
-          <h2 style={title}>Welcome Back</h2>
-
-          {error && (
-            <p style={{
-              color: colors.danger,
-              fontSize: "13px",
-              marginBottom: "12px",
-              background: "#fee2e2",
-              padding: "10px",
-              borderRadius: "8px",
-            }}>
-              {error}
-            </p>
-          )}
-
-          <input
-            style={input}
-            placeholder="Email address"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <input
-            style={input}
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-
-          <button
-            style={{ ...button, width: "100%", marginTop: "8px", opacity: submitting ? 0.7 : 1 }}
-            onClick={handleLogin}
-            disabled={submitting}
-          >
-            {submitting ? "Signing in..." : "Sign In"}
-          </button>
-
-          <p style={{ marginTop: "12px", fontSize: "13px", textAlign: "center" }}>
-            <Link to="/forgot-password" style={{ color: colors.textSecondary }}>
-              Forgot password?
-            </Link>
-          </p>
-
-          <p style={{ marginTop: "20px", fontSize: "14px", color: colors.textSecondary }}>
-            Don't have an account?{" "}
-            <Link to="/signup" style={{ color: colors.primaryDark, fontWeight: "600" }}>
-              Sign up
-            </Link>
           </p>
         </div>
       </div>
