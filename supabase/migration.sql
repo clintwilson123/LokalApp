@@ -201,6 +201,16 @@ CREATE POLICY "Admins can update applications"
   ON applications FOR UPDATE
   USING (is_admin());
 
+DROP POLICY IF EXISTS "Users can update own applications" ON applications;
+CREATE POLICY "Users can update own applications"
+  ON applications FOR UPDATE
+  USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can delete own applications" ON applications;
+CREATE POLICY "Users can delete own applications"
+  ON applications FOR DELETE
+  USING (auth.uid() = user_id);
+
 -- NOTIFICATIONS
 DROP POLICY IF EXISTS "Users can read own notifications" ON notifications;
 DROP POLICY IF EXISTS "System can insert notifications" ON notifications;

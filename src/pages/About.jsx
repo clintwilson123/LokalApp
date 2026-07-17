@@ -42,111 +42,119 @@ export default function About() {
   const navigate = useNavigate();
 
   return (
-    <div style={pageStyle}>
-      {/* Hero */}
-      <section style={heroSection}>
-        <div style={heroBg} />
-        <div style={{ position: "relative", zIndex: 1 }}>
-          <div style={badge}>🚀 Capstone Project</div>
-          <h1 style={heroTitle}>
-            About <span style={{ color: "#fff" }}>Lokal</span>
-          </h1>
-          <p style={heroDesc}>
-            A modern job portal powered by AI — connecting local talent
-            with local opportunities at CJTECH Computer Trading.
+    <div style={fullPageStyle}>
+      <div style={pageStyle}>
+        {/* Hero */}
+        <section style={heroSection}>
+          <div style={heroBg} />
+          <div style={{ position: "relative", zIndex: 1 }}>
+            <div style={badge}>🚀 Capstone Project</div>
+            <h1 style={heroTitle}>
+              About <span style={{ color: "#fff" }}>Lokal</span>
+            </h1>
+            <p style={heroDesc}>
+              A modern job portal powered by AI — connecting local talent
+              with local opportunities at CJTECH Computer Trading.
+            </p>
+            <div style={{ display: "flex", gap: "10px", justifyContent: "center", marginTop: "28px" }}>
+              <span style={heroStat}>🎯 Local Jobs</span>
+              <span style={heroStat}>🤖 AI Matching</span>
+              <span style={heroStat}>📱 Real-Time</span>
+            </div>
+          </div>
+        </section>
+
+        {/* Stats row */}
+        <section style={statsRow}>
+          {stats.map((s, i) => (
+            <div key={i} style={statCard}>
+              <div style={{ fontSize: "28px", marginBottom: "4px", color: "#fff" }}>{s.number}</div>
+              <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)", fontWeight: "600" }}>{s.label}</div>
+            </div>
+          ))}
+        </section>
+
+        {/* Mission & Values */}
+        <section style={sectionPadding}>
+          <div style={sectionLabel}>WHAT WE STAND FOR</div>
+          <h2 style={sectionTitle}>Our Purpose</h2>
+          <div style={grid2x2}>
+            {highlights.map((h, i) => (
+              <div key={i} style={highlightCard}>
+                <div style={iconCircle}>{h.icon}</div>
+                <h3 style={{ color: "#fff", fontSize: "16px", fontWeight: "800", margin: "0 0 8px" }}>{h.title}</h3>
+                <p style={{ color: "rgba(255,255,255,0.7)", fontSize: "13px", lineHeight: "1.7", margin: 0 }}>{h.desc}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Meet the Team */}
+        <section style={sectionPadding}>
+          <div style={sectionLabel}>OUR TEAM</div>
+          <h2 style={sectionTitle}>Meet the Developers</h2>
+          <p style={sectionSub}>The people behind Lokal</p>
+          <div style={teamGrid}>
+            {team.map((m, i) => (
+              <div key={i} style={teamCard}>
+                <div style={teamImgWrapper}>
+                  <img src={m.img} alt={m.name} style={teamImg} />
+                </div>
+                <h3 style={teamName}>{m.name}</h3>
+                <p style={teamRole}>{m.role}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Tech Stack */}
+        <section style={{ ...sectionPadding, backgroundColor: "rgba(255,255,255,0.04)", borderRadius: "24px", padding: "40px 32px", border: "1px solid rgba(255,255,255,0.08)" }}>
+          <div style={sectionLabel}>TECH STACK</div>
+          <h2 style={sectionTitle}>Built With Modern Tech</h2>
+          <p style={sectionSub}>The tools and services that power the platform</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: "16px", maxWidth: "500px", margin: "0 auto" }}>
+            {categories.map((cat) => (
+              <div key={cat.label} style={catRow}>
+                <span style={catLabel}>{cat.label}</span>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  {cat.items.map((t) => (
+                    <span key={t} style={techBadge}>{t}</span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* CTA */}
+        <section style={{ textAlign: "center", padding: "50px 20px" }}>
+          <h2 style={{ fontSize: "24px", fontWeight: "800", color: "#fff", margin: "0 0 10px" }}>
+            Ready to Get Started?
+          </h2>
+          <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "14px", margin: "0 0 28px", maxWidth: "400px", marginLeft: "auto", marginRight: "auto" }}>
+            Join Lokal today and take the next step in your career or find your next top performer.
           </p>
-          <div style={{ display: "flex", gap: "10px", justifyContent: "center", marginTop: "28px" }}>
-            <span style={heroStat}>🎯 Local Jobs</span>
-            <span style={heroStat}>🤖 AI Matching</span>
-            <span style={heroStat}>📱 Real-Time</span>
+          <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap" }}>
+            <button style={btnPrimary} onClick={() => navigate("/roles")}>Get Started →</button>
+            <button style={btnSecondary} onClick={() => navigate("/")}>Back to Home</button>
           </div>
-        </div>
-      </section>
-
-      {/* Stats row */}
-      <section style={statsRow}>
-        {stats.map((s, i) => (
-          <div key={i} style={statCard}>
-            <div style={{ fontSize: "28px", marginBottom: "4px" }}>{s.number}</div>
-            <div style={{ fontSize: "12px", color: colors.textSecondary, fontWeight: "600" }}>{s.label}</div>
-          </div>
-        ))}
-      </section>
-
-      {/* Mission & Values */}
-      <section style={sectionPadding}>
-        <div style={sectionLabel}>WHAT WE STAND FOR</div>
-        <h2 style={sectionTitle}>Our Purpose</h2>
-        <div style={grid2x2}>
-          {highlights.map((h, i) => (
-            <div key={i} style={highlightCard}>
-              <div style={iconCircle}>{h.icon}</div>
-              <h3 style={{ color: colors.navy, fontSize: "16px", fontWeight: "800", margin: "0 0 8px" }}>{h.title}</h3>
-              <p style={{ color: colors.textSecondary, fontSize: "13px", lineHeight: "1.7", margin: 0 }}>{h.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Meet the Team */}
-      <section style={sectionPadding}>
-        <div style={sectionLabel}>OUR TEAM</div>
-        <h2 style={sectionTitle}>Meet the Developers</h2>
-        <p style={sectionSub}>The people behind Lokal</p>
-        <div style={teamGrid}>
-          {team.map((m, i) => (
-            <div key={i} style={teamCard}>
-              <div style={teamImgWrapper}>
-                <img src={m.img} alt={m.name} style={teamImg} />
-              </div>
-              <h3 style={teamName}>{m.name}</h3>
-              <p style={teamRole}>{m.role}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Tech Stack */}
-      <section style={{ ...sectionPadding, backgroundColor: "#f8fafc", borderRadius: "24px", padding: "40px 32px" }}>
-        <div style={sectionLabel}>TECH STACK</div>
-        <h2 style={sectionTitle}>Built With Modern Tech</h2>
-        <p style={sectionSub}>The tools and services that power the platform</p>
-        <div style={{ display: "flex", flexDirection: "column", gap: "16px", maxWidth: "500px", margin: "0 auto" }}>
-          {categories.map((cat) => (
-            <div key={cat.label} style={catRow}>
-              <span style={catLabel}>{cat.label}</span>
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                {cat.items.map((t) => (
-                  <span key={t} style={techBadge}>{t}</span>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* CTA */}
-      <section style={{ textAlign: "center", padding: "50px 20px" }}>
-        <h2 style={{ fontSize: "24px", fontWeight: "800", color: colors.navy, margin: "0 0 10px" }}>
-          Ready to Get Started?
-        </h2>
-        <p style={{ color: colors.textSecondary, fontSize: "14px", margin: "0 0 28px", maxWidth: "400px", marginLeft: "auto", marginRight: "auto" }}>
-          Join Lokal today and take the next step in your career or find your next top performer.
-        </p>
-        <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap" }}>
-          <button style={btnPrimary} onClick={() => navigate("/roles")}>Get Started →</button>
-          <button style={btnSecondary} onClick={() => navigate("/")}>Back to Home</button>
-        </div>
-      </section>
+        </section>
+      </div>
     </div>
   );
 }
+
+const fullPageStyle = {
+  background: "linear-gradient(135deg, #0f172a 0%, #1a3b5c 50%, #1e4d7a 100%)",
+  minHeight: "100vh",
+};
 
 const pageStyle = {
   fontFamily: "'Inter', sans-serif",
   maxWidth: "720px",
   margin: "0 auto",
   padding: "0 24px 60px",
+  color: "#fff",
 };
 
 const heroSection = {
@@ -181,8 +189,8 @@ const statsRow = {
   position: "relative", zIndex: 2, maxWidth: "500px",
 };
 const statCard = {
-  flex: 1, backgroundColor: "#fff", padding: "16px 10px", borderRadius: "16px",
-  textAlign: "center", boxShadow: "0 4px 20px rgba(0,0,0,0.06)",
+  flex: 1, backgroundColor: "rgba(255,255,255,0.06)", padding: "16px 10px", borderRadius: "16px",
+  textAlign: "center", border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(12px)",
 };
 
 const sectionPadding = { marginBottom: "50px" };
@@ -190,18 +198,18 @@ const sectionLabel = {
   fontSize: "11px", fontWeight: "700", color: colors.primaryDark,
   letterSpacing: "2px", marginBottom: "6px", textAlign: "center",
 };
-const sectionTitle = { fontSize: "24px", fontWeight: "800", color: colors.navy, margin: "0 0 20px", textAlign: "center" };
-const sectionSub = { fontSize: "14px", color: colors.textSecondary, margin: "-12px 0 24px", textAlign: "center" };
+const sectionTitle = { fontSize: "24px", fontWeight: "800", color: "#fff", margin: "0 0 20px", textAlign: "center" };
+const sectionSub = { fontSize: "14px", color: "rgba(255,255,255,0.5)", margin: "-12px 0 24px", textAlign: "center" };
 
 const grid2x2 = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" };
 const highlightCard = {
-  backgroundColor: "#fff", padding: "24px 20px", borderRadius: "20px",
-  border: "1px solid #eef2f6", textAlign: "center",
-  transition: "transform 0.2s, box-shadow 0.2s",
+  backgroundColor: "rgba(255,255,255,0.06)", padding: "24px 20px", borderRadius: "20px",
+  border: "1px solid rgba(255,255,255,0.1)", textAlign: "center",
+  backdropFilter: "blur(12px)", transition: "transform 0.2s, box-shadow 0.2s",
 };
 const iconCircle = {
   width: "48px", height: "48px", borderRadius: "50%",
-  backgroundColor: "#d6e6f7", display: "flex", alignItems: "center",
+  backgroundColor: "rgba(74,144,226,0.2)", display: "flex", alignItems: "center",
   justifyContent: "center", fontSize: "22px", margin: "0 auto 14px",
 };
 
@@ -212,11 +220,12 @@ const teamGrid = {
   marginTop: "10px",
 };
 const teamCard = {
-  backgroundColor: "#fff",
+  backgroundColor: "rgba(255,255,255,0.06)",
   padding: "24px 16px",
   borderRadius: "20px",
-  border: "1px solid #eef2f6",
+  border: "1px solid rgba(255,255,255,0.1)",
   textAlign: "center",
+  backdropFilter: "blur(12px)",
   transition: "transform 0.2s, box-shadow 0.2s",
 };
 const teamImgWrapper = {
@@ -233,7 +242,7 @@ const teamImg = {
   objectFit: "cover",
 };
 const teamName = {
-  color: colors.navy,
+  color: "#fff",
   fontSize: "14px",
   fontWeight: "800",
   margin: "0 0 4px",
@@ -247,23 +256,23 @@ const teamRole = {
 
 const catRow = {
   display: "flex", alignItems: "center", gap: "16px",
-  padding: "12px 16px", backgroundColor: "#fff", borderRadius: "12px",
-  border: "1px solid #eef2f6",
+  padding: "12px 16px", backgroundColor: "rgba(255,255,255,0.06)", borderRadius: "12px",
+  border: "1px solid rgba(255,255,255,0.1)",
 };
 const catLabel = {
-  fontSize: "12px", fontWeight: "700", color: colors.textSecondary,
+  fontSize: "12px", fontWeight: "700", color: "rgba(255,255,255,0.5)",
   minWidth: "80px", textTransform: "uppercase", letterSpacing: "1px",
 };
 const techBadge = {
   fontSize: "13px", padding: "6px 14px", borderRadius: "8px",
-  backgroundColor: "#d6e6f7", color: colors.primaryDark, fontWeight: "600",
+  backgroundColor: "rgba(74,144,226,0.2)", color: "#93c5fd", fontWeight: "600",
 };
 
 const btnPrimary = {
-  padding: "12px 28px", backgroundColor: colors.primaryDark, color: "#fff", border: "none",
-  borderRadius: "12px", fontSize: "14px", fontWeight: "700", cursor: "pointer",
+  padding: "12px 28px", background: "linear-gradient(135deg, #4a90e2, #1a73e8)", color: "#fff", border: "none",
+  borderRadius: "12px", fontSize: "14px", fontWeight: "700", cursor: "pointer", boxShadow: "0 4px 16px rgba(26,115,232,0.3)",
 };
 const btnSecondary = {
-  padding: "12px 28px", backgroundColor: "#fff", color: colors.navy, border: "1px solid #e2eaf4",
+  padding: "12px 28px", backgroundColor: "rgba(255,255,255,0.06)", color: "#fff", border: "1px solid rgba(255,255,255,0.15)",
   borderRadius: "12px", fontSize: "14px", fontWeight: "700", cursor: "pointer",
 };

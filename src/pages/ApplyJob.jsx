@@ -14,6 +14,7 @@ export default function ApplyJob() {
   const [applying, setApplying] = useState(false);
   const [applied, setApplied] = useState(false);
   const [message, setMessage] = useState("");
+  const [existingApp, setExistingApp] = useState(null);
 
   const fetchJob = async () => {
     const { data } = await supabase
@@ -29,11 +30,12 @@ export default function ApplyJob() {
     if (!user) return;
     const { data } = await supabase
       .from("applications")
-      .select("id")
+      .select("id, status")
       .eq("user_id", user.id)
       .eq("job_id", jobId)
       .maybeSingle();
-    if (data) setApplied(true);
+    if (data && data.status !== "rejected") setApplied(true);
+    if (data) setExistingApp(data);
   };
 
   useEffect(() => {
@@ -45,26 +47,48 @@ export default function ApplyJob() {
     setApplying(true);
     setMessage("");
 
-    const { error } = await supabase.from("applications").insert({
-      user_id: user.id,
-      job_id: parseInt(jobId),
-      status: "pending",
-    });
+    if (existingApp?.status === "rejected") {
+      const { error } = await supabase
+        .from("applications")
+        .update({ status: "pending" })
+        .eq("id", existingApp.id);
 
-    if (error) {
-      setMessage("Failed to apply. Please try again.");
-      setApplying(false);
-      return;
+      if (error) {
+        setMessage("Failed to re-apply. Please try again.");
+        setApplying(false);
+        return;
+      }
+
+      setApplied(true);
+      await loadProfile(user.id);
+
+      await supabase.from("notifications").insert({
+        user_id: user.id,
+        message: `You re-applied for ${job.title}. The admin will review your application.`,
+        type: "info",
+      });
+    } else {
+      const { error } = await supabase.from("applications").insert({
+        user_id: user.id,
+        job_id: parseInt(jobId),
+        status: "pending",
+      });
+
+      if (error) {
+        setMessage("Failed to apply. Please try again.");
+        setApplying(false);
+        return;
+      }
+
+      setApplied(true);
+      await loadProfile(user.id);
+
+      await supabase.from("notifications").insert({
+        user_id: user.id,
+        message: `Your application for ${job.title} has been submitted.`,
+        type: "success",
+      });
     }
-
-    setApplied(true);
-    await loadProfile(user.id);
-
-    await supabase.from("notifications").insert({
-      user_id: user.id,
-      message: `Your application for ${job.title} has been submitted.`,
-      type: "success",
-    });
 
     setTimeout(() => navigate("/my-applications"), 1500);
   }

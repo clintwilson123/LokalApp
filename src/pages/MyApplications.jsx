@@ -1,15 +1,14 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
-import { colors, radii } from "../uiStyles";
+import { radii } from "../uiStyles";
 import { SkeletonCard } from "../components/Skeleton";
 
 export default function MyApplications() {
-  const navigate = useNavigate();
   const { user } = useAuth();
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [confirmingDelete, setConfirmingDelete] = useState(null);
 
   useEffect(() => {
     if (!user) return;
@@ -24,6 +23,17 @@ export default function MyApplications() {
       .order("created_at", { ascending: false });
     if (data) setApplications(data);
     setLoading(false);
+  }
+
+  async function handleDelete(id) {
+    try {
+      const { error } = await supabase.from("applications").delete().eq("id", id);
+      if (error) throw error;
+      setConfirmingDelete(null);
+      fetchApplications();
+    } catch (err) {
+      alert("Failed to delete: " + err.message);
+    }
   }
 
   async function handleReapply(application) {
@@ -106,18 +116,54 @@ export default function MyApplications() {
                   </span>
                 )}
               </div>
-              {app.status === "rejected" && (
-                <button
-                  onClick={() => handleReapply(app)}
-                  style={{
-                    marginTop: "10px", width: "100%", padding: "8px", fontSize: "12px", fontWeight: "700",
-                    background: "linear-gradient(135deg, #4a90e2, #1a73e8)", color: "#fff", border: "none",
-                    borderRadius: "8px", cursor: "pointer", boxShadow: "0 4px 16px rgba(26,115,232,0.3)",
-                  }}
-                >
-                  🔄 Apply Again
-                </button>
-              )}
+              {app.status === "rejected" && confirmingDelete === app.id ? (
+                <div style={{ display: "flex", gap: "8px", marginTop: "10px", alignItems: "center", justifyContent: "center" }}>
+                  <span style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)" }}>Remove this application?</span>
+                  <button
+                    onClick={() => handleDelete(app.id)}
+                    style={{
+                      padding: "6px 14px", fontSize: "12px", fontWeight: "700",
+                      background: "#ef4444", color: "#fff", border: "none",
+                      borderRadius: "8px", cursor: "pointer",
+                    }}
+                  >
+                    Yes, Delete
+                  </button>
+                  <button
+                    onClick={() => setConfirmingDelete(null)}
+                    style={{
+                      padding: "6px 14px", fontSize: "12px", fontWeight: "600",
+                      background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.15)",
+                      borderRadius: "8px", cursor: "pointer",
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : app.status === "rejected" ? (
+                <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+                  <button
+                    onClick={() => handleReapply(app)}
+                    style={{
+                      flex: 1, padding: "8px", fontSize: "12px", fontWeight: "700",
+                      background: "linear-gradient(135deg, #4a90e2, #1a73e8)", color: "#fff", border: "none",
+                      borderRadius: "8px", cursor: "pointer", boxShadow: "0 4px 16px rgba(26,115,232,0.3)",
+                    }}
+                  >
+                    🔄 Apply Again
+                  </button>
+                  <button
+                    onClick={() => setConfirmingDelete(app.id)}
+                    style={{
+                      padding: "8px 14px", fontSize: "12px", fontWeight: "700",
+                      background: "rgba(239,68,68,0.2)", color: "#fca5a5", border: "1px solid rgba(239,68,68,0.3)",
+                      borderRadius: "8px", cursor: "pointer",
+                    }}
+                  >
+                    🗑️ Delete
+                  </button>
+                </div>
+              ) : null}
               {app.status === "hired" && (
                 <div style={{
                   marginTop: "10px", fontSize: "12px", color: "#86efac",

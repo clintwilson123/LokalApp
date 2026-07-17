@@ -4,15 +4,15 @@
   --color-primary-light: #d6e6f7;
   --color-navy: #1a3b5c;
   --color-dark: #0f172a;
-  --color-bg: #f4f7fa;
+  --color-bg: #0f172a;
   --color-white: #ffffff;
-  --color-text: #333333;
-  --color-text-secondary: #64748b;
+  --color-text: #e2e8f0;
+  --color-text-secondary: #94a3b8;
   --color-success: #22c55e;
   --color-warning: #d97706;
   --color-danger: #f87171;
-  --color-border: #e2eaf4;
-  --color-card-bg: rgba(255, 255, 255, 0.6);
+  --color-border: rgba(255, 255, 255, 0.1);
+  --color-card-bg: rgba(255, 255, 255, 0.06);
 
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -42,9 +42,10 @@ html {
 
 body {
   font-family: var(--font-family);
-  background: var(--color-bg);
+  background: linear-gradient(135deg, #0f172a 0%, #1a3b5c 50%, #1e4d7a 100%);
   color: var(--color-text);
   line-height: 1.6;
+  min-height: 100vh;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -356,13 +357,13 @@ textarea.input {
 .section-title {
   font-size: 22px;
   font-weight: 700;
-  color: var(--color-navy);
+  color: #fff;
   margin-bottom: 8px;
 }
 
 .section-subtitle {
   font-size: 14px;
-  color: var(--color-text-secondary);
+  color: rgba(255, 255, 255, 0.5);
   margin-bottom: 24px;
 }
 
@@ -614,7 +615,6 @@ textarea.input {
 /* Features Section */
 .features-section {
   padding: 100px 20px;
-  background: var(--color-white);
   text-align: center;
 }
 
@@ -628,25 +628,26 @@ textarea.input {
 }
 
 .feature-card {
-  background: var(--color-bg);
+  background: rgba(255, 255, 255, 0.06);
   border-radius: var(--radius-xl);
   padding: 36px 24px;
   text-align: center;
   transition: all var(--transition);
-  border: 1px solid transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(12px);
 }
 
 .feature-card:hover {
   transform: translateY(-4px);
   box-shadow: var(--shadow-lg);
-  border-color: var(--color-border);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 .feature-icon {
   width: 56px;
   height: 56px;
   border-radius: var(--radius-md);
-  background: var(--color-primary-light);
+  background: rgba(74, 144, 226, 0.2);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -656,13 +657,13 @@ textarea.input {
 
 .feature-card h3 {
   font-size: 18px;
-  color: var(--color-navy);
+  color: #fff;
   margin-bottom: 8px;
 }
 
 .feature-card p {
   font-size: 14px;
-  color: var(--color-text-secondary);
+  color: rgba(255, 255, 255, 0.7);
   line-height: 1.6;
 }
 

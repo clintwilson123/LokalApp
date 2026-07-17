@@ -20,12 +20,12 @@ const features = [
   {
     icon: "🔔",
     title: "Real-Time Updates",
-    desc: "Stay notified about application status and interview schedules instantly.",
+    desc: "Stay notified about application status and new job opportunities instantly.",
   },
   {
     icon: "👥",
     title: "Admin Dashboard",
-    desc: "Employers can review applicants, manage interviews, and find the best talent.",
+    desc: "Employers can review applicants, manage job postings, and find the best talent.",
   },
   {
     icon: "🛡️",
