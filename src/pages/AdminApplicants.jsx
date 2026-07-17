@@ -161,7 +161,7 @@ export default function AdminApplicants() {
         >
           <option value="">-- Choose a job --</option>
           {jobs.map((job) => (
-            <option key={job.id} value={job.id}>
+            <option key={job.id} value={job.id} style={{ color: "#1e293b", background: "#fff" }}>
               {job.icon} {job.title}
             </option>
           ))}
