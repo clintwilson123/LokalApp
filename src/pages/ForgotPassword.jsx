@@ -12,20 +12,17 @@ const bgBlob = {
   zIndex: 1,
 };
 
-const steps = ["Phone", "Code", "Password"];
+const steps = ["Phone", "Code"];
 
 export default function ForgotPassword() {
   const [step, setStep] = useState(0);
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const devCodeRef = useRef(null);
-  const userIdRef = useRef(null);
 
   const maskPhone = (p) => {
     if (p.length < 4) return p;
@@ -91,52 +88,25 @@ export default function ForgotPassword() {
       return;
     }
     setLoading(true);
-    const { data: userId, error: rpcErr } = await supabase.rpc("verify_code_get_user_id", {
+
+    const { data: email, error: rpcErr } = await supabase.rpc("verify_code_get_email", {
       p_phone: phone,
       p_code: code,
     });
     if (rpcErr) {
       setError(rpcErr.message || "Invalid code. Try again.");
-    } else {
-      userIdRef.current = userId;
-      setStep(2);
-    }
-    setLoading(false);
-  };
-
-  const handleResetPassword = async () => {
-    setError("");
-    if (!newPassword || newPassword.length < 6) {
-      setError("Password must be at least 6 characters.");
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setError("Passwords do not match.");
-      return;
-    }
-    setLoading(true);
-
-    const userId = userIdRef.current;
-    if (!userId) {
-      setError("Session expired. Please start over.");
       setLoading(false);
       return;
     }
 
-    try {
-      const res = await fetch("/api/reset-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId, new_password: newPassword }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Failed to reset password.");
-      } else {
-        setDone(true);
-      }
-    } catch {
-      setError("Network error. Please try again.");
+    const redirectTo = window.location.origin + "/update-password";
+    const { error: emailErr } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo,
+    });
+    if (emailErr) {
+      setError(emailErr.message);
+    } else {
+      setDone(true);
     }
     setLoading(false);
   };
@@ -151,9 +121,9 @@ export default function ForgotPassword() {
         <div style={{ ...bgBlob, width: "350px", height: "350px", background: "#22c55e", top: "-5%", right: "-5%" }} />
         <div style={{ ...bgBlob, width: "200px", height: "200px", background: "#4a90e2", bottom: "-5%", left: "-5%" }} />
         <div style={card}>
-          <div style={{ fontSize: "56px", marginBottom: "8px" }}>✅</div>
-          <h2 style={title}>Password Reset!</h2>
-          <p style={subtitle}>Your password has been updated successfully.</p>
+          <div style={{ fontSize: "56px", marginBottom: "8px" }}>📧</div>
+          <h2 style={title}>Check Your Email</h2>
+          <p style={subtitle}>A password reset link has been sent to your email. Click the link to set a new password.</p>
           <Link to="/login" style={{ ...button, textDecoration: "none", display: "inline-block", marginTop: "8px" }}>
             Back to Sign In
           </Link>
@@ -197,12 +167,10 @@ export default function ForgotPassword() {
         <h2 style={title}>
           {step === 0 && "Reset Password"}
           {step === 1 && "Enter Code"}
-          {step === 2 && "New Password"}
         </h2>
         <p style={subtitle}>
           {step === 0 && "Enter your phone number to receive a verification code."}
           {step === 1 && `We sent a code to ${maskPhone(phone)}.`}
-          {step === 2 && "Choose a new password for your account."}
         </p>
 
         {error && (
@@ -293,7 +261,7 @@ export default function ForgotPassword() {
               {loading ? (
                 <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
                   <span style={{ display: "inline-block", width: "18px", height: "18px", border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.6s linear infinite" }} />
-                  Verifying...
+                  Sending link...
                 </span>
               ) : (
                 "Verify Code"
@@ -312,47 +280,6 @@ export default function ForgotPassword() {
               disabled={loading || cooldown > 0}
             >
               {cooldown > 0 ? `Resend in ${cooldown}s` : "Resend Code"}
-            </button>
-          </>
-        )}
-
-        {step === 2 && (
-          <>
-            <div style={inputWrapper}>
-              <span style={inputIcon}>🔑</span>
-              <input
-                style={input}
-                type="password"
-                placeholder="New password (min. 6 characters)"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                onKeyDown={handleKeyDown(handleResetPassword)}
-              />
-            </div>
-            <div style={inputWrapper}>
-              <span style={inputIcon}>✓</span>
-              <input
-                style={input}
-                type="password"
-                placeholder="Confirm new password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                onKeyDown={handleKeyDown(handleResetPassword)}
-              />
-            </div>
-            <button
-              style={{ ...button, opacity: loading ? 0.7 : 1, cursor: loading ? "not-allowed" : "pointer" }}
-              onClick={handleResetPassword}
-              disabled={loading}
-            >
-              {loading ? (
-                <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
-                  <span style={{ display: "inline-block", width: "18px", height: "18px", border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.6s linear infinite" }} />
-                  Resetting...
-                </span>
-              ) : (
-                "Reset Password"
-              )}
             </button>
           </>
         )}
