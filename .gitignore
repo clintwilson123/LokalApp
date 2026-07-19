@@ -23,3 +23,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Supabase
+supabase/.temp/
+
+# Docs
+*.docx
+USER_GUIDE.md
+TechFolio_*.md

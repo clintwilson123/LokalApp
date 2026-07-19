@@ -1,0 +1,2 @@
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS security_question TEXT DEFAULT '';
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS security_answer TEXT DEFAULT '';

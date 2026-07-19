@@ -115,13 +115,13 @@ export default function ForgotPassword() {
     }
     setLoading(true);
 
-    const { error: rpcErr } = await supabase.rpc("reset_with_code", {
+    const { error: fnErr } = await supabase.rpc("reset_with_code", {
       p_phone: phone,
       p_code: code,
       p_new_password: newPassword,
     });
-    if (rpcErr) {
-      setError(rpcErr.message);
+    if (fnErr) {
+      setError(fnErr.message);
     } else {
       setDone(true);
     }
