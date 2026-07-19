@@ -91,7 +91,7 @@ export default function ForgotPassword() {
     }
     setLoading(true);
 
-    const { error: rpcErr } = await supabase.rpc("verify_code", {
+    const { error: rpcErr } = await supabase.rpc("verify_reset_code", {
       p_phone: phone,
       p_code: code,
     });
