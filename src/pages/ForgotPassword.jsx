@@ -25,6 +25,7 @@ export default function ForgotPassword() {
   const [done, setDone] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const devCodeRef = useRef(null);
+  const userIdRef = useRef(null);
 
   const maskPhone = (p) => {
     if (p.length < 4) return p;
@@ -90,13 +91,14 @@ export default function ForgotPassword() {
       return;
     }
     setLoading(true);
-    const { error: rpcErr } = await supabase.rpc("verify_reset_code", {
+    const { data: userId, error: rpcErr } = await supabase.rpc("verify_code_get_user_id", {
       p_phone: phone,
       p_code: code,
     });
     if (rpcErr) {
       setError(rpcErr.message || "Invalid code. Try again.");
     } else {
+      userIdRef.current = userId;
       setStep(2);
     }
     setLoading(false);
@@ -114,15 +116,27 @@ export default function ForgotPassword() {
     }
     setLoading(true);
 
-    const { error: rpcErr } = await supabase.rpc("reset_with_code", {
-      p_phone: phone,
-      p_code: code,
-      p_new_password: newPassword,
-    });
-    if (rpcErr) {
-      setError(rpcErr.message);
-    } else {
-      setDone(true);
+    const userId = userIdRef.current;
+    if (!userId) {
+      setError("Session expired. Please start over.");
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId, new_password: newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Failed to reset password.");
+      } else {
+        setDone(true);
+      }
+    } catch {
+      setError("Network error. Please try again.");
     }
     setLoading(false);
   };
