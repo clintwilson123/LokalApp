@@ -257,6 +257,24 @@ INSERT INTO jobs (title, company, location, salary, description, requirements, i
 SELECT 'Store Manager', 'CJTECH Computer Trading', 'Sangi, Toledo City', '₱30,000 — ₱35,000 / month', 'Oversee daily store operations, manage staff schedules, ensure sales targets are met, and report to headquarters.', ARRAY['Management experience', 'Leadership skills', 'Inventory management', 'Sales reporting'], '🏪'
 WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE title = 'Store Manager');
 
+INSERT INTO jobs (title, company, location, salary, description, requirements, icon)
+SELECT 'IT Support Specialist', 'CJTECH Computer Trading', 'Sangi, Toledo City', '₱22,000 — ₱28,000 / month', 'Provide technical support for hardware, software, and network issues. Manage user accounts, maintain IT infrastructure, and ensure smooth operation of all computer systems.', ARRAY[
+  'Hardware troubleshooting',
+  'Software installation and configuration',
+  'Network troubleshooting',
+  'Windows and Linux OS support',
+  'Active Directory management',
+  'Help desk ticketing systems',
+  'Remote desktop support',
+  'Printer and peripheral support',
+  'Backup and recovery',
+  'IT security fundamentals',
+  'Customer service',
+  'End-user support',
+  'System administration'
+], '💻'
+WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE title = 'IT Support Specialist');
+
 -- 7. ADMIN SETUP — change email to yours
 DO $$
 DECLARE

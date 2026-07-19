@@ -287,8 +287,12 @@ export default function ManageJobs() {
             <div style={detailItem}><strong>Bio:</strong> {a.bio || "Not set"}</div>
             {a.resume_url && (
               <div style={detailItem}>
-                <strong>Resume:</strong>{" "}
-                <a href={a.resume_url} target="_blank" rel="noreferrer" style={{ color: "#93c5fd" }}>View Resume ↗</a>
+                <strong>Resume:</strong>
+                <div style={{ marginTop: "4px" }}>
+                  <a href={a.resume_url} target="_blank" rel="noreferrer" style={resumeViewBtn}>
+                    📄 {a.resume_url.split("/").pop() || "View Resume"}
+                  </a>
+                </div>
               </div>
             )}
             <div style={detailItem}>
@@ -510,6 +514,7 @@ const tableStyle = { width: "100%", borderCollapse: "collapse", minWidth: "700px
 const editBtn = { padding: "4px 10px", fontSize: "11px", border: "none", borderRadius: "6px", backgroundColor: "rgba(74,144,226,0.2)", color: "#93c5fd", cursor: "pointer", fontWeight: "600" };
 const delBtn = { padding: "4px 10px", fontSize: "11px", border: "none", borderRadius: "6px", backgroundColor: "rgba(239,68,68,0.2)", color: "#fca5a5", cursor: "pointer", fontWeight: "600" };
 const viewBtn = { padding: "4px 10px", fontSize: "11px", border: "none", borderRadius: "6px", backgroundColor: "rgba(34,197,94,0.2)", color: "#86efac", cursor: "pointer", fontWeight: "600" };
+const resumeViewBtn = { display: "inline-flex", alignItems: "center", gap: "6px", padding: "8px 14px", fontSize: "13px", fontWeight: "600", border: "none", borderRadius: "8px", backgroundColor: "rgba(74,144,226,0.2)", color: "#93c5fd", cursor: "pointer", textDecoration: "none" };
 
 const backBtn = { background: "none", border: "none", color: "#93c5fd", cursor: "pointer", fontSize: "13px", fontWeight: "600", padding: 0, marginBottom: "8px" };
 const candidateCard = { backgroundColor: "rgba(255,255,255,0.06)", borderRadius: radii.md, padding: "16px", cursor: "pointer", border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(8px)" };

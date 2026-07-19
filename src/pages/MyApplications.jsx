@@ -5,10 +5,11 @@ import { radii } from "../uiStyles";
 import { SkeletonCard } from "../components/Skeleton";
 
 export default function MyApplications() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [confirmingDelete, setConfirmingDelete] = useState(null);
+  const [selectedApp, setSelectedApp] = useState(null);
 
   useEffect(() => {
     if (!user) return;
@@ -18,7 +19,7 @@ export default function MyApplications() {
   async function fetchApplications() {
     const { data } = await supabase
       .from("applications")
-      .select("id, job_id, status, score, created_at, jobs(title, company, location, icon)")
+      .select("id, job_id, status, score, created_at, jobs(title, company, location, icon, description, salary, requirements)")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false });
     if (data) setApplications(data);
@@ -72,6 +73,100 @@ export default function MyApplications() {
     };
   };
 
+  if (selectedApp) {
+    const app = selectedApp;
+    const job = app.jobs || {};
+    return (
+      <div style={container}>
+        <button style={backBtn} onClick={() => setSelectedApp(null)}>
+          ← Back to Applications
+        </button>
+
+        <div style={detailCard}>
+          <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "16px" }}>
+            <span style={{ fontSize: "36px" }}>{job.icon || "💼"}</span>
+            <div style={{ flex: 1 }}>
+              <h3 style={{ margin: 0, color: "#fff", fontSize: "18px", fontWeight: "800" }}>{job.title}</h3>
+              <p style={{ margin: "2px 0 0", fontSize: "13px", color: "rgba(255,255,255,0.5)" }}>
+                {job.company} • {job.location}
+              </p>
+            </div>
+            <span style={statusBadge(app.status)}>{app.status}</span>
+          </div>
+
+          {job.salary && (
+            <div style={detailRow}><strong>Salary:</strong> {job.salary}</div>
+          )}
+          {job.description && (
+            <div style={detailRow}><strong>Description:</strong> {job.description}</div>
+          )}
+          {job.requirements && job.requirements.length > 0 && (
+            <div style={detailRow}>
+              <strong>Requirements:</strong>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "4px" }}>
+                {job.requirements.map((r, i) => (
+                  <span key={i} style={reqTag}>{r}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div style={divider} />
+
+          <div style={detailRow}>
+            <strong>Application Status:</strong>{" "}
+            <span style={statusBadge(app.status)}>{app.status}</span>
+          </div>
+          <div style={detailRow}>
+            <strong>Applied:</strong> {new Date(app.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+          </div>
+          {app.score && (
+            <div style={detailRow}>
+              <strong>Match Score:</strong>{" "}
+              <span style={{ color: "#93c5fd", fontWeight: "700" }}>{app.score}%</span>
+            </div>
+          )}
+
+          <div style={divider} />
+
+          <h4 style={{ color: "#fff", fontSize: "14px", fontWeight: "700", margin: "0 0 12px" }}>Your Profile</h4>
+          <div style={detailRow}>
+            <strong>Skills:</strong> {profile?.skills || "Not set"}
+          </div>
+          <div style={detailRow}>
+            <strong>Bio:</strong> {profile?.bio || "Not set"}
+          </div>
+          {profile?.resume_url && (
+            <div style={detailRow}>
+              <strong>Resume:</strong>{" "}
+              <a href={profile.resume_url} target="_blank" rel="noreferrer" style={resumeLink}>
+                📄 View Resume ↗
+              </a>
+            </div>
+          )}
+
+          <div style={{ marginTop: "16px", display: "flex", gap: "8px" }}>
+            {app.status === "pending" && (
+              <span style={infoMsg}>⏳ Your application is under review.</span>
+            )}
+            {app.status === "reviewed" && (
+              <span style={infoMsg}>📋 Your application has been reviewed.</span>
+            )}
+            {app.status === "interviewed" && (
+              <span style={infoMsg}>🤝 You have been interviewed. Awaiting decision.</span>
+            )}
+            {app.status === "hired" && (
+              <span style={{ ...infoMsg, color: "#86efac" }}>🎉 Congratulations! You're hired!</span>
+            )}
+            {app.status === "rejected" && (
+              <span style={{ ...infoMsg, color: "#fca5a5" }}>💔 Unfortunately, your application was not selected.</span>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return <div style={{ padding: "5px" }}><SkeletonCard lines={2} /></div>;
   }
@@ -116,61 +211,24 @@ export default function MyApplications() {
                   </span>
                 )}
               </div>
-              {app.status === "rejected" && confirmingDelete === app.id ? (
-                <div style={{ display: "flex", gap: "8px", marginTop: "10px", alignItems: "center", justifyContent: "center" }}>
-                  <span style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)" }}>Remove this application?</span>
-                  <button
-                    onClick={() => handleDelete(app.id)}
-                    style={{
-                      padding: "6px 14px", fontSize: "12px", fontWeight: "700",
-                      background: "#ef4444", color: "#fff", border: "none",
-                      borderRadius: "8px", cursor: "pointer",
-                    }}
-                  >
-                    Yes, Delete
-                  </button>
-                  <button
-                    onClick={() => setConfirmingDelete(null)}
-                    style={{
-                      padding: "6px 14px", fontSize: "12px", fontWeight: "600",
-                      background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.15)",
-                      borderRadius: "8px", cursor: "pointer",
-                    }}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              ) : app.status === "rejected" ? (
-                <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
-                  <button
-                    onClick={() => handleReapply(app)}
-                    style={{
-                      flex: 1, padding: "8px", fontSize: "12px", fontWeight: "700",
-                      background: "linear-gradient(135deg, #4a90e2, #1a73e8)", color: "#fff", border: "none",
-                      borderRadius: "8px", cursor: "pointer", boxShadow: "0 4px 16px rgba(26,115,232,0.3)",
-                    }}
-                  >
-                    🔄 Apply Again
-                  </button>
-                  <button
-                    onClick={() => setConfirmingDelete(app.id)}
-                    style={{
-                      padding: "8px 14px", fontSize: "12px", fontWeight: "700",
-                      background: "rgba(239,68,68,0.2)", color: "#fca5a5", border: "1px solid rgba(239,68,68,0.3)",
-                      borderRadius: "8px", cursor: "pointer",
-                    }}
-                  >
-                    🗑️ Delete
-                  </button>
-                </div>
-              ) : null}
+              <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+                <button onClick={() => setSelectedApp(app)} style={viewBtn}>
+                  👁️ View Details
+                </button>
+                {app.status === "rejected" && confirmingDelete === app.id ? (
+                  <div style={{ display: "flex", gap: "8px", flex: 1 }}>
+                    <button onClick={() => handleDelete(app.id)} style={deleteConfirmBtn}>Yes, Delete</button>
+                    <button onClick={() => setConfirmingDelete(null)} style={cancelBtn}>Cancel</button>
+                  </div>
+                ) : app.status === "rejected" ? (
+                  <>
+                    <button onClick={() => handleReapply(app)} style={reapplyBtn}>🔄 Apply Again</button>
+                    <button onClick={() => setConfirmingDelete(app.id)} style={deleteBtn}>🗑️</button>
+                  </>
+                ) : null}
+              </div>
               {app.status === "hired" && (
-                <div style={{
-                  marginTop: "10px", fontSize: "12px", color: "#86efac",
-                  fontWeight: "600", textAlign: "center",
-                }}>
-                  ✅ You're hired for this position!
-                </div>
+                <div style={hiredMsg}>✅ You're hired for this position!</div>
               )}
             </div>
           ))}
@@ -188,3 +246,44 @@ const card = {
 };
 const cardTop = { display: "flex", alignItems: "center", gap: "14px" };
 const cardBottom = { display: "flex", justifyContent: "space-between", marginTop: "12px", paddingTop: "10px", borderTop: "1px solid rgba(255,255,255,0.08)" };
+const backBtn = { background: "none", border: "none", color: "#93c5fd", cursor: "pointer", fontSize: "13px", fontWeight: "600", padding: 0, marginBottom: "16px" };
+const detailCard = {
+  backgroundColor: "rgba(255,255,255,0.06)", borderRadius: radii.lg, padding: "24px",
+  border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(12px)",
+};
+const detailRow = { fontSize: "13px", color: "rgba(255,255,255,0.85)", lineHeight: "1.6", marginBottom: "10px" };
+const divider = { height: "1px", backgroundColor: "rgba(255,255,255,0.08)", margin: "16px 0" };
+const reqTag = {
+  fontSize: "11px", padding: "3px 8px", borderRadius: "6px",
+  backgroundColor: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)", fontWeight: "500",
+};
+const resumeLink = { color: "#93c5fd", fontSize: "13px", fontWeight: "600", textDecoration: "none" };
+const infoMsg = { fontSize: "13px", fontWeight: "600", color: "#fbbf24" };
+const viewBtn = {
+  flex: 1, padding: "8px", fontSize: "12px", fontWeight: "700",
+  background: "rgba(74,144,226,0.2)", color: "#93c5fd", border: "1px solid rgba(74,144,226,0.3)",
+  borderRadius: "8px", cursor: "pointer",
+};
+const reapplyBtn = {
+  flex: 1, padding: "8px", fontSize: "12px", fontWeight: "700",
+  background: "linear-gradient(135deg, #4a90e2, #1a73e8)", color: "#fff", border: "none",
+  borderRadius: "8px", cursor: "pointer", boxShadow: "0 4px 16px rgba(26,115,232,0.3)",
+};
+const deleteBtn = {
+  padding: "8px 12px", fontSize: "12px", fontWeight: "700",
+  background: "rgba(239,68,68,0.2)", color: "#fca5a5", border: "1px solid rgba(239,68,68,0.3)",
+  borderRadius: "8px", cursor: "pointer",
+};
+const deleteConfirmBtn = {
+  flex: 1, padding: "8px 14px", fontSize: "12px", fontWeight: "700",
+  background: "#ef4444", color: "#fff", border: "none", borderRadius: "8px", cursor: "pointer",
+};
+const cancelBtn = {
+  padding: "8px 14px", fontSize: "12px", fontWeight: "600",
+  background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.15)",
+  borderRadius: "8px", cursor: "pointer",
+};
+const hiredMsg = {
+  marginTop: "10px", fontSize: "12px", color: "#86efac",
+  fontWeight: "600", textAlign: "center",
+};
