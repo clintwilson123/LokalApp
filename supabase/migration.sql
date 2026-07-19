@@ -48,15 +48,39 @@ CREATE TABLE IF NOT EXISTS notifications (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS interviews (
+  id SERIAL PRIMARY KEY,
+  application_id INT REFERENCES applications(id) ON DELETE CASCADE,
+  date DATE,
+  time TIME,
+  location TEXT,
+  instructions TEXT,
+  status TEXT DEFAULT 'scheduled'
+);
+
+CREATE TABLE IF NOT EXISTS activities (
+  id SERIAL PRIMARY KEY,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  action TEXT,
+  ip TEXT,
+  device TEXT,
+  location TEXT,
+  type TEXT DEFAULT 'info',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- 2. ADD MISSING COLUMNS (safe if exist)
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS bio TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS preferences JSONB DEFAULT '{}';
 
 -- 3. ENABLE RLS
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE applications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE interviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE activities ENABLE ROW LEVEL SECURITY;
 
 -- 4. SECURITY DEFINER FUNCTIONS (bypass RLS)
 CREATE OR REPLACE FUNCTION is_admin()
@@ -223,6 +247,51 @@ CREATE POLICY "System can insert notifications"
   ON notifications FOR INSERT
   WITH CHECK (true);
 
+-- INTERVIEWS
+DROP POLICY IF EXISTS "Users can read own interviews" ON interviews;
+DROP POLICY IF EXISTS "Admins can read all interviews" ON interviews;
+DROP POLICY IF EXISTS "Admins can manage interviews" ON interviews;
+DROP POLICY IF EXISTS "Admins can update interviews" ON interviews;
+
+CREATE POLICY "Users can read own interviews"
+  ON interviews FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM applications
+      WHERE applications.id = interviews.application_id
+      AND applications.user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Admins can read all interviews"
+  ON interviews FOR SELECT
+  USING (is_admin());
+
+CREATE POLICY "Admins can manage interviews"
+  ON interviews FOR INSERT
+  WITH CHECK (is_admin());
+
+CREATE POLICY "Admins can update interviews"
+  ON interviews FOR UPDATE
+  USING (is_admin());
+
+-- ACTIVITIES
+DROP POLICY IF EXISTS "Users can read own activities" ON activities;
+DROP POLICY IF EXISTS "Admins can read all activities" ON activities;
+DROP POLICY IF EXISTS "System can insert activities" ON activities;
+
+CREATE POLICY "Users can read own activities"
+  ON activities FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Admins can read all activities"
+  ON activities FOR SELECT
+  USING (is_admin());
+
+CREATE POLICY "System can insert activities"
+  ON activities FOR INSERT
+  WITH CHECK (true);
+
 -- JOBS
 DROP POLICY IF EXISTS "Anyone can read jobs" ON jobs;
 DROP POLICY IF EXISTS "Admins can insert jobs" ON jobs;
@@ -280,9 +349,9 @@ DO $$
 DECLARE
   user_uuid UUID;
 BEGIN
-  SELECT id INTO user_uuid FROM auth.users WHERE email = 'clintwilson.gonzales24@gmail.com';
+  SELECT id INTO user_uuid FROM auth.users WHERE email = 'admin@gmail.com';
   IF user_uuid IS NULL THEN
-    RAISE EXCEPTION 'Admin email not found in auth.users. Create the user in Authentication → Users first.';
+    RAISE EXCEPTION 'Admin email not found. First create admin@gmail.com with password admin123 in Authentication → Users, then re-run.';
   END IF;
 
   DELETE FROM notifications WHERE user_id = user_uuid;
@@ -330,4 +399,4 @@ CREATE POLICY "Users can update their own files"
 SELECT p.id::text, p.full_name, p.role, p.status, au.email
 FROM profiles p
 JOIN auth.users au ON au.id = p.id
-WHERE au.email = 'clintwilson.gonzales24@gmail.com';
+WHERE au.email = 'admin@gmail.com';
