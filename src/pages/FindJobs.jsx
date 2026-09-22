@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { colors, radii } from "../uiStyles";
@@ -12,16 +12,33 @@ export default function FindJobs() {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [jobSlots, setJobSlots] = useState({});
 
-  const fetchJobs = async () => {
+  const fetchJobs = useCallback(async () => {
     const { data } = await supabase.from("jobs").select("*").order("created_at", { ascending: false });
-    if (data) setJobs(data);
+    if (data) {
+      setJobs(data);
+      const jobIds = data.map(j => j.id);
+      if (jobIds.length > 0) {
+        const { data: appCounts } = await supabase
+          .from("applications")
+          .select("job_id")
+          .in("job_id", jobIds)
+          .neq("status", "rejected");
+        const slots = {};
+        jobIds.forEach(id => { slots[id] = 0; });
+        if (appCounts) {
+          appCounts.forEach(a => { slots[a.job_id] = (slots[a.job_id] || 0) + 1; });
+        }
+        setJobSlots(slots);
+      }
+    }
     setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
     fetchJobs();
-  }, []);
+  }, [fetchJobs]);
 
   const filtered = jobs.filter(j =>
     !search || j.title.toLowerCase().includes(search.toLowerCase()) || j.description?.toLowerCase().includes(search.toLowerCase())
@@ -80,18 +97,28 @@ export default function FindJobs() {
                 <p style={descText}>
                   {job.description?.length > 100 ? job.description.slice(0, 100) + "..." : job.description}
                 </p>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "auto" }}>
-                  {job.requirements?.slice(0, 3).map((r, i) => (
-                    <span key={i} style={reqChip}>{r}</span>
-                  ))}
-                  {(job.requirements?.length || 0) > 3 && (
-                    <span style={{ ...reqChip, backgroundColor: "rgba(74,144,226,0.2)", color: "#93c5fd" }}>
-                      +{job.requirements.length - 3}
-                    </span>
-                  )}
-                </div>
+                {/* Slot availability */}
+                {job.max_applicants > 0 && (
+                  <div style={{ marginBottom: "10px" }}>
+                    {(() => {
+                      const filled = jobSlots[job.id] || 0;
+                      const remaining = Math.max(0, job.max_applicants - filled);
+                      const isFull = remaining === 0;
+                      return (
+                        <span style={{
+                          fontSize: "11px", fontWeight: "600", padding: "3px 10px", borderRadius: "20px",
+                          backgroundColor: isFull ? "rgba(239,68,68,0.2)" : "rgba(34,197,94,0.2)",
+                          color: isFull ? "#fca5a5" : "#86efac",
+                        }}>
+                          {isFull ? "Position Filled" : `${remaining} slot${remaining !== 1 ? "s" : ""} left`}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                )}
+                {/* Skill match */}
                 {profile?.skills && job.requirements?.length > 0 && (
-                  <div style={{ marginTop: "10px" }}>
+                  <div style={{ marginTop: "auto" }}>
                     {(() => {
                       const match = computeSkillMatch(profile.skills, job.requirements);
                       const color = match.score >= 70 ? colors.success : match.score >= 40 ? colors.warning : colors.danger;
@@ -155,8 +182,4 @@ const detailChip = {
 };
 const descText = {
   color: "rgba(255,255,255,0.6)", fontSize: "13px", lineHeight: "1.5", margin: "0 0 12px 0", flex: 1,
-};
-const reqChip = {
-  fontSize: "11px", padding: "3px 8px", borderRadius: "6px",
-  backgroundColor: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)", fontWeight: "500",
 };

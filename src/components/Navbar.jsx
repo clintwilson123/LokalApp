@@ -13,7 +13,7 @@ export default function Navbar() {
   return (
     <nav className="navbar">
       <Link to="/" className="navbar-logo">
-        Lok<span>al</span>
+        CJ<span>Link</span>
       </Link>
 
       <div className="navbar-links">
@@ -45,7 +45,7 @@ export default function Navbar() {
         ) : (
           <>
             <Link to="/login" className="navbar-link">Login</Link>
-            <Link to="/login" className="navbar-cta">Get Started →</Link>
+            <Link to="/signup" className="navbar-cta">Get Started →</Link>
           </>
         )}
       </div>

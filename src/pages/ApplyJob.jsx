@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
@@ -15,8 +15,12 @@ export default function ApplyJob() {
   const [applied, setApplied] = useState(false);
   const [message, setMessage] = useState("");
   const [existingApp, setExistingApp] = useState(null);
+  const [applicantCount, setApplicantCount] = useState(0);
+  const [hiringPolicy, setHiringPolicy] = useState(null);
+  const [policyAcknowledged, setPolicyAcknowledged] = useState(false);
+  const [showPolicyModal, setShowPolicyModal] = useState(false);
 
-  const fetchJob = async () => {
+  const fetchJob = useCallback(async () => {
     const { data } = await supabase
       .from("jobs")
       .select("*")
@@ -24,9 +28,9 @@ export default function ApplyJob() {
       .single();
     setJob(data);
     setLoading(false);
-  };
+  }, [jobId]);
 
-  const checkIfApplied = async () => {
+  const checkIfApplied = useCallback(async () => {
     if (!user) return;
     const { data } = await supabase
       .from("applications")
@@ -36,16 +40,65 @@ export default function ApplyJob() {
       .maybeSingle();
     if (data && data.status !== "rejected") setApplied(true);
     if (data) setExistingApp(data);
-  };
+
+    const { count } = await supabase
+      .from("applications")
+      .select("*", { count: "exact", head: true })
+      .eq("job_id", jobId)
+      .neq("status", "rejected");
+    setApplicantCount(count || 0);
+
+    const { data: policy } = await supabase
+      .from("hiring_policy")
+      .select("id, policy_text, requires_acknowledgment")
+      .limit(1)
+      .maybeSingle();
+    if (policy) {
+      setHiringPolicy(policy);
+      const { data: ack } = await supabase
+        .from("hiring_policy_acknowledgments")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("policy_id", policy.id)
+        .maybeSingle();
+      setPolicyAcknowledged(!!ack);
+    } else {
+      setPolicyAcknowledged(true);
+    }
+  }, [user, jobId]);
 
   useEffect(() => {
     fetchJob();
     checkIfApplied();
-  }, [jobId]);
+  }, [fetchJob, checkIfApplied]);
+
+  async function handleAcknowledgePolicy() {
+    if (!hiringPolicy || !user) return;
+    const { error } = await supabase.from("hiring_policy_acknowledgments").insert({
+      user_id: user.id,
+      policy_id: hiringPolicy.id,
+    });
+    if (!error) {
+      setPolicyAcknowledged(true);
+      setShowPolicyModal(false);
+    }
+  }
 
   async function handleApply() {
     setApplying(true);
     setMessage("");
+
+    if (job.max_applicants > 0 && applicantCount >= job.max_applicants) {
+      setMessage("Sorry, this position has been filled.");
+      setApplying(false);
+      return;
+    }
+
+    if (hiringPolicy && hiringPolicy.requires_acknowledgment && !policyAcknowledged) {
+      setShowPolicyModal(true);
+      setApplying(false);
+      return;
+    }
 
     if (existingApp?.status === "rejected") {
       const { error } = await supabase
@@ -134,6 +187,23 @@ export default function ApplyJob() {
         </p>
       )}
 
+      {showPolicyModal && hiringPolicy && (
+        <div style={modalOverlay}>
+          <div style={modalContent}>
+            <h3 style={{ color: "#fff", fontSize: "18px", fontWeight: "700", marginBottom: "12px" }}>
+              Hiring Policy Acknowledgment
+            </h3>
+            <p style={{ color: "rgba(255,255,255,0.7)", fontSize: "13px", lineHeight: "1.6", marginBottom: "16px" }}>
+              {hiringPolicy.policy_text}
+            </p>
+            <div style={{ display: "flex", gap: "10px" }}>
+              <button onClick={() => setShowPolicyModal(false)} style={cancelBtnStyle}>Cancel</button>
+              <button onClick={handleAcknowledgePolicy} style={ackBtnStyle}>I Acknowledge & Agree</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {applied ? (
         <div style={{ textAlign: "center", padding: "60px 40px" }}>
           <svg width="56" height="56" viewBox="0 0 56 56" style={{ marginBottom: "12px" }}>
@@ -204,13 +274,28 @@ export default function ApplyJob() {
                 </div>
 
                 <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", marginTop: "14px", paddingTop: "14px" }}>
+                  {job.max_applicants > 0 && (
+                    <p style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)", marginBottom: "10px", textAlign: "center" }}>
+                      {applicantCount}/{job.max_applicants} slots filled
+                    </p>
+                  )}
                   {profileComplete ? (
                     <button
-                      style={{ width: "100%", padding: "12px", fontSize: "14px", background: "linear-gradient(135deg, #4a90e2, #1a73e8)", color: "#fff", border: "none", borderRadius: "10px", fontWeight: "700", cursor: "pointer", boxShadow: "0 4px 16px rgba(26,115,232,0.3)" }}
+                      style={{
+                        width: "100%", padding: "12px", fontSize: "14px",
+                        background: (job.max_applicants > 0 && applicantCount >= job.max_applicants)
+                          ? "rgba(255,255,255,0.1)" : "linear-gradient(135deg, #4a90e2, #1a73e8)",
+                        color: "#fff", border: "none", borderRadius: "10px", fontWeight: "700",
+                        cursor: (job.max_applicants > 0 && applicantCount >= job.max_applicants) ? "not-allowed" : "pointer",
+                        boxShadow: (job.max_applicants > 0 && applicantCount >= job.max_applicants) ? "none" : "0 4px 16px rgba(26,115,232,0.3)",
+                        opacity: (job.max_applicants > 0 && applicantCount >= job.max_applicants) ? 0.5 : 1,
+                      }}
                       onClick={handleApply}
-                      disabled={applying}
+                      disabled={applying || (job.max_applicants > 0 && applicantCount >= job.max_applicants)}
                     >
-                      {applying ? "Submitting..." : "Apply Now"}
+                      {applying ? "Submitting..."
+                        : (job.max_applicants > 0 && applicantCount >= job.max_applicants) ? "Position Filled"
+                        : "Apply Now"}
                     </button>
                   ) : (
                     <>
@@ -241,3 +326,7 @@ const summaryCard = { backgroundColor: "rgba(255,255,255,0.06)", padding: "20px"
 const summaryRow = { display: "flex", justifyContent: "space-between", marginBottom: "10px", fontSize: "13px" };
 const summaryLabel = { color: "rgba(255,255,255,0.5)" };
 const summaryValue = { color: "rgba(255,255,255,0.85)", fontWeight: "500", textAlign: "right", maxWidth: "60%" };
+const modalOverlay = { position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" };
+const modalContent = { backgroundColor: "rgba(15,23,42,0.95)", borderRadius: "18px", width: "100%", maxWidth: "500px", padding: "24px", border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(24px)" };
+const cancelBtnStyle = { flex: 1, padding: "10px", backgroundColor: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "8px", cursor: "pointer", fontWeight: "600", fontSize: "13px" };
+const ackBtnStyle = { flex: 1, padding: "10px", background: "linear-gradient(135deg, #4a90e2, #1a73e8)", color: "#fff", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "700", fontSize: "13px", boxShadow: "0 4px 16px rgba(26,115,232,0.3)" };

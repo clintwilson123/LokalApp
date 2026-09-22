@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { colors, radii, dashTable, dashTh, dashTd, dashRow, dashGrid } from "../uiStyles";
 import { SkeletonTable } from "../components/Skeleton";
@@ -26,7 +26,11 @@ export default function ManageJobs() {
     description: "",
     requirements: "",
     icon: "💼",
+    max_applicants: 0,
   });
+
+  const [showInterviewModal, setShowInterviewModal] = useState(false);
+  const [interviewForm, setInterviewForm] = useState({ application_id: null, date: "", time: "", location: "", instructions: "" });
 
   const fetchJobs = async () => {
     const { data } = await supabase.from("jobs").select("*").order("created_at", { ascending: false });
@@ -63,7 +67,6 @@ export default function ManageJobs() {
     for (let i = 0; i < list.length; i++) {
       const p = list[i];
       setAnalyzeProgress({ current: i + 1, total: list.length, name: p.full_name || "Unnamed" });
-      await new Promise((r) => setTimeout(r, 700));
 
       const app = apps.find((a) => a.user_id === p.id);
       ranked.push({ ...p, application: app, match: await aiSkillMatch(p.skills, requirements, title) });
@@ -87,6 +90,7 @@ export default function ManageJobs() {
       description: "",
       requirements: "",
       icon: "💼",
+      max_applicants: 0,
     });
     setEditing(null);
     setShowForm(false);
@@ -101,6 +105,7 @@ export default function ManageJobs() {
       description: job.description || "",
       requirements: job.requirements?.join(", ") || "",
       icon: job.icon || "💼",
+      max_applicants: job.max_applicants || 0,
     });
     setEditing(job.id);
     setShowForm(true);
@@ -157,6 +162,26 @@ export default function ManageJobs() {
     }
   }
 
+  async function handleScheduleInterview() {
+    const { application_id, date, time, location, instructions } = interviewForm;
+    if (!date || !time || !location) return;
+
+    const { error } = await supabase.from("interviews").insert({
+      application_id,
+      date,
+      time,
+      location,
+      instructions,
+      status: "scheduled",
+    });
+    if (!error) {
+      await supabase.from("applications").update({ status: "interview_scheduled" }).eq("id", application_id);
+      setShowInterviewModal(false);
+      setInterviewForm({ application_id: null, date: "", time: "", location: "", instructions: "" });
+      fetchApplicantsForJob(viewingJob.id);
+    }
+  }
+
   const msg = (text) => {
     const ok = text.includes("success") || text.includes("updated") || text.includes("deleted") || text.includes("created");
     return {
@@ -173,6 +198,7 @@ export default function ManageJobs() {
         <button style={backBtn} onClick={() => { setViewingJob(null); setApplicants([]); }}>
           ← Back to Jobs
         </button>
+
         <h2 style={{ fontSize: "20px", color: "#fff", fontWeight: "800", margin: "16px 0 4px" }}>
           {job.icon} {job.title}
         </h2>
@@ -260,6 +286,7 @@ export default function ManageJobs() {
         <button style={backBtn} onClick={() => setSelectedApplicant(null)}>
           ← Back to applicants
         </button>
+
         <div style={detailCard}>
           <h3 style={{ color: "#fff", marginBottom: "8px" }}>{a.full_name || "Unnamed"}</h3>
           <div style={scoreLarge}>
@@ -301,19 +328,47 @@ export default function ManageJobs() {
                 textTransform: "capitalize", fontWeight: "600",
                 color: a.application?.status === "hired" ? "#86efac" : a.application?.status === "rejected" ? "#fca5a5" : "#fbbf24",
               }}>
-                {a.application?.status || "pending"}
+                {a.application?.status?.replace("_", " ") || "pending"}
               </span>
             </div>
-            {a.application?.status === "pending" && (
-              <div style={{ display: "flex", gap: "10px", marginTop: "4px" }}>
-                <button onClick={() => updateApplicantStatus(a.application.id, "hired")} style={{
-                  flex: 1, padding: "10px", backgroundColor: "#22c55e", color: "#fff", border: "none",
-                  borderRadius: "8px", fontWeight: "700", fontSize: "13px", cursor: "pointer",
-                }}>Hire</button>
+            {a.application?.status !== "hired" && a.application?.status !== "rejected" && (
+              <div style={{ display: "flex", gap: "8px", marginTop: "4px", flexWrap: "wrap" }}>
+                {a.application?.status === "pending" && (
+                  <button onClick={() => updateApplicantStatus(a.application.id, "reviewed")} style={{
+                    flex: 1, padding: "8px", backgroundColor: "#4a90e2", color: "#fff", border: "none",
+                    borderRadius: "8px", fontWeight: "700", fontSize: "12px", cursor: "pointer",
+                  }}>Review</button>
+                )}
+                {a.application?.status === "reviewed" && (
+                  <button onClick={() => updateApplicantStatus(a.application.id, "accepted")} style={{
+                    flex: 1, padding: "8px", backgroundColor: "#22c55e", color: "#fff", border: "none",
+                    borderRadius: "8px", fontWeight: "700", fontSize: "12px", cursor: "pointer",
+                  }}>Accept</button>
+                )}
+                {a.application?.status === "interview_scheduled" && (
+                  <button onClick={() => updateApplicantStatus(a.application.id, "accepted")} style={{
+                    flex: 1, padding: "8px", backgroundColor: "#22c55e", color: "#fff", border: "none",
+                    borderRadius: "8px", fontWeight: "700", fontSize: "12px", cursor: "pointer",
+                  }}>Accept</button>
+                )}
+                {a.application?.status === "accepted" && (
+                  <button onClick={() => updateApplicantStatus(a.application.id, "hired")} style={{
+                    flex: 1, padding: "8px", backgroundColor: "#22c55e", color: "#fff", border: "none",
+                    borderRadius: "8px", fontWeight: "700", fontSize: "12px", cursor: "pointer",
+                  }}>Hire</button>
+                )}
                 <button onClick={() => updateApplicantStatus(a.application.id, "rejected")} style={{
-                  flex: 1, padding: "10px", backgroundColor: "#ef4444", color: "#fff", border: "none",
-                  borderRadius: "8px", fontWeight: "700", fontSize: "13px", cursor: "pointer",
+                  flex: 1, padding: "8px", backgroundColor: "#ef4444", color: "#fff", border: "none",
+                  borderRadius: "8px", fontWeight: "700", fontSize: "12px", cursor: "pointer",
                 }}>Reject</button>
+              </div>
+            )}
+            {(a.application?.status === "reviewed" || a.application?.status === "pending" || a.application?.status === "interview_scheduled") && (
+              <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
+                <button onClick={() => { setInterviewForm({ ...interviewForm, application_id: a.application.id }); setShowInterviewModal(true); }} style={{
+                  flex: 1, padding: "10px", backgroundColor: "rgba(139,92,246,0.2)", color: "#c4b5fd",
+                  border: "1px solid rgba(139,92,246,0.3)", borderRadius: "8px", fontWeight: "700", fontSize: "13px", cursor: "pointer",
+                }}>{a.application?.status === "interview_scheduled" ? "Reschedule Interview" : "Schedule Interview"}</button>
               </div>
             )}
             {a.match?.matchedItems?.length > 0 && (
@@ -344,6 +399,50 @@ export default function ManageJobs() {
 
   return (
     <div style={container}>
+      {/* Interview Scheduling Modal */}
+      {showInterviewModal && (
+        <div style={formOverlay}>
+          <div style={formModal}>
+            <div style={formHeader}>
+              <h3 style={{ margin: 0, color: "#fff" }}>Schedule Interview</h3>
+              <button onClick={() => setShowInterviewModal(false)} style={closeBtn}>✕</button>
+            </div>
+            <div style={formBody}>
+              <div style={fieldGroup}>
+                <label style={label}>Date *</label>
+                <input style={input} type="date" value={interviewForm.date}
+                  onChange={(e) => setInterviewForm({ ...interviewForm, date: e.target.value })} />
+              </div>
+              <div style={fieldGroup}>
+                <label style={label}>Time *</label>
+                <input style={input} type="time" value={interviewForm.time}
+                  onChange={(e) => setInterviewForm({ ...interviewForm, time: e.target.value })} />
+              </div>
+              <div style={fieldGroup}>
+                <label style={label}>Location *</label>
+                <select style={input} value={interviewForm.location}
+                  onChange={(e) => setInterviewForm({ ...interviewForm, location: e.target.value })}>
+                  <option value="">Select location</option>
+                  <option value="Shop">Shop</option>
+                  <option value="Office">Office</option>
+                  <option value="Business Address">Business Address</option>
+                </select>
+              </div>
+              <div style={fieldGroup}>
+                <label style={label}>Instructions</label>
+                <textarea style={{ ...input, minHeight: "60px" }} value={interviewForm.instructions}
+                  onChange={(e) => setInterviewForm({ ...interviewForm, instructions: e.target.value })}
+                  placeholder="Any additional instructions for the applicant..." />
+              </div>
+            </div>
+            <div style={formFooter}>
+              <button onClick={() => setShowInterviewModal(false)} style={cancelBtn}>Cancel</button>
+              <button onClick={handleScheduleInterview} style={saveBtn}>Schedule</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={headerRow}>
         <div>
           <h2 style={{ fontSize: "20px", color: "#fff", fontWeight: "800", margin: "0 0 4px" }}>Manage Jobs</h2>
@@ -405,6 +504,12 @@ export default function ManageJobs() {
                 <label style={label}>Requirements (comma-separated)</label>
                 <textarea style={{ ...input, minHeight: "60px", resize: "vertical" }} value={form.requirements} onChange={(e) => setForm({ ...form, requirements: e.target.value })} placeholder="e.g. High school graduate, Good communication, Basic math" />
               </div>
+              <div style={fieldGroup}>
+                <label style={label}>Maximum Applicants (0 = unlimited)</label>
+                <input style={input} type="number" min="0" value={form.max_applicants}
+                  onChange={(e) => setForm({ ...form, max_applicants: parseInt(e.target.value) || 0 })}
+                  placeholder="0 for unlimited" />
+              </div>
             </div>
             <div style={formFooter}>
               <button onClick={resetForm} style={cancelBtn}>Cancel</button>
@@ -456,8 +561,13 @@ function JobRow({ job, onEdit, onDelete, onViewApplicants }) {
       .from("applications")
       .select("*", { count: "exact", head: true })
       .eq("job_id", job.id)
+      .neq("status", "rejected")
       .then(({ count }) => setAppCount(count ?? 0));
   }, [job.id]);
+
+  const maxApps = job.max_applicants || 0;
+  const filled = appCount ?? 0;
+  const isFull = maxApps > 0 && filled >= maxApps;
 
   return (
     <tr style={dashRow}>
@@ -466,7 +576,16 @@ function JobRow({ job, onEdit, onDelete, onViewApplicants }) {
       <td style={dashTd}>{job.company}</td>
       <td style={dashTd}>{job.location}</td>
       <td style={{ ...dashTd, fontSize: "12px" }}>{job.salary || "—"}</td>
-      <td style={{ ...dashTd, textAlign: "center" }}>{appCount ?? "—"}</td>
+      <td style={{ ...dashTd, textAlign: "center" }}>
+        {maxApps > 0 ? (
+          <span style={{
+            fontSize: "12px", fontWeight: "600",
+            color: isFull ? "#fca5a5" : "#86efac",
+          }}>
+            {filled}/{maxApps}
+          </span>
+        ) : (filled ?? "—")}
+      </td>
       <td style={dashTd}>
         <div style={{ display: "flex", gap: "6px" }}>
           <button style={viewBtn} onClick={() => onViewApplicants(job)}>Applicants</button>

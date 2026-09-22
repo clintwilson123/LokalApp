@@ -46,7 +46,7 @@ doc.add_paragraph()
 
 p = doc.add_paragraph()
 p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-run = p.add_run('Lokal: A Web Application for Online Hiring and Applicant Management for CJTECH Computer Trading')
+run = p.add_run('CJLink: A Web Application for Online Hiring and Applicant Management for CJTECH Computer Trading')
 run.bold = True
 run.font.size = Pt(16)
 run.font.italic = True
@@ -82,7 +82,7 @@ doc.add_heading('1. Introduction', level=1)
 
 doc.add_heading('1.1 Purpose', level=2)
 doc.add_paragraph(
-    'The purpose of this Software Requirements Specification (SRS) is to provide a detailed overview of Lokal, '
+    'The purpose of this Software Requirements Specification (SRS) is to provide a detailed overview of CJLink, '
     'a web application built for online hiring and applicant management at CJTECH Computer Trading. '
     'This document lays out the functional and non-functional requirements that guided the development, '
     'testing, and deployment of the system. It serves as a reference for developers, testers, project advisers, '
@@ -92,7 +92,7 @@ doc.add_paragraph(
 
 doc.add_heading('1.2 Scope', level=2)
 doc.add_paragraph(
-    'Lokal is a web-based application that streamlines and modernizes the way CJTECH Computer Trading handles '
+    'CJLink is a web-based application that streamlines and modernizes the way CJTECH Computer Trading handles '
     'recruitment. Job seekers can browse open positions and submit applications online, while administrators '
     'manage job postings, review applicants, and track recruitment activity through a centralized dashboard.'
 )
@@ -137,7 +137,7 @@ for i, h in enumerate(headers):
             run.bold = True
 
 terms = [
-    ('Lokal', 'The web-based hiring and applicant management system developed for CJTECH Computer Trading.'),
+    ('CJLink', 'The web-based hiring and applicant management system developed for CJTECH Computer Trading.'),
     ('User', 'Any person using the system, including applicants and administrators.'),
     ('Applicant', 'An individual seeking employment who applies for job vacancies through the system.'),
     ('Admin', 'A user with administrative privileges to manage jobs, applicants, and system records.'),
@@ -174,7 +174,7 @@ doc.add_heading('2. Overall Description', level=1)
 
 doc.add_heading('2.1 Product Perspective', level=2)
 doc.add_paragraph(
-    'Lokal is a standalone web application built with React and Vite on the frontend, and Supabase (which provides '
+    'CJLink is a standalone web application built with React and Vite on the frontend, and Supabase (which provides '
     'PostgreSQL, authentication, and storage) on the backend. The AI matching feature uses the Google Gemini API '
     'with a built-in fallback to basic substring matching so the app still works even if the API key expires or '
     'the network is down.'
@@ -292,7 +292,7 @@ doc.add_heading('3.1 External Interface Requirements', level=2)
 
 doc.add_heading('3.1.1 Hardware Interfaces', level=3)
 doc.add_paragraph(
-    'Lokal is designed to run on standard web infrastructure with minimal hardware demands. '
+    'CJLink is designed to run on standard web infrastructure with minimal hardware demands. '
     'The system is hosted on Supabase\'s cloud servers, so no on-premise hardware is required. '
     'End users only need a device with a modern web browser and an internet connection.'
 )
@@ -580,5 +580,5 @@ doc.add_paragraph(
 )
 
 # Save
-doc.save('C:\\Users\\admin\\LokalApp\\SRS_Lokal.docx')
-print("SRS document generated: SRS_Lokal.docx")
+doc.save('C:\\Users\\admin\\CJLinkApp\\SRS_CJLink.docx')
+print("SRS document generated: SRS_CJLink.docx")

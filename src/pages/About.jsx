@@ -48,9 +48,8 @@ export default function About() {
         <section style={heroSection}>
           <div style={heroBg} />
           <div style={{ position: "relative", zIndex: 1 }}>
-            <div style={badge}>🚀 Capstone Project</div>
             <h1 style={heroTitle}>
-              About <span style={{ color: "#fff" }}>Lokal</span>
+              About <span style={{ color: "#fff" }}>CJLink</span>
             </h1>
             <p style={heroDesc}>
               A modern job portal powered by AI — connecting local talent
@@ -93,7 +92,7 @@ export default function About() {
         <section style={sectionPadding}>
           <div style={sectionLabel}>OUR TEAM</div>
           <h2 style={sectionTitle}>Meet the Developers</h2>
-          <p style={sectionSub}>The people behind Lokal</p>
+          <p style={sectionSub}>The people behind CJLink</p>
           <div style={teamGrid}>
             {team.map((m, i) => (
               <div key={i} style={teamCard}>
@@ -132,10 +131,10 @@ export default function About() {
             Ready to Get Started?
           </h2>
           <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "14px", margin: "0 0 28px", maxWidth: "400px", marginLeft: "auto", marginRight: "auto" }}>
-            Join Lokal today and take the next step in your career or find your next top performer.
+            Join CJLink today and take the next step in your career or find your next top performer.
           </p>
           <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap" }}>
-            <button style={btnPrimary} onClick={() => navigate("/roles")}>Get Started →</button>
+            <button style={btnPrimary} onClick={() => navigate("/signup")}>Get Started →</button>
             <button style={btnSecondary} onClick={() => navigate("/")}>Back to Home</button>
           </div>
         </section>
@@ -169,10 +168,6 @@ const heroBg = {
   background: `linear-gradient(135deg, ${colors.primaryDark}, ${colors.navy})`,
   borderRadius: "32px",
   opacity: 0.9,
-};
-const badge = {
-  display: "inline-block", fontSize: "12px", fontWeight: "700", color: colors.navy,
-  backgroundColor: "rgba(255,255,255,0.95)", padding: "6px 14px", borderRadius: "20px", marginBottom: "16px",
 };
 const heroTitle = { fontSize: "38px", fontWeight: "800", color: "#fff", margin: "0 0 12px" };
 const heroDesc = {

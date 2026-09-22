@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
 import { radii } from "../uiStyles";
@@ -11,12 +11,8 @@ export default function MyApplications() {
   const [confirmingDelete, setConfirmingDelete] = useState(null);
   const [selectedApp, setSelectedApp] = useState(null);
 
-  useEffect(() => {
+  const fetchApplications = useCallback(async () => {
     if (!user) return;
-    fetchApplications();
-  }, [user]);
-
-  async function fetchApplications() {
     const { data } = await supabase
       .from("applications")
       .select("id, job_id, status, score, created_at, jobs(title, company, location, icon, description, salary, requirements)")
@@ -24,7 +20,11 @@ export default function MyApplications() {
       .order("created_at", { ascending: false });
     if (data) setApplications(data);
     setLoading(false);
-  }
+  }, [user]);
+
+  useEffect(() => {
+    fetchApplications();
+  }, [fetchApplications]);
 
   async function handleDelete(id) {
     try {
@@ -62,7 +62,9 @@ export default function MyApplications() {
     const map = {
       pending: { bg: "rgba(217,119,6,0.2)", color: "#fbbf24" },
       reviewed: { bg: "rgba(26,115,232,0.2)", color: "#93c5fd" },
+      interview_scheduled: { bg: "rgba(139,92,246,0.2)", color: "#c4b5fd" },
       interviewed: { bg: "rgba(139,92,246,0.2)", color: "#c4b5fd" },
+      accepted: { bg: "rgba(34,197,94,0.2)", color: "#86efac" },
       rejected: { bg: "rgba(248,113,113,0.2)", color: "#fca5a5" },
       hired: { bg: "rgba(34,197,94,0.2)", color: "#86efac" },
     };
@@ -71,6 +73,56 @@ export default function MyApplications() {
       fontSize: "11px", padding: "3px 10px", borderRadius: "20px",
       fontWeight: "600", backgroundColor: s.bg, color: s.color, textTransform: "capitalize",
     };
+  };
+
+  const statusSteps = ["pending", "reviewed", "interview_scheduled", "accepted", "hired"];
+
+  const StatusTimeline = ({ currentStatus }) => {
+    if (currentStatus === "rejected") {
+      return (
+        <div style={{ padding: "12px", borderRadius: "8px", backgroundColor: "rgba(248,113,113,0.1)", marginBottom: "16px" }}>
+          <span style={{ fontSize: "13px", fontWeight: "600", color: "#fca5a5" }}>
+            Application not selected
+          </span>
+        </div>
+      );
+    }
+    const currentIndex = statusSteps.indexOf(currentStatus);
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: "4px", marginBottom: "16px", flexWrap: "wrap" }}>
+        {statusSteps.map((step, i) => {
+          const isActive = i <= currentIndex;
+          const isCurrent = step === currentStatus;
+          return (
+            <div key={step} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+              <div style={{
+                width: "20px", height: "20px", borderRadius: "50%",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: "10px", fontWeight: "700",
+                backgroundColor: isActive ? "#4a90e2" : "rgba(255,255,255,0.1)",
+                color: isActive ? "#fff" : "rgba(255,255,255,0.4)",
+                border: isCurrent ? "2px solid #93c5fd" : "none",
+              }}>
+                {isActive ? "✓" : i + 1}
+              </div>
+              <span style={{
+                fontSize: "10px", fontWeight: isCurrent ? "700" : "500",
+                color: isActive ? "#fff" : "rgba(255,255,255,0.4)",
+                textTransform: "capitalize",
+              }}>
+                {step.replace("_", " ")}
+              </span>
+              {i < statusSteps.length - 1 && (
+                <div style={{
+                  width: "20px", height: "2px",
+                  backgroundColor: i < currentIndex ? "#4a90e2" : "rgba(255,255,255,0.1)",
+                }} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
   };
 
   if (selectedApp) {
@@ -113,9 +165,12 @@ export default function MyApplications() {
 
           <div style={divider} />
 
+          <h4 style={{ color: "#fff", fontSize: "14px", fontWeight: "700", margin: "0 0 8px" }}>Application Progress</h4>
+          <StatusTimeline currentStatus={app.status} />
+
           <div style={detailRow}>
             <strong>Application Status:</strong>{" "}
-            <span style={statusBadge(app.status)}>{app.status}</span>
+            <span style={statusBadge(app.status)}>{app.status?.replace("_", " ")}</span>
           </div>
           <div style={detailRow}>
             <strong>Applied:</strong> {new Date(app.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
@@ -152,8 +207,14 @@ export default function MyApplications() {
             {app.status === "reviewed" && (
               <span style={infoMsg}>📋 Your application has been reviewed.</span>
             )}
+            {app.status === "interview_scheduled" && (
+              <span style={infoMsg}>📅 An interview has been scheduled. Check your details.</span>
+            )}
             {app.status === "interviewed" && (
               <span style={infoMsg}>🤝 You have been interviewed. Awaiting decision.</span>
+            )}
+            {app.status === "accepted" && (
+              <span style={{ ...infoMsg, color: "#86efac" }}>✅ Your application has been accepted!</span>
             )}
             {app.status === "hired" && (
               <span style={{ ...infoMsg, color: "#86efac" }}>🎉 Congratulations! You're hired!</span>

@@ -2,7 +2,7 @@ import { Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { SkeletonLine } from "./Skeleton";
 
-export default function ProtectedRoute({ children, allowedRoles }) {
+export default function ProtectedRoute({ children, allowedRoles, requireVerification = true }) {
   const { user, profile, loading } = useAuth();
 
   if (loading) {
@@ -21,5 +21,16 @@ export default function ProtectedRoute({ children, allowedRoles }) {
   if (allowedRoles && profile && !allowedRoles.includes(profile.role)) {
     return <Navigate to="/" replace />;
   }
+
+  // Email verification check (skip for admin)
+  if (requireVerification && profile && profile.role !== "admin" && !profile.email_verified) {
+    return <Navigate to="/verify-email" replace />;
+  }
+
+  // Consent check (skip for admin)
+  if (profile && profile.role !== "admin" && !profile.consent_accepted) {
+    return <Navigate to="/consent" replace />;
+  }
+
   return children;
 }

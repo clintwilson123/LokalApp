@@ -1,7 +1,8 @@
-import React, { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
 import { colors, radii } from "../uiStyles";
+import { sanitizeName, sanitizePhone, sanitizeLocation, sanitizeBio, maxLength } from "../lib/sanitize";
 
 export default function Profile() {
   const { user, profile, loadProfile } = useAuth();
@@ -104,7 +105,7 @@ export default function Profile() {
 
     setUploadingAvatar(true);
     const ext = file.name.split(".").pop();
-    const filePath = `avatars/${user.id}.${ext}`;
+    const filePath = `resumes/${user.id}/avatar.${ext}`;
 
     const { error: uploadError } = await supabase.storage
       .from("resumes")
@@ -168,15 +169,18 @@ export default function Profile() {
     setSaving(true);
     setMessage("");
 
+    // Sanitize all inputs before saving
+    const sanitizedData = {
+      full_name: maxLength(sanitizeName(form.full_name).trim(), 100),
+      phone_number: maxLength(sanitizePhone(form.phone_number).trim(), 20),
+      location: maxLength(sanitizeLocation(form.location).trim(), 100),
+      skills: selectedSkills.join(", "),
+      bio: maxLength(sanitizeBio(form.bio).trim(), 500),
+      resume_url: resumeLink.trim(),
+    };
+
     const { error } = await supabase.rpc("update_my_profile", {
-      p_data: {
-        full_name: form.full_name,
-        phone_number: form.phone_number,
-        location: form.location,
-        skills: selectedSkills.join(", "),
-        bio: form.bio,
-        resume_url: resumeLink.trim(),
-      },
+      p_data: sanitizedData,
     });
 
     if (error) {
@@ -245,8 +249,8 @@ export default function Profile() {
             <h4 style={sectionTitle}>Contact Information</h4>
             <div style={fieldGroup}>
               <label style={label}>Full Name</label>
-              <input style={input} value={form.full_name}
-                onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
+              <input style={input} value={form.full_name} maxLength={100}
+                onChange={(e) => setForm({ ...form, full_name: sanitizeName(e.target.value) })} />
             </div>
             <div style={fieldGroup}>
               <label style={label}>Email</label>
@@ -254,13 +258,13 @@ export default function Profile() {
             </div>
             <div style={fieldGroup}>
               <label style={label}>Phone</label>
-              <input style={input} value={form.phone_number}
-                onChange={(e) => setForm({ ...form, phone_number: e.target.value })} />
+              <input style={input} value={form.phone_number} maxLength={20}
+                onChange={(e) => setForm({ ...form, phone_number: sanitizePhone(e.target.value) })} />
             </div>
             <div style={fieldGroup}>
               <label style={label}>Location</label>
-              <input style={input} value={form.location} placeholder="e.g., Toledo City, Cebu"
-                onChange={(e) => setForm({ ...form, location: e.target.value })} />
+              <input style={input} value={form.location} placeholder="e.g., Toledo City, Cebu" maxLength={100}
+                onChange={(e) => setForm({ ...form, location: sanitizeLocation(e.target.value) })} />
             </div>
           </div>
         </div>
@@ -374,9 +378,12 @@ export default function Profile() {
           <div style={card}>
             <h4 style={sectionTitle}>About Me</h4>
             <textarea style={{ ...input, minHeight: "80px", resize: "vertical" }}
-              value={form.bio}
-              onChange={(e) => setForm({ ...form, bio: e.target.value })}
+              value={form.bio} maxLength={500}
+              onChange={(e) => setForm({ ...form, bio: sanitizeBio(e.target.value) })}
               placeholder="Tell employers about yourself..." />
+            <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.3)", marginTop: "4px", textAlign: "right" }}>
+              {form.bio.length}/500
+            </p>
           </div>
 
           <button style={{ width: "100%", padding: "12px", background: "linear-gradient(135deg, #4a90e2, #1a73e8)", color: "#fff", border: "none", borderRadius: "10px", fontWeight: "700", fontSize: "14px", cursor: "pointer", boxShadow: "0 4px 16px rgba(26,115,232,0.3)" }}

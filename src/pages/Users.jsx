@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { colors, dashTable, dashTh, dashTd, dashRow, dashStatCard, dashStatNum, dashStatLabel, dashBadge, dashSmallBtn } from "../uiStyles";
 import { SkeletonTable } from "../components/Skeleton";
@@ -7,10 +7,52 @@ export default function Users() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [fetchError, setFetchError] = useState("");
 
   const fetchUsers = async () => {
-    const { data } = await supabase.rpc("get_profiles_with_email");
-    if (data) setUsers(data);
+    setFetchError("");
+    setLoading(true);
+
+    // Try RPC first (requires get_profiles_with_email function)
+    const { data: rpcData } = await supabase.rpc("get_profiles_with_email");
+
+    if (rpcData && rpcData.length > 0) {
+      setUsers(rpcData);
+      setLoading(false);
+      return;
+    }
+
+    // Fallback: direct query with email from auth.users
+    // This requires admin role and RLS policies
+    const { data: profiles, error: profileError } = await supabase
+      .from("profiles")
+      .select("id, full_name, role, status, phone_number, location, skills, resume_url, created_at")
+      .order("created_at", { ascending: false });
+
+    if (profileError) {
+      setFetchError("Failed to load users: " + profileError.message);
+      setLoading(false);
+      return;
+    }
+
+    if (profiles && profiles.length > 0) {
+      // Try to get emails separately (may fail due to RLS)
+      const { data: authData } = await supabase.auth.admin.listUsers();
+
+      const emailMap = {};
+      if (authData?.users) {
+        authData.users.forEach(u => { emailMap[u.id] = u.email; });
+      }
+
+      const enriched = profiles.map(p => ({
+        ...p,
+        email: emailMap[p.id] || "—",
+      }));
+      setUsers(enriched);
+    } else {
+      setUsers([]);
+    }
+
     setLoading(false);
   };
 
@@ -58,6 +100,13 @@ export default function Users() {
 
   return (
     <div style={container}>
+      <style>{`
+        .skill-more-btn:hover {
+          border-color: rgba(74,144,226,0.55);
+          color: #93c5fd;
+          background: rgba(74,144,226,0.08);
+        }
+      `}</style>
       <div style={{ marginBottom: "20px" }}>
         <h2 style={{ fontSize: "20px", color: "#fff", fontWeight: "800", margin: "0 0 4px" }}>Manage Users</h2>
         <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)", margin: 0 }}>{users.length} total user{users.length !== 1 ? "s" : ""}</p>
@@ -70,6 +119,15 @@ export default function Users() {
           color: message.includes("Failed") ? colors.danger : colors.success,
         }}>
           {message}
+        </p>
+      )}
+
+      {fetchError && (
+        <p style={{
+          padding: "10px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: "600", marginBottom: "16px",
+          backgroundColor: "rgba(239,68,68,0.15)", color: "#fca5a5",
+        }}>
+          {fetchError}
         </p>
       )}
 
@@ -122,8 +180,8 @@ export default function Users() {
                     </td>
                     <td style={dashTd}><span style={badge(user.role)}>{user.role}</span></td>
                     <td style={dashTd}><span style={badge(user.status)}>{user.status}</span></td>
-                    <td style={{ ...dashTd, fontSize: "12px", maxWidth: "150px", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {user.skills || "—"}
+                    <td style={{ ...dashTd, minWidth: "170px" }}>
+                      <SkillCell skills={user.skills} />
                     </td>
                     <td style={dashTd}>
                       {user.resume_url ? (
@@ -138,6 +196,10 @@ export default function Users() {
                         {user.status !== "active" && (
                           <button style={dashSmallBtn("#22c55e")}
                             onClick={() => updateUserStatus(user.id, "active")}>Approve</button>
+                        )}
+                        {user.status !== "suspended" && user.role !== "admin" && (
+                          <button style={{ ...dashSmallBtn("#d97706") }}
+                            onClick={() => updateUserStatus(user.id, "suspended")}>Suspend</button>
                         )}
                         <button style={{ ...dashSmallBtn("#ef4444"), opacity: 0.6 }}
                           onClick={() => deleteUser(user.id)}>Delete</button>
@@ -157,3 +219,60 @@ export default function Users() {
 const container = { padding: "5px" };
 const statsRow = { display: "flex", gap: "12px", margin: "20px 0", flexWrap: "wrap" };
 const tableStyle = { width: "100%", borderCollapse: "collapse", minWidth: "700px" };
+
+const skillTag = {
+  fontSize: "11px",
+  padding: "3px 9px",
+  borderRadius: "6px",
+  backgroundColor: "rgba(148,163,184,0.12)",
+  border: "1px solid rgba(148,163,184,0.22)",
+  color: "rgba(226,232,240,0.88)",
+  fontWeight: "500",
+  letterSpacing: "0.2px",
+  whiteSpace: "nowrap",
+  lineHeight: "1.4",
+};
+const skillMoreBtn = {
+  fontSize: "11px",
+  padding: "3px 10px",
+  borderRadius: "6px",
+  backgroundColor: "transparent",
+  border: "1px dashed rgba(148,163,184,0.4)",
+  color: "rgba(148,163,184,0.95)",
+  cursor: "pointer",
+  fontWeight: "600",
+  whiteSpace: "nowrap",
+  lineHeight: "1.4",
+  letterSpacing: "0.2px",
+};
+
+function SkillCell({ skills }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!skills || !skills.trim()) {
+    return <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>—</span>;
+  }
+
+  const list = skills.split(",").map((s) => s.trim()).filter(Boolean);
+  const VISIBLE = 2;
+  const hasMore = list.length > VISIBLE;
+  const shown = expanded || !hasMore ? list : list.slice(0, VISIBLE);
+
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: "5px", alignItems: "center" }}>
+      {shown.map((s, i) => (
+        <span key={i} style={skillTag}>{s}</span>
+      ))}
+      {hasMore && (
+        <button
+          className="skill-more-btn"
+          style={skillMoreBtn}
+          onClick={() => setExpanded(!expanded)}
+          title={expanded ? "Show fewer skills" : `Show ${list.length - VISIBLE} more skills`}
+        >
+          {expanded ? `Less ▴` : `+${list.length - VISIBLE} more ▾`}
+        </button>
+      )}
+    </div>
+  );
+}

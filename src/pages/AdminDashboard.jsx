@@ -7,13 +7,11 @@ import { supabase } from "../lib/supabaseClient";
 import ManageJobs from "./ManageJobs";
 import AdminApplicants from "./AdminApplicants";
 import Users from "./Users";
-
 const menuItems = [
   { name: "Dashboard", path: "/admin", icon: "📊", desc: "Overview" },
   { name: "Jobs", path: "/admin/jobs", icon: "💼", desc: "Post & Manage" },
   { name: "Applicants", path: "/admin/applicants", icon: "🔍", desc: "Skill Match" },
   { name: "Users", path: "/admin/users", icon: "👥", desc: "Manage" },
-
 ];
 
 export default function AdminDashboard() {
@@ -27,6 +25,7 @@ export default function AdminDashboard() {
       case "/admin/jobs": return <ManageJobs />;
       case "/admin/applicants": return <AdminApplicants />;
       case "/admin/users": return <Users />;
+      case "/admin/email-settings": return <AdminDashboardHome />;
       default: return <AdminDashboardHome />;
     }
   };
@@ -42,7 +41,7 @@ export default function AdminDashboard() {
     <div style={dashboardLayout}>
       <aside style={sidebar}>
         <div style={sidebarInner}>
-          <div style={logoText}>Lokal</div>
+          <div style={logoText}>CJLink</div>
 
           <nav style={navSection}>
             <div style={navLabel}>MAIN MENU</div>
@@ -105,19 +104,25 @@ export default function AdminDashboard() {
 }
 
 function AdminDashboardHome() {
-  const [stats, setStats] = React.useState({ jobs: 0, applicants: 0, applications: 0 });
+  const [stats, setStats] = React.useState({ jobs: 0, applicants: 0, applications: 0, pending: 0, interviews: 0, hired: 0 });
 
   React.useEffect(() => {
     async function fetchStats() {
-      const [jobsRes, appsRes, profilesRes] = await Promise.all([
+      const [jobsRes, appsRes, profilesRes, pendingRes, interviewsRes, hiredRes] = await Promise.all([
         supabase.from("jobs").select("*", { count: "exact", head: true }),
         supabase.from("applications").select("*", { count: "exact", head: true }),
         supabase.from("profiles").select("*", { count: "exact", head: true }).eq("role", "applicant"),
+        supabase.from("applications").select("*", { count: "exact", head: true }).eq("status", "pending"),
+        supabase.from("interviews").select("*", { count: "exact", head: true }),
+        supabase.from("applications").select("*", { count: "exact", head: true }).eq("status", "hired"),
       ]);
       setStats({
         jobs: jobsRes.count || 0,
         applications: appsRes.count || 0,
         applicants: profilesRes.count || 0,
+        pending: pendingRes.count || 0,
+        interviews: interviewsRes.count || 0,
+        hired: hiredRes.count || 0,
       });
     }
     fetchStats();
@@ -146,6 +151,27 @@ function AdminDashboardHome() {
           <div>
             <h3 style={dashStatNum}>{stats.applications}</h3>
             <p style={dashStatLabel}>Applications</p>
+          </div>
+        </div>
+        <div style={dashStatCard}>
+          <span style={{ fontSize: "32px" }}>⏳</span>
+          <div>
+            <h3 style={dashStatNum}>{stats.pending}</h3>
+            <p style={dashStatLabel}>Pending Review</p>
+          </div>
+        </div>
+        <div style={dashStatCard}>
+          <span style={{ fontSize: "32px" }}>📅</span>
+          <div>
+            <h3 style={dashStatNum}>{stats.interviews}</h3>
+            <p style={dashStatLabel}>Interviews</p>
+          </div>
+        </div>
+        <div style={dashStatCard}>
+          <span style={{ fontSize: "32px" }}>✅</span>
+          <div>
+            <h3 style={dashStatNum}>{stats.hired}</h3>
+            <p style={dashStatLabel}>Hired</p>
           </div>
         </div>
       </div>

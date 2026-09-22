@@ -24,6 +24,11 @@ export default function Login() {
 
   useEffect(() => {
     if (!justSignedIn && !loading && user && profile) {
+      // Redirect unverified users to verify email
+      if (profile.role !== "admin" && !profile.email_verified) {
+        navigate("/verify-email", { replace: true });
+        return;
+      }
       navigate(profile.role === "admin" ? "/admin" : "/find-jobs", { replace: true });
     }
   }, [user, profile, loading, justSignedIn, navigate]);
@@ -51,8 +56,10 @@ export default function Login() {
     } catch (err) {
       if (err.message?.includes("Invalid login credentials")) {
         setError("Wrong email or password.");
-      } else if (err.message?.includes("Email not confirmed")) {
-        setError("Please confirm your email first. Check your inbox.");
+      } else if (err.message?.includes("verify your email") || err.message?.includes("Email not confirmed")) {
+        setError(err.message || "Please verify your email first. Check your inbox for the verification code.");
+        // Redirect to verify email page after showing error
+        setTimeout(() => navigate("/verify-email", { replace: true }), 2000);
       } else {
         setError(err.message || "Login failed.");
       }
@@ -77,7 +84,7 @@ export default function Login() {
         }}>
           <div style={{ fontSize: "42px", marginBottom: "8px" }}>🔐</div>
           <h2 style={title}>Welcome Back</h2>
-          <p style={subtitle}>Sign in to your Lokal account</p>
+          <p style={subtitle}>Sign in to your CJLink account</p>
 
           {error && (
             <div style={{

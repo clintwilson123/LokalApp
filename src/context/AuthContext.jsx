@@ -18,6 +18,12 @@ export function AuthProvider({ children }) {
         const { data: profileData } = await supabase.rpc("get_my_profile");
 
         if (profileData) {
+          // Sync email verification status from auth.users
+          const { data: { user: authUser } } = await supabase.auth.getUser();
+          if (authUser?.email_confirmed_at && !profileData.email_verified) {
+            await supabase.from("profiles").update({ email_verified: true }).eq("id", userId);
+            profileData.email_verified = true;
+          }
           setProfile(profileData);
           setLoading(false);
           return;
@@ -30,6 +36,12 @@ export function AuthProvider({ children }) {
           .eq("id", userId)
           .single();
         if (direct) {
+          // Sync email verification status
+          const { data: { user: authUser } } = await supabase.auth.getUser();
+          if (authUser?.email_confirmed_at && !direct.email_verified) {
+            await supabase.from("profiles").update({ email_verified: true }).eq("id", userId);
+            direct.email_verified = true;
+          }
           setProfile(direct);
           setLoading(false);
           return;
@@ -79,7 +91,7 @@ export function AuthProvider({ children }) {
     return () => listener?.subscription.unsubscribe();
   }, []);
 
-  async function signUp(email, password, fullName, role, phone_number = "") {
+  async function signUp(email, password, fullName, role, riskLevel = "low") {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -93,18 +105,21 @@ export function AuthProvider({ children }) {
         full_name: fullName,
         role,
         status: "active",
-        phone_number,
+        email_verified: false,
+        consent_accepted: true,
+        consent_accepted_at: new Date().toISOString(),
+        signup_risk_level: riskLevel,
       });
       if (insertError) throw insertError;
 
       await supabase.from("notifications").insert({
         user_id: data.user.id,
-        message: `Welcome to Lokal! Your account has been created as ${role}.`,
+        message: `Welcome to CJLink! Please verify your email to access all features.`,
         type: "info",
       });
     }
 
-    // Sign out immediately so user needs to log in manually
+    // Sign out immediately so user needs to verify email and log in
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
@@ -119,19 +134,35 @@ export function AuthProvider({ children }) {
     });
     if (error) throw error;
 
-    // Check suspension BEFORE setting the session (avoids race with onAuthStateChange)
+    // Check suspension and email verification BEFORE setting session
     const { data: profileData } = await supabase
       .from("profiles")
-      .select("status, role")
+      .select("status, role, email_verified")
       .eq("id", data.user.id)
       .single();
 
     if (profileData?.status === "suspended") {
+      await supabase.auth.signOut();
       throw new Error("Your account has been suspended. Contact the administrator.");
     }
 
+    // Block unverified users from logging in
+    if (profileData && profileData.role !== "admin" && !profileData.email_verified) {
+      // Check if auth.users has email_confirmed_at set
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (!authUser?.email_confirmed_at) {
+        await supabase.auth.signOut();
+        throw new Error("Please verify your email before signing in. Check your inbox for the verification code.");
+      }
+      // If auth says confirmed but profile doesn't, sync it
+      if (authUser?.email_confirmed_at) {
+        await supabase.from("profiles").update({ email_verified: true }).eq("id", data.user.id);
+        profileData.email_verified = true;
+      }
+    }
+
     await supabase.auth.setSession(data.session);
-    return { ...data, role: profileData?.role || "applicant" };
+    return { ...data, role: profileData?.role || "applicant", email_verified: profileData?.email_verified };
   }
 
   async function signOut() {

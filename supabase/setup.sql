@@ -1,9 +1,13 @@
 -- =============================================
--- LOKALAPP — Run this in Supabase SQL Editor
--- Safe to re-run (no DROP, all IF NOT EXISTS)
+-- CJLINK — CLEAN DATABASE SETUP
+-- Run this in Supabase SQL Editor
+-- Safe to re-run (uses IF NOT EXISTS / OR REPLACE)
 -- =============================================
 
--- 1. TABLES (skip if exist)
+-- =============================================
+-- 1. TABLES
+-- =============================================
+
 CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   full_name TEXT,
@@ -15,6 +19,11 @@ CREATE TABLE IF NOT EXISTS profiles (
   resume_url TEXT,
   bio TEXT,
   avatar_url TEXT,
+  email_verified BOOLEAN DEFAULT FALSE,
+  consent_accepted BOOLEAN DEFAULT FALSE,
+  consent_accepted_at TIMESTAMPTZ,
+  signup_risk_level TEXT DEFAULT 'low',
+  preferences JSONB DEFAULT '{}',
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -36,7 +45,8 @@ CREATE TABLE IF NOT EXISTS applications (
   job_id INT REFERENCES jobs(id) ON DELETE CASCADE,
   status TEXT DEFAULT 'pending',
   score INT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, job_id)
 );
 
 CREATE TABLE IF NOT EXISTS notifications (
@@ -51,11 +61,13 @@ CREATE TABLE IF NOT EXISTS notifications (
 CREATE TABLE IF NOT EXISTS interviews (
   id SERIAL PRIMARY KEY,
   application_id INT REFERENCES applications(id) ON DELETE CASCADE,
+  employer_id UUID REFERENCES profiles(id),
   date DATE,
   time TIME,
   location TEXT,
   instructions TEXT,
-  status TEXT DEFAULT 'scheduled'
+  status TEXT DEFAULT 'scheduled',
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS activities (
@@ -69,20 +81,64 @@ CREATE TABLE IF NOT EXISTS activities (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 2. ADD MISSING COLUMNS (safe if exist)
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS bio TEXT;
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS preferences JSONB DEFAULT '{}';
+CREATE TABLE IF NOT EXISTS hiring_policy (
+  id SERIAL PRIMARY KEY,
+  employer_id UUID REFERENCES auth.users(id) ON DELETE CASCADE UNIQUE,
+  policy_text TEXT NOT NULL DEFAULT 'I agree to provide accurate information in my application. I understand that providing false or misleading information may result in disqualification. I consent to CJTECH Computer Trading reviewing my profile, resume, and application details for hiring purposes only.',
+  requires_acknowledgment BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
 
--- 3. ENABLE RLS
+CREATE TABLE IF NOT EXISTS hiring_policy_acknowledgments (
+  id SERIAL PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  policy_id INT REFERENCES hiring_policy(id) ON DELETE CASCADE,
+  acknowledged_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, policy_id)
+);
+
+-- =============================================
+-- 2. ADD MISSING COLUMNS (safe if exist)
+-- =============================================
+
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS preferences JSONB DEFAULT '{}';
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS consent_accepted BOOLEAN DEFAULT FALSE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS consent_accepted_at TIMESTAMPTZ;
+
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS max_applicants INT DEFAULT 0;
+
+-- =============================================
+-- 2b. INDEXES (speed up common queries)
+-- =============================================
+
+CREATE INDEX IF NOT EXISTS idx_applications_user_id ON applications(user_id);
+CREATE INDEX IF NOT EXISTS idx_applications_job_id ON applications(job_id);
+CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status);
+CREATE INDEX IF NOT EXISTS idx_interviews_application_id ON interviews(application_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_activities_user_id ON activities(user_id);
+CREATE INDEX IF NOT EXISTS idx_hiring_policy_ack_user ON hiring_policy_acknowledgments(user_id);
+
+-- =============================================
+-- 3. ENABLE RLS ON ALL TABLES
+-- =============================================
+
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE applications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE interviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE activities ENABLE ROW LEVEL SECURITY;
+ALTER TABLE hiring_policy ENABLE ROW LEVEL SECURITY;
+ALTER TABLE hiring_policy_acknowledgments ENABLE ROW LEVEL SECURITY;
 
+-- =============================================
 -- 4. SECURITY DEFINER FUNCTIONS (bypass RLS)
+-- =============================================
+
+-- Check if current user is admin
 CREATE OR REPLACE FUNCTION is_admin()
 RETURNS BOOLEAN
 LANGUAGE SQL
@@ -92,6 +148,7 @@ AS $$
   SELECT EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin');
 $$;
 
+-- Get current user's role
 CREATE OR REPLACE FUNCTION get_my_role()
 RETURNS TEXT
 LANGUAGE SQL
@@ -101,6 +158,7 @@ AS $$
   SELECT role FROM profiles WHERE id = auth.uid();
 $$;
 
+-- Get current user's profile as JSONB
 CREATE OR REPLACE FUNCTION get_my_profile()
 RETURNS JSONB
 LANGUAGE SQL
@@ -110,6 +168,8 @@ AS $$
   SELECT to_jsonb(p) FROM profiles p WHERE p.id = auth.uid();
 $$;
 
+-- Upsert profile (creates if missing, updates if exists)
+-- SECURITY: INSERT defaults role='applicant' to prevent privilege escalation
 CREATE OR REPLACE FUNCTION update_my_profile(p_data JSONB)
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -119,7 +179,7 @@ AS $$
 DECLARE
   result JSONB;
 BEGIN
-  INSERT INTO profiles (id, full_name, phone_number, location, skills, bio, resume_url, avatar_url, role, status)
+  INSERT INTO profiles (id, full_name, phone_number, location, skills, bio, resume_url, avatar_url, role, status, consent_accepted, consent_accepted_at)
   VALUES (
     auth.uid(),
     p_data->>'full_name',
@@ -130,22 +190,27 @@ BEGIN
     NULLIF(p_data->>'resume_url', ''),
     p_data->>'avatar_url',
     'applicant',
-    'active'
+    'active',
+    COALESCE((p_data->>'consent_accepted')::boolean, false),
+    CASE WHEN p_data ? 'consent_accepted' AND (p_data->>'consent_accepted')::boolean = true THEN now() ELSE NULL END
   )
   ON CONFLICT (id) DO UPDATE SET
-    full_name    = CASE WHEN p_data ? 'full_name'    THEN p_data->>'full_name'           ELSE profiles.full_name END,
-    phone_number = CASE WHEN p_data ? 'phone_number' THEN NULLIF(p_data->>'phone_number', '') ELSE profiles.phone_number END,
-    location     = CASE WHEN p_data ? 'location'     THEN p_data->>'location'            ELSE profiles.location END,
-    skills       = CASE WHEN p_data ? 'skills'       THEN p_data->>'skills'              ELSE profiles.skills END,
-    bio          = CASE WHEN p_data ? 'bio'          THEN p_data->>'bio'                 ELSE profiles.bio END,
-    resume_url   = CASE WHEN p_data ? 'resume_url'   THEN NULLIF(p_data->>'resume_url', '')  ELSE profiles.resume_url END,
-    avatar_url   = CASE WHEN p_data ? 'avatar_url'   THEN p_data->>'avatar_url'          ELSE profiles.avatar_url END;
+    full_name    = CASE WHEN p_data ? 'full_name'    THEN p_data->>'full_name'                    ELSE profiles.full_name END,
+    phone_number = CASE WHEN p_data ? 'phone_number' THEN NULLIF(p_data->>'phone_number', '')     ELSE profiles.phone_number END,
+    location     = CASE WHEN p_data ? 'location'     THEN p_data->>'location'                     ELSE profiles.location END,
+    skills       = CASE WHEN p_data ? 'skills'       THEN p_data->>'skills'                       ELSE profiles.skills END,
+    bio          = CASE WHEN p_data ? 'bio'          THEN p_data->>'bio'                          ELSE profiles.bio END,
+    resume_url   = CASE WHEN p_data ? 'resume_url'   THEN NULLIF(p_data->>'resume_url', '')       ELSE profiles.resume_url END,
+    avatar_url   = CASE WHEN p_data ? 'avatar_url'   THEN p_data->>'avatar_url'                   ELSE profiles.avatar_url END,
+    consent_accepted = CASE WHEN p_data ? 'consent_accepted' THEN COALESCE((p_data->>'consent_accepted')::boolean, false) ELSE profiles.consent_accepted END,
+    consent_accepted_at = CASE WHEN p_data ? 'consent_accepted' AND (p_data->>'consent_accepted')::boolean = true THEN now() ELSE profiles.consent_accepted_at END;
 
   SELECT to_jsonb(p) INTO result FROM profiles p WHERE p.id = auth.uid();
   RETURN result;
 END;
 $$;
 
+-- Get all profiles with email (ADMIN ONLY — checks is_admin inside function)
 CREATE OR REPLACE FUNCTION get_profiles_with_email()
 RETURNS TABLE (
   id UUID,
@@ -159,19 +224,54 @@ RETURNS TABLE (
   created_at TIMESTAMPTZ,
   email TEXT
 )
-LANGUAGE SQL
+LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, auth
 AS $$
+BEGIN
+  -- SECURITY: Only admins can call this function
+  IF NOT is_admin() THEN
+    RAISE EXCEPTION 'Access denied. Admin role required.';
+  END IF;
+
+  RETURN QUERY
   SELECT p.id, p.full_name, p.role, p.status, p.phone_number, p.location, p.skills, p.resume_url, p.created_at, u.email
   FROM profiles p
   JOIN auth.users u ON u.id = p.id
   ORDER BY p.created_at DESC;
+END;
 $$;
 
--- 5. RLS POLICIES — drop old, recreate with is_admin()
+-- Sync email_verified status from auth.users.email_confirmed_at
+CREATE OR REPLACE FUNCTION sync_email_verified()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+  v_confirmed_at TIMESTAMPTZ;
+  v_result BOOLEAN;
+BEGIN
+  SELECT email_confirmed_at INTO v_confirmed_at
+  FROM auth.users
+  WHERE id = auth.uid();
 
--- PROFILES
+  v_result := (v_confirmed_at IS NOT NULL);
+
+  UPDATE profiles
+  SET email_verified = v_result
+  WHERE id = auth.uid();
+
+  RETURN v_result;
+END;
+$$;
+
+-- =============================================
+-- 5. RLS POLICIES
+-- =============================================
+
+-- --- PROFILES ---
 DROP POLICY IF EXISTS "Users can read own profile" ON profiles;
 DROP POLICY IF EXISTS "Admins can read all profiles" ON profiles;
 DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
@@ -203,11 +303,13 @@ CREATE POLICY "Allow insert during signup"
   ON profiles FOR INSERT
   WITH CHECK (auth.uid() = id);
 
--- APPLICATIONS
+-- --- APPLICATIONS ---
 DROP POLICY IF EXISTS "Users can read own applications" ON applications;
 DROP POLICY IF EXISTS "Admins can read all applications" ON applications;
 DROP POLICY IF EXISTS "Users can insert own applications" ON applications;
 DROP POLICY IF EXISTS "Admins can update applications" ON applications;
+DROP POLICY IF EXISTS "Users can update own applications" ON applications;
+DROP POLICY IF EXISTS "Users can delete own applications" ON applications;
 
 CREATE POLICY "Users can read own applications"
   ON applications FOR SELECT
@@ -221,21 +323,19 @@ CREATE POLICY "Users can insert own applications"
   ON applications FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
-CREATE POLICY "Admins can update applications"
-  ON applications FOR UPDATE
-  USING (is_admin());
-
-DROP POLICY IF EXISTS "Users can update own applications" ON applications;
 CREATE POLICY "Users can update own applications"
   ON applications FOR UPDATE
   USING (auth.uid() = user_id);
 
-DROP POLICY IF EXISTS "Users can delete own applications" ON applications;
+CREATE POLICY "Admins can update applications"
+  ON applications FOR UPDATE
+  USING (is_admin());
+
 CREATE POLICY "Users can delete own applications"
   ON applications FOR DELETE
   USING (auth.uid() = user_id);
 
--- NOTIFICATIONS
+-- --- NOTIFICATIONS ---
 DROP POLICY IF EXISTS "Users can read own notifications" ON notifications;
 DROP POLICY IF EXISTS "System can insert notifications" ON notifications;
 
@@ -247,7 +347,7 @@ CREATE POLICY "System can insert notifications"
   ON notifications FOR INSERT
   WITH CHECK (true);
 
--- INTERVIEWS
+-- --- INTERVIEWS ---
 DROP POLICY IF EXISTS "Users can read own interviews" ON interviews;
 DROP POLICY IF EXISTS "Admins can read all interviews" ON interviews;
 DROP POLICY IF EXISTS "Admins can manage interviews" ON interviews;
@@ -275,7 +375,7 @@ CREATE POLICY "Admins can update interviews"
   ON interviews FOR UPDATE
   USING (is_admin());
 
--- ACTIVITIES
+-- --- ACTIVITIES ---
 DROP POLICY IF EXISTS "Users can read own activities" ON activities;
 DROP POLICY IF EXISTS "Admins can read all activities" ON activities;
 DROP POLICY IF EXISTS "System can insert activities" ON activities;
@@ -292,10 +392,35 @@ CREATE POLICY "System can insert activities"
   ON activities FOR INSERT
   WITH CHECK (true);
 
--- JOBS
+-- --- HIRING POLICY ---
+DROP POLICY IF EXISTS "Anyone can read hiring policy" ON hiring_policy;
+DROP POLICY IF EXISTS "Admins can manage hiring policy" ON hiring_policy;
+
+CREATE POLICY "Anyone can read hiring policy"
+  ON hiring_policy FOR SELECT
+  USING (true);
+
+CREATE POLICY "Admins can manage hiring policy"
+  ON hiring_policy FOR ALL
+  USING (is_admin());
+
+-- --- HIRING POLICY ACKNOWLEDGMENTS ---
+DROP POLICY IF EXISTS "Users can read own acknowledgments" ON hiring_policy_acknowledgments;
+DROP POLICY IF EXISTS "Users can insert own acknowledgments" ON hiring_policy_acknowledgments;
+
+CREATE POLICY "Users can read own acknowledgments"
+  ON hiring_policy_acknowledgments FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own acknowledgments"
+  ON hiring_policy_acknowledgments FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+-- --- JOBS ---
 DROP POLICY IF EXISTS "Anyone can read jobs" ON jobs;
 DROP POLICY IF EXISTS "Admins can insert jobs" ON jobs;
 DROP POLICY IF EXISTS "Admins can update jobs" ON jobs;
+DROP POLICY IF EXISTS "Admins can delete jobs" ON jobs;
 
 CREATE POLICY "Anyone can read jobs"
   ON jobs FOR SELECT
@@ -309,13 +434,20 @@ CREATE POLICY "Admins can update jobs"
   ON jobs FOR UPDATE
   USING (is_admin());
 
--- 6. SEED JOBS
-INSERT INTO jobs (title, company, location, salary, description, requirements, icon)
-SELECT 'Sales Assistant', 'CJTECH Computer Trading', 'Sangi, Toledo City', '₱15,000 — ₱18,000 / month', 'Assist customers with product inquiries, handle transactions, and maintain store cleanliness and organization.', ARRAY['High school graduate', 'Good communication skills', 'Basic math skills', 'Customer service'], '🛍️'
-WHERE NOT EXISTS (SELECT 1 FROM jobs LIMIT 1);
+CREATE POLICY "Admins can delete jobs"
+  ON jobs FOR DELETE
+  USING (is_admin());
+
+-- =============================================
+-- 6. SEED JOBS (check by title, not by LIMIT)
+-- =============================================
 
 INSERT INTO jobs (title, company, location, salary, description, requirements, icon)
-SELECT 'Computer Service', 'CJTECH Computer Trading', 'Sangi, Toledo City', '₱20,000 — ₱25,000 / month', 'Provide technical support, diagnose hardware/software issues, and perform repairs and maintenance.', ARRAY['IT-related course', 'Hardware troubleshooting', 'Software installation', 'Network basics'], '💻'
+SELECT 'Sales Assistant', 'CJTECH Computer Trading', 'Sangi, Toledo City', '₱15,000 — ₱18,000 / month', 'Assist customers with product inquiries, handle transactions, and maintain store cleanliness and organization.', ARRAY['High school graduate', 'Good communication skills', 'Basic math skills', 'Customer service'], '🛍️'
+WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE title = 'Sales Assistant');
+
+INSERT INTO jobs (title, company, location, salary, description, requirements, icon)
+SELECT 'Computer Service', 'CJTECH Computer Trading', 'Sangi, Toledo City', '₱20,000 — Ᵽ25,000 / month', 'Provide technical support, diagnose hardware/software issues, and perform repairs and maintenance.', ARRAY['IT-related course', 'Hardware troubleshooting', 'Software installation', 'Network basics'], '💻'
 WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE title = 'Computer Service');
 
 INSERT INTO jobs (title, company, location, salary, description, requirements, icon)
@@ -344,7 +476,10 @@ SELECT 'IT Support Specialist', 'CJTECH Computer Trading', 'Sangi, Toledo City',
 ], '💻'
 WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE title = 'IT Support Specialist');
 
--- 7. ADMIN SETUP — change email to yours
+-- =============================================
+-- 7. ADMIN SETUP
+-- =============================================
+
 DO $$
 DECLARE
   user_uuid UUID;
@@ -354,49 +489,101 @@ BEGIN
     RAISE EXCEPTION 'Admin email not found. First create admin@gmail.com with password admin123 in Authentication → Users, then re-run.';
   END IF;
 
+  -- Clean up old data
   DELETE FROM notifications WHERE user_id = user_uuid;
   DELETE FROM applications WHERE user_id = user_uuid;
   DELETE FROM profiles WHERE id = user_uuid;
 
-  INSERT INTO profiles (id, full_name, role, status)
-  VALUES (user_uuid, 'Admin', 'admin', 'active');
+  -- Create admin profile
+  INSERT INTO profiles (id, full_name, role, status, email_verified)
+  VALUES (user_uuid, 'Admin', 'admin', 'active', true);
 
+  -- Mark email as confirmed in auth
   UPDATE auth.users
   SET raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || '{"role": "admin"}'::jsonb,
-      email_confirmed_at = NOW(),
-      confirmed_at = DEFAULT
+      email_confirmed_at = NOW()
   WHERE id = user_uuid;
+
+  -- Seed default hiring policy for admin
+  INSERT INTO hiring_policy (employer_id, policy_text, requires_acknowledgment)
+  VALUES (
+    user_uuid,
+    'I agree to provide accurate and truthful information in my application. I understand that providing false or misleading information may result in disqualification or termination. I consent to CJTECH Computer Trading reviewing my profile, resume, and application details solely for hiring purposes. I understand that my personal information will not be shared with unauthorized parties.',
+    TRUE
+  )
+  ON CONFLICT (employer_id) DO NOTHING;
 END $$;
 
--- 8. STORAGE BUCKET
+-- =============================================
+-- 8. STORAGE BUCKET + POLICIES
+-- =============================================
+
 INSERT INTO storage.buckets (id, name, public)
 SELECT 'resumes', 'resumes', true
 WHERE NOT EXISTS (SELECT 1 FROM storage.buckets WHERE id = 'resumes');
 
+-- Drop old policies first
 DROP POLICY IF EXISTS "Users can upload their own resumes" ON storage.objects;
 DROP POLICY IF EXISTS "Resumes are publicly readable" ON storage.objects;
 DROP POLICY IF EXISTS "Users can update their own files" ON storage.objects;
+DROP POLICY IF EXISTS "Users can delete their own files" ON storage.objects;
 
+-- Upload: only to own folder (resumes/{user_id}/...)
 CREATE POLICY "Users can upload their own resumes"
   ON storage.objects FOR INSERT
   WITH CHECK (
-    auth.role() = 'authenticated'
-    AND bucket_id = 'resumes'
+    bucket_id = 'resumes'
+    AND auth.uid() IS NOT NULL
+    AND (storage.foldername(name))[1] = 'resumes'
+    AND (storage.foldername(name))[2] = auth.uid()::text
   );
 
+-- Read: public (avatars and resumes need to be viewable)
 CREATE POLICY "Resumes are publicly readable"
   ON storage.objects FOR SELECT
   USING (bucket_id = 'resumes');
 
+-- Update: only own files
 CREATE POLICY "Users can update their own files"
   ON storage.objects FOR UPDATE
   USING (
-    auth.role() = 'authenticated'
-    AND bucket_id = 'resumes'
+    bucket_id = 'resumes'
+    AND auth.uid() IS NOT NULL
+    AND (storage.foldername(name))[2] = auth.uid()::text
   );
 
--- 9. VERIFY
-SELECT p.id::text, p.full_name, p.role, p.status, au.email
+-- Delete: only own files
+CREATE POLICY "Users can delete their own files"
+  ON storage.objects FOR DELETE
+  USING (
+    bucket_id = 'resumes'
+    AND auth.uid() IS NOT NULL
+    AND (storage.foldername(name))[2] = auth.uid()::text
+  );
+
+-- =============================================
+-- 9. CLEANUP: Drop old phone-based functions
+-- =============================================
+
+DROP FUNCTION IF EXISTS send_reset_code;
+DROP FUNCTION IF EXISTS verify_reset_code;
+DROP FUNCTION IF EXISTS reset_with_code;
+DROP FUNCTION IF EXISTS get_security_question;
+DROP FUNCTION IF EXISTS reset_password_by_phone;
+DROP FUNCTION IF EXISTS sync_user_phone;
+
+-- Drop old columns if they exist
+ALTER TABLE profiles DROP COLUMN IF EXISTS security_question;
+ALTER TABLE profiles DROP COLUMN IF EXISTS security_answer;
+
+-- Drop verification_codes table (no longer needed — using email verification)
+DROP TABLE IF EXISTS verification_codes;
+
+-- =============================================
+-- 10. VERIFY (should show admin user)
+-- =============================================
+
+SELECT p.id::text, p.full_name, p.role, p.status, p.email_verified, au.email
 FROM profiles p
 JOIN auth.users au ON au.id = p.id
 WHERE au.email = 'admin@gmail.com';

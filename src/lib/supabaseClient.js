@@ -15,11 +15,31 @@ export async function callEdgeFunction(name, payload = {}) {
     body: payload,
   });
   if (error) {
-    if (typeof error.context?.json === "function") {
-      const body = await error.context.json();
-      throw new Error(body.error || body.message || error.message);
+    // True connectivity failure
+    if (
+      error.name === "FunctionsFetchError" ||
+      error.message?.includes("Failed to send a request") ||
+      error instanceof TypeError
+    ) {
+      throw new Error("Could not reach the server. Please check your connection and try again.");
     }
-    throw new Error(error.message || "Failed to send a request to the Edge Function");
+    // Prefer structured body error when available
+    let body = data;
+    if (!body && typeof error.context?.json === "function") {
+      try {
+        body = await error.context.json();
+      } catch {
+        // body already consumed
+      }
+    }
+    if (!body && error.message) {
+      try {
+        body = JSON.parse(error.message);
+      } catch {
+        // not JSON
+      }
+    }
+    throw new Error(body?.error || body?.message || error.message || "Failed to send a request to the Edge Function");
   }
   return data;
 }

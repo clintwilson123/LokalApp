@@ -1,4 +1,3 @@
-import React from "react";
 import { useLocation, NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { colors } from "../uiStyles";
@@ -42,7 +41,7 @@ export default function ApplicantDashboard() {
     <div style={dashboardLayout}>
       <aside style={sidebar}>
         <div style={sidebarInner}>
-          <div style={logoText}>Lokal</div>
+          <div style={logoText}>CJLink</div>
 
           <nav style={navSection}>
             <div style={navLabel}>NAVIGATION</div>

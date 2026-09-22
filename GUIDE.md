@@ -1,10 +1,10 @@
-# LokalApp — Complete Backend & Deployment Guide
+# CJLink — Complete Backend & Deployment Guide
 
 ## 1. Supabase Setup (Database + Auth + AI Backend)
 
 ### 1.1 Create a Supabase project
 1. Go to [supabase.com](https://supabase.com) and sign up
-2. Click **New project**, name it `lokalapp`, set a strong DB password
+2. Click **New project**, name it `cjlink`, set a strong DB password
 3. Wait ~2 minutes for provisioning
 
 ### 1.2 Get your API keys
@@ -249,7 +249,7 @@ netlify deploy --prod --dir=dist
 1. Add to `vite.config.js`:
    ```js
    export default defineConfig({
-     base: "/LokalApp/",
+     base: "/CJLink/",
      // ...
    })
    ```

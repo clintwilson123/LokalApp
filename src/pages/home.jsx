@@ -45,11 +45,11 @@ export default function Home() {
           <div className="hero-badge">CJTECH Computer Trading</div>
 
           <h1 className="hero-title">
-            Your Local <span>Job Hub</span>
+            Your Job <span>Hub</span>
           </h1>
 
           <p className="hero-description">
-            Apply for jobs at CJTECH Computer Trading. Lokal connects you with
+            Apply for jobs at CJTECH Computer Trading. CJLink connects you with
             opportunities at one of Toledo City's leading computer and electronics stores.
           </p>
 
@@ -82,7 +82,7 @@ export default function Home() {
 
         <div style={{ marginTop: "60px" }}>
           <button className="hero-btn-primary" onClick={() => navigate("/login")}>
-            Join Lokal Today →
+            Join CJLink Today →
           </button>
         </div>
       </section>

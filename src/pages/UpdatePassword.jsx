@@ -23,6 +23,7 @@ export default function UpdatePassword() {
 
   useEffect(() => {
     let cancelled = false;
+    let listener = null;
 
     async function init() {
       const { data: { session } } = await supabase.auth.getSession();
@@ -33,16 +34,17 @@ export default function UpdatePassword() {
         return;
       }
 
-      const { data: _authListener } = supabase.auth.onAuthStateChange((event, newSession) => {
+      const { data: authListener } = supabase.auth.onAuthStateChange((event, newSession) => {
         if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
           if (newSession && !cancelled) {
             setChecking(false);
           }
         }
       });
+      listener = authListener;
 
       setTimeout(() => {
-        if (!cancelled && !session) {
+        if (!cancelled) {
           setChecking(false);
           setError("Invalid or expired reset link. Please request a new one.");
         }
@@ -53,6 +55,7 @@ export default function UpdatePassword() {
 
     return () => {
       cancelled = true;
+      listener?.subscription?.unsubscribe();
     };
   }, []);
 

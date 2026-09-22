@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { colors, radii, dashGrid } from "../uiStyles";
+import { radii, dashGrid } from "../uiStyles";
 import { SkeletonLine, SkeletonCard } from "../components/Skeleton";
 import { aiSkillMatch } from "../lib/aiSkillMatch";
 
@@ -43,14 +43,13 @@ export default function AdminApplicants() {
       for (let i = 0; i < applicants.length; i++) {
         const a = applicants[i];
         setAnalyzeProgress({ current: i + 1, total: applicants.length, name: a.full_name || "Unnamed" });
-        await new Promise((r) => setTimeout(r, 700));
         ranked.push({ ...a, match: await aiSkillMatch(a.skills, requirements, title) });
         ranked.sort((a, b) => b.match.score - a.match.score);
         setRankedApplicants([...ranked]);
       }
       setAnalyzing(false);
     })();
-  }, [selectedJobId, applicants]);
+  }, [selectedJobId, applicants, selectedJob]);
 
   if (loading) {
     return (

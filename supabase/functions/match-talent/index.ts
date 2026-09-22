@@ -1,5 +1,5 @@
 // AI Talent Matching Edge Function (Deno)
-// Deploy: supabase functions deploy match-talent --no-verify-jwt
+// Deploy: supabase functions deploy match-talent
 //
 // How it works:
 // 1. Receives a job title from the admin
@@ -10,7 +10,7 @@
 // 5. Returns ranked results sorted by score descending
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.108.2";
 
 serve(async (req) => {
   try {
@@ -23,12 +23,18 @@ serve(async (req) => {
       );
     }
 
-    // Create Supabase client with secret key for DB access (bypasses RLS)
-    const SECRET_KEYS = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS")!);
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      SECRET_KEYS["default"]
-    );
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+    if (!supabaseUrl || !serviceRoleKey) {
+      return new Response(
+        JSON.stringify({ error: "Server configuration error" }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // Create Supabase client with service role key for DB access (bypasses RLS)
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
 
     // 1. Fetch job requirements from the jobs table
     const { data: job, error: jobError } = await supabase

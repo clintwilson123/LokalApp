@@ -11,11 +11,13 @@ import Signup from "./pages/Signup";
 import ForgotPassword from "./pages/ForgotPassword";
 import UpdatePassword from "./pages/UpdatePassword";
 import About from "./pages/About";
+import VerifyEmail from "./pages/VerifyEmail";
+import Consent from "./pages/Consent";
 import AdminDashboard from "./pages/AdminDashboard";
 import ApplicantDashboard from "./pages/ApplicantDashboard";
 
 
-const publicPaths = ["/", "/login", "/signup", "/forgot-password", "/update-password", "/about"];
+const publicPaths = ["/", "/login", "/signup", "/forgot-password", "/update-password", "/about", "/verify-email", "/consent"];
 
 function AppContent() {
   const location = useLocation();
@@ -32,6 +34,8 @@ function AppContent() {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/update-password" element={<UpdatePassword />} />
         <Route path="/about" element={<About />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
+        <Route path="/consent" element={<Consent />} />
 
         {/* Applicant routes */}
         <Route path="/find-jobs" element={<ProtectedRoute allowedRoles={["applicant"]}><ApplicantDashboard /></ProtectedRoute>} />
@@ -41,10 +45,10 @@ function AppContent() {
 
 
         {/* Admin routes */}
-        <Route path="/admin" element={<ProtectedRoute allowedRoles={["admin"]}><AdminDashboard /></ProtectedRoute>} />
-        <Route path="/admin/jobs" element={<ProtectedRoute allowedRoles={["admin"]}><AdminDashboard /></ProtectedRoute>} />
-        <Route path="/admin/applicants" element={<ProtectedRoute allowedRoles={["admin"]}><AdminDashboard /></ProtectedRoute>} />
-        <Route path="/admin/users" element={<ProtectedRoute allowedRoles={["admin"]}><AdminDashboard /></ProtectedRoute>} />
+        <Route path="/admin" element={<ProtectedRoute allowedRoles={["admin"]} requireVerification={false}><AdminDashboard /></ProtectedRoute>} />
+        <Route path="/admin/jobs" element={<ProtectedRoute allowedRoles={["admin"]} requireVerification={false}><AdminDashboard /></ProtectedRoute>} />
+        <Route path="/admin/applicants" element={<ProtectedRoute allowedRoles={["admin"]} requireVerification={false}><AdminDashboard /></ProtectedRoute>} />
+        <Route path="/admin/users" element={<ProtectedRoute allowedRoles={["admin"]} requireVerification={false}><AdminDashboard /></ProtectedRoute>} />
 
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
