@@ -12,25 +12,27 @@ export default function FindJobs() {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [jobSlots, setJobSlots] = useState({});
+  const [jobSlots, setJobSlots] = useState(null);
+  const [slotsError, setSlotsError] = useState("");
 
   const fetchJobs = useCallback(async () => {
     const { data } = await supabase.from("jobs").select("*").order("created_at", { ascending: false });
     if (data) {
       setJobs(data);
-      const jobIds = data.map(j => j.id);
-      if (jobIds.length > 0) {
-        const { data: appCounts } = await supabase
-          .from("applications")
-          .select("job_id")
-          .in("job_id", jobIds)
-          .neq("status", "rejected");
+      // Single source of truth for slot counts. Direct COUNT on
+      // `applications` is blocked by RLS for applicants (they can only
+      // see their own rows), which made every job look empty.
+      const { data: counts, error: countsError } = await supabase.rpc("job_filled_counts");
+      if (countsError) {
+        // Leave jobSlots null so the badge is hidden instead of
+        // showing a fabricated "N slots left".
+        setJobSlots(null);
+        setSlotsError("Slot availability could not be loaded.");
+      } else {
         const slots = {};
-        jobIds.forEach(id => { slots[id] = 0; });
-        if (appCounts) {
-          appCounts.forEach(a => { slots[a.job_id] = (slots[a.job_id] || 0) + 1; });
-        }
+        (counts || []).forEach((r) => { slots[r.job_id] = Number(r.filled_count) || 0; });
         setJobSlots(slots);
+        setSlotsError("");
       }
     }
     setLoading(false);
@@ -62,6 +64,15 @@ export default function FindJobs() {
           <button style={clearBtn} onClick={() => setSearch("")}>✕</button>
         )}
       </div>
+
+      {slotsError && (
+        <p style={{
+          padding: "10px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: "600",
+          marginBottom: "16px", backgroundColor: "rgba(239,68,68,0.15)", color: "#fca5a5",
+        }}>
+          {slotsError}
+        </p>
+      )}
 
       {filtered.length === 0 ? (
         <div style={{ textAlign: "center", padding: "60px 0" }}>
@@ -97,8 +108,9 @@ export default function FindJobs() {
                 <p style={descText}>
                   {job.description?.length > 100 ? job.description.slice(0, 100) + "..." : job.description}
                 </p>
-                {/* Slot availability */}
-                {job.max_applicants > 0 && (
+                {/* Slot availability — only rendered once the real
+                    DB-derived count is available */}
+                {jobSlots && job.max_applicants > 0 && (
                   <div style={{ marginBottom: "10px" }}>
                     {(() => {
                       const filled = jobSlots[job.id] || 0;

@@ -41,12 +41,12 @@ export default function ApplyJob() {
     if (data && data.status !== "rejected") setApplied(true);
     if (data) setExistingApp(data);
 
-    const { count } = await supabase
-      .from("applications")
-      .select("*", { count: "exact", head: true })
-      .eq("job_id", jobId)
-      .neq("status", "rejected");
-    setApplicantCount(count || 0);
+    // Filled count from the shared RPC. RLS hides other users'
+    // applications from an applicant, so a direct COUNT would always
+    // under-count and never trigger the "position filled" guard.
+    const { data: counts } = await supabase.rpc("job_filled_counts");
+    const row = (counts || []).find((r) => r.job_id === parseInt(jobId));
+    setApplicantCount(row ? Number(row.filled_count) : 0);
 
     const { data: policy } = await supabase
       .from("hiring_policy")

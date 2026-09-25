@@ -557,12 +557,12 @@ function JobRow({ job, onEdit, onDelete, onViewApplicants }) {
   const [appCount, setAppCount] = useState(null);
 
   useEffect(() => {
-    supabase
-      .from("applications")
-      .select("*", { count: "exact", head: true })
-      .eq("job_id", job.id)
-      .neq("status", "rejected")
-      .then(({ count }) => setAppCount(count ?? 0));
+    // Same RPC as FindJobs/ApplyJob — one shared source of truth so the
+    // admin row and the applicant card can never disagree.
+    supabase.rpc("job_filled_counts").then(({ data }) => {
+      const row = (data || []).find((r) => r.job_id === job.id);
+      setAppCount(row ? Number(row.filled_count) : 0);
+    });
   }, [job.id]);
 
   const maxApps = job.max_applicants || 0;

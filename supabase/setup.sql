@@ -1,8 +1,45 @@
 -- =============================================
--- CJLINK — CLEAN DATABASE SETUP
--- Run this in Supabase SQL Editor
--- Safe to re-run (uses IF NOT EXISTS / OR REPLACE)
+-- CJLINK — FULL REPAIR / CLEAN DATABASE SETUP
+-- Run this in Supabase SQL Editor (paste this file only)
+-- Safe to re-run: uses IF NOT EXISTS / OR REPLACE / DROP POLICY IF EXISTS
+--
+-- GUARANTEES
+--   * NEVER drops a table, NEVER deletes a user or row
+--   * never removes the profiles_security_guard trigger
+--   * never removes RLS or weakens any policy
+--   * verification_codes stays locked (service_role only)
+--   * restores the admin profile non-destructively
+--   * finishes with NOTIFY pgrst, 'reload schema' to fix PGRST205
+--
+-- SYMPTOM BEING FIXED
+--   404 PGRST205 "Could not find the table 'public.profiles' in the
+--   schema cache" — signup fails and Admin login falls back to
+--   role "applicant". Every public table 404s and /rest/v1/ lists 0
+--   paths, so PostgREST is exposing nothing from `public`.
 -- =============================================
+
+-- =============================================
+-- 0. DIAGNOSTICS — BEFORE (null-safe, runs even if tables are missing)
+-- =============================================
+
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'public'
+ORDER BY table_name;
+
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = 'public' AND table_name = 'profiles'
+ORDER BY ordinal_position;
+
+SELECT c.relname, c.relrowsecurity AS rls_enabled
+FROM pg_class c
+WHERE c.oid = to_regclass('public.profiles');
+
+SELECT policyname, cmd
+FROM pg_policies
+WHERE schemaname = 'public' AND tablename = 'profiles'
+ORDER BY policyname;
 
 -- =============================================
 -- 1. TABLES
@@ -106,6 +143,7 @@ ALTER TABLE profiles ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FAL
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS preferences JSONB DEFAULT '{}';
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS consent_accepted BOOLEAN DEFAULT FALSE;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS consent_accepted_at TIMESTAMPTZ;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS signup_risk_level TEXT DEFAULT 'low';
 
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS max_applicants INT DEFAULT 0;
 
@@ -120,6 +158,7 @@ CREATE INDEX IF NOT EXISTS idx_interviews_application_id ON interviews(applicati
 CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
 CREATE INDEX IF NOT EXISTS idx_activities_user_id ON activities(user_id);
 CREATE INDEX IF NOT EXISTS idx_hiring_policy_ack_user ON hiring_policy_acknowledgments(user_id);
+CREATE INDEX IF NOT EXISTS idx_profiles_signup_risk ON profiles(signup_risk_level);
 
 -- =============================================
 -- 3. ENABLE RLS ON ALL TABLES
@@ -211,36 +250,49 @@ END;
 $$;
 
 -- Get all profiles with email (ADMIN ONLY — checks is_admin inside function)
-CREATE OR REPLACE FUNCTION get_profiles_with_email()
+-- NOTE: DROP + CREATE (not CREATE OR REPLACE) because PostgreSQL refuses
+-- to change an existing function's return type with CREATE OR REPLACE.
+-- Every selected expression is explicitly cast so the query's row type
+-- always equals the declared type (fixes "structure of query does not
+-- match function result type"). Returns only the fields Users.jsx renders.
+DROP FUNCTION IF EXISTS public.get_profiles_with_email();
+CREATE FUNCTION public.get_profiles_with_email()
 RETURNS TABLE (
   id UUID,
   full_name TEXT,
+  email TEXT,
   role TEXT,
   status TEXT,
-  phone_number TEXT,
-  location TEXT,
   skills TEXT,
-  resume_url TEXT,
-  created_at TIMESTAMPTZ,
-  email TEXT
+  resume_url TEXT
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, auth
+SET search_path = public
 AS $$
 BEGIN
   -- SECURITY: Only admins can call this function
-  IF NOT is_admin() THEN
+  IF NOT public.is_admin() THEN
     RAISE EXCEPTION 'Access denied. Admin role required.';
   END IF;
 
   RETURN QUERY
-  SELECT p.id, p.full_name, p.role, p.status, p.phone_number, p.location, p.skills, p.resume_url, p.created_at, u.email
-  FROM profiles p
+  SELECT p.id::uuid,
+         p.full_name::text,
+         u.email::text,
+         p.role::text,
+         p.status::text,
+         p.skills::text,
+         p.resume_url::text
+  FROM public.profiles p
   JOIN auth.users u ON u.id = p.id
   ORDER BY p.created_at DESC;
 END;
 $$;
+
+REVOKE ALL ON FUNCTION public.get_profiles_with_email() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.get_profiles_with_email() FROM anon;
+GRANT EXECUTE ON FUNCTION public.get_profiles_with_email() TO authenticated;
 
 -- Sync email_verified status from auth.users.email_confirmed_at
 CREATE OR REPLACE FUNCTION sync_email_verified()
@@ -412,9 +464,14 @@ CREATE POLICY "Users can read own notifications"
   ON notifications FOR SELECT
   USING (auth.uid() = user_id);
 
+-- Name kept identical to the existing policy so DROP+CREATE stays
+-- idempotent. Tightened from WITH CHECK (true): a client may only insert
+-- a notification addressed to itself (verified: all four client-side
+-- inserts target the current user). Edge functions that notify other
+-- users use the service_role key and bypass RLS, so they are unaffected.
 CREATE POLICY "System can insert notifications"
   ON notifications FOR INSERT
-  WITH CHECK (true);
+  WITH CHECK (auth.uid() = user_id);
 
 -- --- INTERVIEWS ---
 DROP POLICY IF EXISTS "Users can read own interviews" ON interviews;
@@ -457,9 +514,12 @@ CREATE POLICY "Admins can read all activities"
   ON activities FOR SELECT
   USING (is_admin());
 
+-- Name kept identical so DROP+CREATE stays idempotent. Tightened from
+-- WITH CHECK (true): clients may only log their own activity. No client
+-- code inserts into activities today; service_role writers bypass RLS.
 CREATE POLICY "System can insert activities"
   ON activities FOR INSERT
-  WITH CHECK (true);
+  WITH CHECK (auth.uid() = user_id);
 
 -- --- HIRING POLICY ---
 DROP POLICY IF EXISTS "Anyone can read hiring policy" ON hiring_policy;
@@ -555,22 +615,27 @@ DECLARE
 BEGIN
   SELECT id INTO user_uuid FROM auth.users WHERE email = 'admin@gmail.com';
   IF user_uuid IS NULL THEN
-    RAISE EXCEPTION 'Admin email not found. First create admin@gmail.com with password admin123 in Authentication → Users, then re-run.';
+    RAISE NOTICE 'admin@gmail.com not found in auth.users — skipped admin seeding. Create it in Authentication → Users, then re-run.';
+    RETURN;
   END IF;
 
-  -- Clean up old data
-  DELETE FROM notifications WHERE user_id = user_uuid;
-  DELETE FROM applications WHERE user_id = user_uuid;
-  DELETE FROM profiles WHERE id = user_uuid;
+  -- NON-DESTRUCTIVE / SPEC-COMPLIANT:
+  --   * auth user missing  -> create nothing, skip
+  --   * profile missing    -> insert the missing admin profile
+  --   * profile exists     -> left completely unchanged
+  -- Never deletes applications, notifications or profiles.
+  -- Never touches credentials or passwords.
+  IF NOT EXISTS (SELECT 1 FROM profiles WHERE id = user_uuid) THEN
+    INSERT INTO profiles (id, full_name, role, status, email_verified)
+    VALUES (user_uuid, 'Admin', 'admin', 'active', true);
+  END IF;
 
-  -- Create admin profile
-  INSERT INTO profiles (id, full_name, role, status, email_verified)
-  VALUES (user_uuid, 'Admin', 'admin', 'active', true);
-
-  -- Mark email as confirmed in auth
+  -- Auth bookkeeping only (no credentials involved).
+  -- COALESCE makes it idempotent: email_confirmed_at is stamped only if
+  -- still NULL, and the metadata merge yields the same value on re-runs.
   UPDATE auth.users
   SET raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || '{"role": "admin"}'::jsonb,
-      email_confirmed_at = NOW()
+      email_confirmed_at = COALESCE(email_confirmed_at, NOW())
   WHERE id = user_uuid;
 
   -- Seed default hiring policy for admin
@@ -591,7 +656,22 @@ INSERT INTO storage.buckets (id, name, public)
 SELECT 'resumes', 'resumes', true
 WHERE NOT EXISTS (SELECT 1 FROM storage.buckets WHERE id = 'resumes');
 
--- Drop old policies first
+-- STORAGE POLICY REVIEW (requirement I)
+--   INSERT/UPDATE/DELETE are all scoped to the caller's own folder
+--   resumes/{auth.uid()}/... — no user can write into another user's
+--   folder. This is the required behaviour.
+--
+--   SELECT is intentionally public for this bucket. This is dictated by
+--   the application: Profile.jsx uploads and then calls getPublicUrl(),
+--   and stores that public URL in profiles.resume_url / avatar_url.
+--   Admins and other users view resumes through that stored URL, and
+--   there is no signed-URL code path in the app. The bucket itself is
+--   therefore created with public = true.
+--   HARDENING (optional, requires app changes — not done here):
+--   switch to a private bucket + createSignedUrl in Profile.jsx.
+
+-- Drop old policies first (each DROP is immediately followed by its
+-- exact recreation below, so this remains idempotent)
 DROP POLICY IF EXISTS "Users can upload their own resumes" ON storage.objects;
 DROP POLICY IF EXISTS "Resumes are publicly readable" ON storage.objects;
 DROP POLICY IF EXISTS "Users can update their own files" ON storage.objects;
@@ -631,7 +711,17 @@ CREATE POLICY "Users can delete their own files"
   );
 
 -- =============================================
--- 9. CLEANUP: Drop old phone-based functions
+-- 9. CLEANUP: remove obsolete phone-based reset functions
+--
+-- WHY THESE DROPS ARE REQUIRED (security, not tidying):
+--   reset_with_code() wrote auth.users.encrypted_password directly —
+--   that mechanism is prohibited in the current design. send_reset_code()
+--   stored OTPs in profiles.preferences, bypassing verification_codes
+--   and its attempt counter. The current design is Supabase Auth email
+--   recovery only, so these functions must not remain callable.
+--
+-- NO COLUMNS ARE DROPPED. Obsolete security_question / security_answer
+-- columns, if present, are deliberately left in place and unused.
 -- =============================================
 
 DROP FUNCTION IF EXISTS send_reset_code;
@@ -640,10 +730,6 @@ DROP FUNCTION IF EXISTS reset_with_code;
 DROP FUNCTION IF EXISTS get_security_question;
 DROP FUNCTION IF EXISTS reset_password_by_phone;
 DROP FUNCTION IF EXISTS sync_user_phone;
-
--- Drop old columns if they exist
-ALTER TABLE profiles DROP COLUMN IF EXISTS security_question;
-ALTER TABLE profiles DROP COLUMN IF EXISTS security_answer;
 
 -- =============================================
 -- 10. DATA API GRANTS (required for new tables after 30 Oct 2026)
@@ -682,6 +768,9 @@ CREATE TABLE IF NOT EXISTS verification_codes (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Older installs may pre-date the attempt counter
+ALTER TABLE verification_codes ADD COLUMN IF NOT EXISTS attempts INT NOT NULL DEFAULT 0;
+
 CREATE INDEX IF NOT EXISTS idx_verification_codes_user ON verification_codes(user_id);
 CREATE INDEX IF NOT EXISTS idx_verification_codes_code ON verification_codes(code);
 
@@ -695,10 +784,64 @@ REVOKE ALL ON verification_codes FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON verification_codes TO service_role;
 
 -- =============================================
--- 11. VERIFY (should show admin user)
+-- 10c. REFRESH THE PostgREST SCHEMA CACHE
+-- Non-destructive: tells PostgREST to re-introspect `public`.
+-- This is the step that clears PGRST205 "not in the schema cache".
 -- =============================================
 
+NOTIFY pgrst, 'reload schema';
+
+-- =============================================
+-- 11. VERIFY (run these after the script)
+-- =============================================
+
+-- 11a. admin profile row (role must be admin)
 SELECT p.id::text, p.full_name, p.role, p.status, p.email_verified, au.email
 FROM profiles p
 JOIN auth.users au ON au.id = p.id
 WHERE au.email = 'admin@gmail.com';
+
+-- 11b. every public table should be listed here
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'public'
+ORDER BY table_name;
+
+-- 11c. profiles must have consent_accepted / consent_accepted_at /
+--      signup_risk_level (otherwise signup fails on INSERT)
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = 'public' AND table_name = 'profiles'
+ORDER BY ordinal_position;
+
+-- 11d. jobs must have max_applicants (otherwise job creation fails)
+SELECT column_name
+FROM information_schema.columns
+WHERE table_schema = 'public' AND table_name = 'jobs'
+ORDER BY ordinal_position;
+
+-- 11e. RLS on + policies present
+SELECT relrowsecurity AS rls_enabled
+FROM pg_class WHERE oid = to_regclass('public.profiles');
+
+SELECT policyname, cmd FROM pg_policies
+WHERE schemaname = 'public' AND tablename = 'profiles'
+ORDER BY policyname;
+
+-- 11f. privilege-escalation guard trigger must exist
+SELECT t.tgname FROM pg_trigger t
+WHERE t.tgrelid = to_regclass('public.profiles') AND NOT t.tgisinternal;
+
+-- 11g. verification_codes must exist, have RLS, and have NO client grants
+SELECT to_regclass('public.verification_codes') IS NOT NULL AS table_exists;
+SELECT grantee, privilege_type
+FROM information_schema.role_table_grants
+WHERE table_schema = 'public' AND table_name = 'verification_codes'
+  AND grantee IN ('anon', 'authenticated');
+
+-- 11h. row counts (confirm nothing was deleted)
+SELECT (SELECT count(*) FROM profiles)    AS profiles,
+       (SELECT count(*) FROM jobs)        AS jobs,
+       (SELECT count(*) FROM applications) AS applications,
+       (SELECT count(*) FROM notifications) AS notifications,
+       (SELECT count(*) FROM activities)  AS activities;

@@ -110,7 +110,23 @@ export function AuthProvider({ children }) {
         consent_accepted_at: new Date().toISOString(),
         signup_risk_level: riskLevel,
       });
-      if (insertError) throw insertError;
+      if (insertError) {
+        // The auth user already exists at this point. Remove it so a failed
+        // profile insert never leaves an orphaned/inconsistent account.
+        try {
+          await supabase.functions.invoke("cleanup-unverified-signup", {
+            body: { email },
+          });
+        } catch {
+          // best-effort cleanup only
+        }
+        try {
+          await supabase.auth.signOut();
+        } catch {
+          // ignore
+        }
+        throw insertError;
+      }
 
       await supabase.from("notifications").insert({
         user_id: data.user.id,
@@ -130,11 +146,18 @@ export function AuthProvider({ children }) {
     if (error) throw error;
 
     // Check suspension and email verification BEFORE setting session
-    const { data: profileData } = await supabase
+    const { data: profileData, error: profileErr } = await supabase
       .from("profiles")
       .select("status, role, email_verified")
       .eq("id", data.user.id)
       .single();
+
+    // Surface a missing/unavailable profiles table instead of silently
+    // falling back to role "applicant", which would hide admin accounts.
+    if (profileErr?.code === "PGRST205") {
+      await supabase.auth.signOut();
+      throw new Error("Unable to load your profile right now. Please try again later.");
+    }
 
     if (profileData?.status === "suspended") {
       await supabase.auth.signOut();

@@ -13,8 +13,9 @@ export default function Users() {
     setFetchError("");
     setLoading(true);
 
-    // Try RPC first (requires get_profiles_with_email function)
-    const { data: rpcData } = await supabase.rpc("get_profiles_with_email");
+    // Source of truth: get_profiles_with_email() (SECURITY DEFINER,
+    // admin-gated, joins auth.users for the real email).
+    const { data: rpcData, error: rpcError } = await supabase.rpc("get_profiles_with_email");
 
     if (rpcData && rpcData.length > 0) {
       setUsers(rpcData);
@@ -22,8 +23,9 @@ export default function Users() {
       return;
     }
 
-    // Fallback: direct query with email from auth.users
-    // This requires admin role and RLS policies
+    // Fallback: profiles only. Emails are NOT available client-side —
+    // auth.admin.listUsers() requires the service-role key, which must
+    // never ship in the browser, so it is not called here.
     const { data: profiles, error: profileError } = await supabase
       .from("profiles")
       .select("id, full_name, role, status, phone_number, location, skills, resume_url, created_at")
@@ -35,24 +37,14 @@ export default function Users() {
       return;
     }
 
-    if (profiles && profiles.length > 0) {
-      // Try to get emails separately (may fail due to RLS)
-      const { data: authData } = await supabase.auth.admin.listUsers();
-
-      const emailMap = {};
-      if (authData?.users) {
-        authData.users.forEach(u => { emailMap[u.id] = u.email; });
-      }
-
-      const enriched = profiles.map(p => ({
-        ...p,
-        email: emailMap[p.id] || "—",
-      }));
-      setUsers(enriched);
-    } else {
-      setUsers([]);
+    if (rpcError) {
+      setFetchError(
+        "Loaded users, but emails are unavailable — get_profiles_with_email() could not be called: " +
+        rpcError.message
+      );
     }
 
+    setUsers(profiles || []);
     setLoading(false);
   };
 

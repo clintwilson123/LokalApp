@@ -8,9 +8,50 @@ const bgBlob = {
   opacity: 0.15, pointerEvents: "none", zIndex: 1,
 };
 
-// Production-safe base URL for password reset email links.
-// Falls back to the current origin when VITE_SITE_URL is not configured.
-const siteUrl = import.meta.env.VITE_SITE_URL || window.location.origin;
+// Base URL used in the password-reset email link.
+// Local dev always links back to the running app (http://localhost:5173);
+// production builds use VITE_SITE_URL (canonical domain) or the current origin.
+const isLocalhost =
+  import.meta.env.DEV ||
+  ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
+const siteUrl = isLocalhost
+  ? window.location.origin
+  : import.meta.env.VITE_SITE_URL || window.location.origin;
+
+const EMAIL_FORMAT = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Turn supabase.auth.resetPasswordForEmail errors into clear, safe messages
+// that distinguish format, rate-limit, connectivity, and Auth problems.
+function describeResetError(err) {
+  const msg = String(err?.message || "");
+  const code = err?.code || "";
+  const status = err?.status;
+
+  // True connectivity failure
+  if (
+    err instanceof TypeError ||
+    err?.name === "AuthRetryableFetchError" ||
+    /failed to fetch|fetch failed|load failed/i.test(msg)
+  ) {
+    return "Could not reach the server. Please check your connection and try again.";
+  }
+
+  // Server-side limits: built-in email provider allows few emails per hour,
+  // plus a short per-user cooldown between reset requests
+  if (
+    status === 429 ||
+    code === "over_email_send_rate_limit" ||
+    /rate limit/i.test(msg) ||
+    /only request this after/i.test(msg)
+  ) {
+    return "Too many reset requests right now. Please wait a few minutes and try again.";
+  }
+
+  // User-facing message from Supabase Auth (invalid email, configuration, …)
+  if (msg) return msg;
+
+  return "Failed to send the reset email. Please try again.";
+}
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
@@ -20,19 +61,25 @@ export default function ForgotPassword() {
 
   const handleReset = async () => {
     setError("");
-    if (!email) {
+    const target = email.trim();
+    if (!target) {
       setError("Please enter your email address.");
+      return;
+    }
+    if (!EMAIL_FORMAT.test(target)) {
+      setError("Please enter a valid email address.");
       return;
     }
     setLoading(true);
     try {
-      const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email, {
+      const { error: resetErr } = await supabase.auth.resetPasswordForEmail(target, {
         redirectTo: `${siteUrl}/update-password`,
       });
       if (resetErr) throw resetErr;
+      setEmail(target);
       setSent(true);
     } catch (err) {
-      setError(err.message || "Failed to send reset email. Try again.");
+      setError(describeResetError(err));
     } finally {
       setLoading(false);
     }
