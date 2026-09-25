@@ -8,6 +8,10 @@ const bgBlob = {
   opacity: 0.15, pointerEvents: "none", zIndex: 1,
 };
 
+// Production-safe base URL for password reset email links.
+// Falls back to the current origin when VITE_SITE_URL is not configured.
+const siteUrl = import.meta.env.VITE_SITE_URL || window.location.origin;
+
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
@@ -23,7 +27,7 @@ export default function ForgotPassword() {
     setLoading(true);
     try {
       const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/update-password`,
+        redirectTo: `${siteUrl}/update-password`,
       });
       if (resetErr) throw resetErr;
       setSent(true);

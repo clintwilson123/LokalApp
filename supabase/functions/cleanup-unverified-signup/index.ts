@@ -58,6 +58,14 @@ serve(async (req: Request) => {
       return json({ error: "Method not allowed", code: "METHOD_NOT_ALLOWED" }, 405);
     }
 
+    // Require an authenticated caller — this function may only remove the
+    // caller's own just-created, unverified account. Without this check any
+    // anonymous request could delete arbitrary accounts by email.
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return json({ error: "Unauthorized", code: "UNAUTHORIZED" }, 401);
+    }
+
     const { email } = await req.json();
 
     if (!email || typeof email !== "string" || !email.includes("@")) {
@@ -69,6 +77,14 @@ serve(async (req: Request) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
+    // Resolve the caller from the JWT the app attaches via functions.invoke
+    const token = authHeader.replace(/^Bearer\s+/i, "");
+    const { data: callerData, error: callerError } = await supabase.auth.getUser(token);
+    const caller = callerData?.user;
+    if (callerError || !caller) {
+      return json({ error: "Unauthorized", code: "UNAUTHORIZED" }, 401);
+    }
+
     const { user, failed: lookupFailed } = await findUserByEmail(supabase, email);
     if (lookupFailed) {
       return json({ error: "Cleanup failed", code: "SERVER_ERROR" }, 500);
@@ -77,6 +93,24 @@ serve(async (req: Request) => {
     if (!user) {
       // Already gone — nothing to clean up
       return json({ success: true, message: "No unverified account to remove." }, 200);
+    }
+
+    // Only the signed-in user may remove their own account — never someone else's
+    if (user.id !== caller.id) {
+      return json({
+        success: false,
+        error: "You can only remove your own unverified account.",
+        code: "FORBIDDEN",
+      }, 403);
+    }
+
+    // Never remove an account whose email is already confirmed in auth.users
+    if (user.email_confirmed_at) {
+      return json({
+        success: false,
+        error: "Account already verified.",
+        code: "ALREADY_VERIFIED",
+      }, 409);
     }
 
     // Only remove accounts that have NOT verified their email

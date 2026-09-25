@@ -303,6 +303,75 @@ CREATE POLICY "Allow insert during signup"
   ON profiles FOR INSERT
   WITH CHECK (auth.uid() = id);
 
+-- SECURITY: row-level guard on role/status/email_verified.
+-- RLS lets users update their own row; this trigger stops a user from
+-- escalating role to admin, changing status, or setting
+-- email_verified=true before the email is actually confirmed.
+-- No-JWT callers (SQL editor, service role) pass through unchanged.
+CREATE OR REPLACE FUNCTION public.profiles_security_guard()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  caller_is_admin BOOLEAN := FALSE;
+  auth_confirmed TIMESTAMPTZ;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = auth.uid() AND role = 'admin'
+  ) INTO caller_is_admin;
+
+  IF TG_OP = 'INSERT' THEN
+    IF NOT caller_is_admin THEN
+      NEW.role := 'applicant';
+
+      IF NEW.email_verified THEN
+        SELECT email_confirmed_at INTO auth_confirmed
+        FROM auth.users WHERE id = NEW.id;
+        IF auth_confirmed IS NULL THEN
+          NEW.email_verified := FALSE;
+        END IF;
+      END IF;
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  -- UPDATE
+  IF NOT caller_is_admin THEN
+    IF NEW.role IS DISTINCT FROM OLD.role THEN
+      RAISE EXCEPTION 'Changing the profile role is not allowed';
+    END IF;
+
+    IF NEW.status IS DISTINCT FROM OLD.status THEN
+      RAISE EXCEPTION 'Changing the profile status is not allowed';
+    END IF;
+
+    IF NEW.email_verified IS DISTINCT FROM OLD.email_verified THEN
+      SELECT email_confirmed_at INTO auth_confirmed
+        FROM auth.users WHERE id = NEW.id;
+      IF NEW.email_verified IS NOT TRUE OR auth_confirmed IS NULL THEN
+        RAISE EXCEPTION 'Email verification can only be set after the email is confirmed';
+      END IF;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS profiles_security_guard ON public.profiles;
+
+CREATE TRIGGER profiles_security_guard
+  BEFORE INSERT OR UPDATE ON public.profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION public.profiles_security_guard();
+
 -- --- APPLICATIONS ---
 DROP POLICY IF EXISTS "Users can read own applications" ON applications;
 DROP POLICY IF EXISTS "Admins can read all applications" ON applications;
@@ -576,11 +645,57 @@ DROP FUNCTION IF EXISTS sync_user_phone;
 ALTER TABLE profiles DROP COLUMN IF EXISTS security_question;
 ALTER TABLE profiles DROP COLUMN IF EXISTS security_answer;
 
--- Drop verification_codes table (no longer needed — using email verification)
-DROP TABLE IF EXISTS verification_codes;
+-- =============================================
+-- 10. DATA API GRANTS (required for new tables after 30 Oct 2026)
+-- =============================================
+
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authenticated, service_role;
+
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+
+-- Future tables/sequences created from this project are auto-granted
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT SELECT ON TABLES TO anon;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT USAGE, SELECT ON SEQUENCES TO anon, authenticated, service_role;
 
 -- =============================================
--- 10. VERIFY (should show admin user)
+-- 10b. VERIFICATION CODES LOCKDOWN
+-- The section-10 grants above hit every table, so the OTP table is
+-- re-tightened here: RLS on, no client policies, no client grants.
+-- Only edge functions (service role, bypasses RLS) may touch codes.
+-- =============================================
+
+CREATE TABLE IF NOT EXISTS verification_codes (
+  id SERIAL PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  code TEXT NOT NULL,
+  purpose TEXT NOT NULL DEFAULT 'signup' CHECK (purpose IN ('signup', 'password_reset')),
+  used BOOLEAN DEFAULT FALSE,
+  attempts INT NOT NULL DEFAULT 0,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_verification_codes_user ON verification_codes(user_id);
+CREATE INDEX IF NOT EXISTS idx_verification_codes_code ON verification_codes(code);
+
+ALTER TABLE verification_codes ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can read own verification codes" ON verification_codes;
+DROP POLICY IF EXISTS "System can insert verification codes" ON verification_codes;
+DROP POLICY IF EXISTS "System can update verification codes" ON verification_codes;
+
+REVOKE ALL ON verification_codes FROM anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON verification_codes TO service_role;
+
+-- =============================================
+-- 11. VERIFY (should show admin user)
 -- =============================================
 
 SELECT p.id::text, p.full_name, p.role, p.status, p.email_verified, au.email

@@ -19,20 +19,13 @@ CREATE INDEX IF NOT EXISTS idx_verification_codes_code ON verification_codes(cod
 
 ALTER TABLE verification_codes ENABLE ROW LEVEL SECURITY;
 
--- Users can read their own codes (for verification)
+-- SECURITY: no client-accessible policies.
+-- OTP codes must never be readable (own-row reads leak the OTP around
+-- email possession) or writable (WITH CHECK/USING true = anyone) through
+-- the Data API. Only edge functions access this table via the service
+-- role, which bypasses RLS. Client grants are revoked in
+-- 20260925150000_secure_verification_codes.sql.
+-- Drop the old permissive policies if they exist (safe to re-run).
 DROP POLICY IF EXISTS "Users can read own verification codes" ON verification_codes;
-CREATE POLICY "Users can read own verification codes"
-  ON verification_codes FOR SELECT
-  USING (auth.uid() = user_id);
-
--- System can insert codes
 DROP POLICY IF EXISTS "System can insert verification codes" ON verification_codes;
-CREATE POLICY "System can insert verification codes"
-  ON verification_codes FOR INSERT
-  WITH CHECK (true);
-
--- System can update codes (mark as used)
 DROP POLICY IF EXISTS "System can update verification codes" ON verification_codes;
-CREATE POLICY "System can update verification codes"
-  ON verification_codes FOR UPDATE
-  USING (true);

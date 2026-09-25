@@ -21,6 +21,13 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+// Wrong guesses allowed before the code is invalidated (brute-force protection)
+const MAX_ATTEMPTS = 5;
+
+// One message for every bad outcome — wrong, expired, exhausted, or an
+// unknown email must be indistinguishable to an attacker.
+const GENERIC_CODE_ERROR = "Invalid or expired verification code.";
+
 // Find a user by email via admin listUsers.
 // supabase-js v2 has no auth.admin.getUserByEmail — listUsers is the supported API.
 async function findUserByEmail(
@@ -78,17 +85,18 @@ serve(async (req: Request) => {
       return json({ error: "Verification failed. Please try again.", code: "SERVER_ERROR" }, 500);
     }
     if (!authUser) {
-      return json({ error: "User not found", code: "USER_NOT_FOUND" }, 404);
+      // Same generic answer as a wrong code — do not reveal whether the email exists
+      return json({ error: GENERIC_CODE_ERROR, code: "INVALID_CODE" }, 400);
     }
 
     const userId = authUser.id;
 
-    // Find the matching code
+    // Latest unused code — looked up WITHOUT the submitted value so failed
+    // attempts can be counted before the comparison
     const { data: codeRecord } = await supabase
       .from("verification_codes")
       .select("*")
       .eq("user_id", userId)
-      .eq("code", code)
       .eq("purpose", "signup")
       .eq("used", false)
       .order("created_at", { ascending: false })
@@ -96,12 +104,32 @@ serve(async (req: Request) => {
       .maybeSingle();
 
     if (!codeRecord) {
-      return json({ error: "Invalid verification code", code: "INVALID_CODE" }, 400);
+      return json({ error: GENERIC_CODE_ERROR, code: "INVALID_CODE" }, 400);
     }
 
-    // Check expiry
+    // Brute-force protection: a code that already hit the limit is dead
+    const attempts = codeRecord.attempts ?? 0;
+    if (attempts >= MAX_ATTEMPTS) {
+      await supabase
+        .from("verification_codes")
+        .update({ used: true })
+        .eq("id", codeRecord.id)
+        .eq("used", false);
+      return json({ error: GENERIC_CODE_ERROR, code: "INVALID_CODE" }, 400);
+    }
+
+    // Check expiry — same generic message as a wrong code
     if (new Date(codeRecord.expires_at) < new Date()) {
-      return json({ error: "Code has expired. Please request a new one.", code: "CODE_EXPIRED" }, 400);
+      return json({ error: GENERIC_CODE_ERROR, code: "INVALID_CODE" }, 400);
+    }
+
+    if (codeRecord.code !== code) {
+      const nextAttempts = attempts + 1;
+      await supabase
+        .from("verification_codes")
+        .update({ attempts: nextAttempts, used: nextAttempts >= MAX_ATTEMPTS })
+        .eq("id", codeRecord.id);
+      return json({ error: GENERIC_CODE_ERROR, code: "INVALID_CODE" }, 400);
     }
 
     // Mark code as used

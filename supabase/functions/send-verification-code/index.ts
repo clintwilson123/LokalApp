@@ -159,12 +159,13 @@ serve(async (req: Request) => {
         if (resendRes.ok) {
           emailSent = true;
         } else {
-          // Log the real Resend error for debugging
+          // Log the real Resend error for debugging — redact the OTP in case
+          // the API echoes the request payload back
           const resendBody = await resendRes.text().catch(() => "");
           console.error("send-verification-code: Resend API rejected email", {
             status: resendRes.status,
             email,
-            body: resendBody,
+            body: resendBody.split(code).join("[redacted]"),
           });
           emailSent = false;
         }
@@ -194,20 +195,19 @@ serve(async (req: Request) => {
       }, 400);
     }
 
-    // Also create an in-app notification with the code
+    // Also create an in-app notification — the OTP itself is only ever
+    // delivered by email, never stored where the client could read it
     await supabase
       .from("notifications")
       .insert({
         user_id: userId,
-        message: `📧 Your CJLink verification code is: ${code}\n\nThis code expires in 10 minutes.`,
+        message: "📧 Your CJLink verification code has been sent to your email. It expires in 10 minutes.",
         type: "verification",
       });
 
     return json({
       success: true,
       message: "Verification code sent",
-      // In development, include code in response for testing
-      ...(Deno.env.get("DENO_ENV") !== "production" && { dev_code: code }),
     }, 200);
   } catch (err) {
     // Log the real error for debugging — never expose internals to the client

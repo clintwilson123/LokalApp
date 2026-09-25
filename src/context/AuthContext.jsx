@@ -119,11 +119,6 @@ export function AuthProvider({ children }) {
       });
     }
 
-    // Sign out immediately so user needs to verify email and log in
-    await supabase.auth.signOut();
-    setUser(null);
-    setProfile(null);
-
     return data;
   }
 

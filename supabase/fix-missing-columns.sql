@@ -95,6 +95,25 @@ $$;
 -- Fix any user with wrong role (uncomment and change email if needed)
 -- UPDATE profiles SET role = 'applicant' WHERE id = (SELECT id FROM auth.users WHERE email = 'YOUR_USER_EMAIL_HERE') AND role = 'admin' AND email != 'admin@gmail.com';
 
+-- =============================================
+-- DATA API GRANTS (required for new tables after 30 Oct 2026)
+-- =============================================
+
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authenticated, service_role;
+
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+
+-- Future tables/sequences created from this project are auto-granted
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT SELECT ON TABLES TO anon;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT USAGE, SELECT ON SEQUENCES TO anon, authenticated, service_role;
+
 -- Verify
 SELECT p.full_name, p.role, p.status, p.email_verified, p.consent_accepted, au.email
 FROM profiles p

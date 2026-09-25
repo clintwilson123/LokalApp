@@ -190,11 +190,16 @@ export default function Signup() {
       try {
         await invokeEdge("send-verification-code", { email });
       } catch (otpErr) {
-        // OTP not delivered → do not keep the account
+        // OTP not delivered → do not keep the account (cleanup needs the
+        // session created by signUp, so sign out only after it runs)
         await rollbackSignup(email);
+        await supabase.auth.signOut();
         throw otpErr;
       }
 
+      // Signed out only now so cleanup-unverified-signup could authenticate;
+      // the user must still verify their email and log in
+      await supabase.auth.signOut();
       setSuccess(true);
     } catch (err) {
       const msg = err?.message || "";
