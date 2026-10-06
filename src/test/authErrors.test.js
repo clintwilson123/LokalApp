@@ -103,3 +103,80 @@ describe('messageForCode', () => {
     expect(messageForCode(undefined, undefined)).toBe(AUTH_MSG.generic);
   });
 });
+
+// ACCOUNT_CREATION_FAILED and ACCOUNT_CREATED_VERIFICATION_PENDING are distinct
+// states and must never share a message.
+describe('account state separation', () => {
+  const deliveryCodes = ['EMAIL_PROVIDER_ERROR', 'DELIVERY_FAILED', 'UNDELIVERABLE'];
+
+  it('Test 2 — a delivery failure AFTER the account exists uses the contextual message', () => {
+    for (const code of deliveryCodes) {
+      expect(messageForCode(code, 'anything', { accountCreated: true })).toBe(
+        AUTH_MSG.emailProviderAfterCreate
+      );
+    }
+    expect(AUTH_MSG.emailProviderAfterCreate).toMatch(/account was created successfully/i);
+    expect(AUTH_MSG.emailProviderAfterCreate).toMatch(/couldn't send the verification email/i);
+  });
+
+  it('the contextual message is never used before the account exists', () => {
+    for (const code of deliveryCodes) {
+      expect(messageForCode(code, 'anything')).toBe(AUTH_MSG.emailProvider);
+      expect(messageForCode(code, 'anything', { accountCreated: false })).toBe(
+        AUTH_MSG.emailProvider
+      );
+    }
+    expect(AUTH_MSG.emailProvider).not.toMatch(/account was created successfully/i);
+  });
+
+  it('a delivery failure is never reported as an invalid Gmail address', () => {
+    for (const code of deliveryCodes) {
+      const msg = messageForCode(code, 'anything', { accountCreated: true });
+      expect(msg).not.toMatch(/valid gmail/i);
+      expect(msg).not.toMatch(/cannot receive/i);
+      expect(msg).not.toMatch(/invalid or cannot/i);
+    }
+  });
+
+  it('account creation failure keeps its own message', () => {
+    expect(messageForCode('INVALID_FORMAT', 'x')).toBe(AUTH_MSG.invalidFormat);
+    expect(AUTH_MSG.invalidFormat).not.toMatch(/account was created successfully/i);
+  });
+});
+
+describe('required user-facing messages', () => {
+  it('Test 3 — invalid format', () => {
+    expect(messageForCode('INVALID_FORMAT', 'x')).toBe('Please enter a valid Gmail address.');
+  });
+
+  it('Test 4 — account already exists', () => {
+    const msg = messageForCode('ALREADY_REGISTERED', 'x');
+    expect(msg).toBe(
+      'An account with this Gmail address already exists. Please log in or reset your password.'
+    );
+    // Must never be reclassified as an invalid address.
+    expect(msg).not.toMatch(/valid gmail/i);
+  });
+
+  it('Test 4 — a raw Supabase duplicate message still resolves to the same text', () => {
+    expect(messageForCode('', 'User already registered')).toBe(
+      'An account with this Gmail address already exists. Please log in or reset your password.'
+    );
+  });
+
+  it('Test 5 — wrong or expired OTP', () => {
+    expect(messageForCode('INVALID_CODE', 'Invalid or expired verification code.')).toBe(
+      'The verification code is incorrect or has expired. Please request a new code.'
+    );
+    expect(
+      messageForCode('INVALID_CODE', 'Invalid or expired verification code.', {
+        accountCreated: true,
+      })
+    ).toBe(AUTH_MSG.invalidOtp);
+  });
+
+  it('the generic "Unable to verify at this time" text is not used for OTP failures', () => {
+    expect(messageForCode('INVALID_CODE', 'x')).not.toBe(AUTH_MSG.emailProvider);
+    expect(messageForCode('INVALID_CODE', 'x')).not.toBe(AUTH_MSG.emailProviderAfterCreate);
+  });
+});

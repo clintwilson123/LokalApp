@@ -12,6 +12,9 @@ export function AuthProvider({ children }) {
   async function loadProfile(userId) {
     if (fetching.current) return;
     fetching.current = true;
+    // Hold the app in `loading` for the whole fetch so ProtectedRoute and the
+    // pages never redirect on a half-resolved profile.
+    setLoading(true);
 
     try {
       for (let retry = 0; retry < 3; retry++) {
@@ -159,20 +162,29 @@ export function AuthProvider({ children }) {
       throw new Error("Unable to load your profile right now. Please try again later.");
     }
 
-    if (profileData?.status === "suspended") {
+    // Never invent a role. If there is no readable profile row we cannot say
+    // who this user is, so refuse instead of defaulting to "applicant".
+    // PGRST116 = .single() found no row (the account is unusable) -> sign out;
+    // anything else is a transient read failure -> keep the session, but still
+    // refuse to hand back a guessed role.
+    if (!profileData) {
+      if (profileErr?.code === "PGRST116") {
+        await supabase.auth.signOut();
+      }
+      throw new Error("Unable to load your profile right now. Please try again later.");
+    }
+
+    if (profileData.status === "suspended") {
       await supabase.auth.signOut();
       throw new Error("Your account has been suspended. Contact the administrator.");
     }
 
-    // Block unverified users from logging in
-    if (profileData && profileData.role !== "admin" && !profileData.email_verified) {
-      // Check if auth.users has email_confirmed_at set
+    // An unverified applicant keeps their session — the caller routes them to
+    // /verify-email, which cannot do anything without an authenticated user.
+    // Signing out here would strand them and bounce /login <-> /verify-email.
+    if (profileData.role !== "admin" && !profileData.email_verified) {
+      // auth.users is the source of truth; sync it back onto the profile.
       const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser?.email_confirmed_at) {
-        await supabase.auth.signOut();
-        throw new Error("Please verify your email before signing in. Check your inbox for the verification code.");
-      }
-      // If auth says confirmed but profile doesn't, sync it
       if (authUser?.email_confirmed_at) {
         await supabase.from("profiles").update({ email_verified: true }).eq("id", data.user.id);
         profileData.email_verified = true;
@@ -180,7 +192,11 @@ export function AuthProvider({ children }) {
     }
 
     await supabase.auth.setSession(data.session);
-    return { ...data, role: profileData?.role || "applicant", email_verified: profileData?.email_verified };
+    return {
+      ...data,
+      role: profileData.role,
+      email_verified: Boolean(profileData.email_verified),
+    };
   }
 
   async function signOut() {

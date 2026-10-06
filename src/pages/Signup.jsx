@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabaseClient";
-import { pageWrapper, card, title, subtitle, input, inputWrapper, inputIcon, button, linkHighlight, radii } from "../uiStyles";
+import { pageWrapper, card, title, subtitle, input, inputWrapper, inputIcon, button, linkHighlight } from "../uiStyles";
 import { sanitizeName, validateGmail, getPasswordStrength, maxLength } from "../lib/sanitize";
 import { AUTH_MSG, messageForCode } from "../lib/authErrors";
 
@@ -71,30 +71,6 @@ async function verifyCaptcha(email, token) {
   return invokeEdge("spam-prevention", { email, captchaToken: token });
 }
 
-// Best-effort cleanup if OTP was never delivered — remove the unverified account.
-// Returns true when cleanup completed. Failures are logged with safe fields
-// only (error code/message) and are never shown to the user.
-async function rollbackSignup(email) {
-  try {
-    const { data, error } = await supabase.functions.invoke("cleanup-unverified-signup", {
-      body: { email },
-    });
-    if (error) {
-      const details = await extractEdgeError(error);
-      console.error("[signup] rollback failed:", details.code, details.message);
-      return false;
-    }
-    if (data && data.success === false) {
-      console.error("[signup] rollback rejected:", data.code || "UNKNOWN");
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.error("[signup] rollback threw:", err?.name || "Error", err?.message || "");
-    return false;
-  }
-}
-
 export default function Signup() {
   const navigate = useNavigate();
   const { signUp } = useAuth();
@@ -106,7 +82,10 @@ export default function Signup() {
   const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
+  // ACCOUNT_CREATION_FAILED vs ACCOUNT_CREATED_VERIFICATION_PENDING are distinct
+  // states. Once signUp() hands back a user, a later OTP/delivery failure is
+  // reported as a pending verification — never as a failed signup.
+  const [accountCreated, setAccountCreated] = useState(false);
   // Synchronous submit guard: `loading` is state and will not have re-rendered
   // when two Enter keydowns arrive in the same event cycle.
   const submittingRef = useRef(false);
@@ -158,15 +137,10 @@ export default function Signup() {
       return;
     }
 
-    // Which stage of the flow we are in — used to guarantee that a failure
-    // after the account already exists is never reported as an invalid email.
-    let step = "validate";
-
     submittingRef.current = true;
     setLoading(true);
     try {
       // Spam prevention — hard gate (also re-validates format/risk server-side)
-      step = "spam";
       let captchaToken = null;
       if (RECAPTCHA_SITE_KEY && typeof window !== "undefined" && window.grecaptcha) {
         try {
@@ -179,51 +153,48 @@ export default function Signup() {
       const spamResult = await verifyCaptcha(email, captchaToken);
       const riskLevel = spamResult?.risk_level || "low";
 
-      // 2) Create account (unverified — cannot sign in until OTP verified)
-      step = "create";
-      await signUp(email, password, maxLength(sanitizeName(fullName), 100), "applicant", riskLevel);
+      // Account creation. Once this returns a user, the account EXISTS — every
+      // failure below is a pending verification, never a failed signup.
+      const signupResult = await signUp(
+        email,
+        password,
+        maxLength(sanitizeName(fullName), 100),
+        "applicant",
+        riskLevel
+      );
 
-      // 3) Send OTP — must succeed before we continue
-      step = "otp";
-      try {
-        await invokeEdge("send-verification-code", { email });
-      } catch (otpErr) {
-        // OTP not delivered → do not keep the account (cleanup needs the
-        // session created by signUp, so sign out only after it runs)
-        const rolledBack = await rollbackSignup(email);
-        if (!rolledBack) {
-          // Already logged inside rollbackSignup — recorded here so the
-          // sequence is visible without exposing anything to the user.
-          console.error("[signup] continuing after unconfirmed account rollback");
-        }
-        await supabase.auth.signOut();
-        throw otpErr;
+      if (!signupResult?.user) {
+        // Supabase created nothing at all — the address is already registered.
+        const dupErr = new Error(AUTH_MSG.alreadyRegistered);
+        dupErr.code = "ALREADY_REGISTERED";
+        dupErr.source = "edge";
+        throw dupErr;
       }
 
-      // Signed out only now so cleanup-unverified-signup could authenticate;
-      // the user must still verify their email and log in
-      await supabase.auth.signOut();
-      setSuccess(true);
+      setAccountCreated(true);
+      const accountEmail = signupResult.user.email || email;
+
+      // Attempt the OTP. A delivery failure must NOT roll the account back and
+      // must NOT send the user back to Signup — it is carried to /verify-email
+      // as state and shown there as "account created, email still pending".
+      let deliveryFailed = false;
+      try {
+        await invokeEdge("send-verification-code", { email: accountEmail });
+      } catch {
+        deliveryFailed = true;
+      }
+
+      // The session created by signUp() is kept so the user lands on
+      // /verify-email already authenticated and can enter or resend the code.
+      navigate("/verify-email", {
+        replace: true,
+        state: { email: accountEmail, accountCreated: true, deliveryFailed },
+      });
     } catch (err) {
       // Only errors raised by our Edge Functions carry an app error code.
       // Everything else (Supabase auth / PostgREST) is classified without one.
       const edgeCode = err?.source === "edge" ? err.code || "" : "";
-      const rawMsg = err?.message || "";
-
-      let nextMessage = messageForCode(edgeCode, rawMsg);
-
-      // The account already exists from here on: never tell the user their
-      // email address is invalid, whatever the underlying failure was.
-      if (
-        (step === "create" || step === "otp") &&
-        (edgeCode === "INVALID_FORMAT" ||
-          edgeCode === "UNDELIVERABLE" ||
-          edgeCode === "DELIVERY_FAILED")
-      ) {
-        nextMessage = AUTH_MSG.emailProvider;
-      }
-
-      setError(nextMessage);
+      setError(messageForCode(edgeCode, err?.message || ""));
     } finally {
       submittingRef.current = false;
       setLoading(false);
@@ -243,12 +214,15 @@ export default function Signup() {
       <div style={{ ...bgBlob, width: "180px", height: "180px", background: "#22c55e", top: "40%", left: "60%", transform: "translate(-50%, -50%)" }} />
 
       <div style={card}>
-        <div style={{ opacity: success ? 0 : 1, transition: "opacity 0.35s ease" }}>
+        <div>
           <div style={{ fontSize: "42px", marginBottom: "8px" }}>🚀</div>
           <h2 style={title}>Create Account</h2>
           <p style={subtitle}>Join CJLink and start your journey</p>
 
-          {error && (
+          {/* A red failure banner is only ever shown when NO account exists.
+              Once the account is created the flow leaves this page for
+              /verify-email, which reports delivery problems itself. */}
+          {error && !accountCreated && (
             <div style={{
               display: "flex", alignItems: "center", gap: "8px",
               background: "rgba(239, 68, 68, 0.15)", border: "1px solid rgba(239, 68, 68, 0.3)",
@@ -319,41 +293,6 @@ export default function Signup() {
           <p style={{ marginTop: "24px", fontSize: "14px", color: "rgba(255, 255, 255, 0.5)" }}>
             Already have an account? <Link to="/login" style={linkHighlight}>Sign in</Link>
           </p>
-        </div>
-
-        <div style={{
-          position: "absolute", inset: 0, display: "flex", flexDirection: "column",
-          alignItems: "center", justifyContent: "center",
-          background: "rgba(15, 23, 42, 0.95)", backdropFilter: "blur(20px)",
-          borderRadius: radii.xxl, opacity: success ? 1 : 0,
-          pointerEvents: success ? "auto" : "none", transition: "opacity 0.5s ease",
-          zIndex: 10, padding: "40px",
-        }}>
-          <svg width="64" height="64" viewBox="0 0 64 64">
-            <circle cx="32" cy="32" r="30" fill="none" stroke="#4a90e2" strokeWidth="3"
-              style={{ strokeDasharray: 188.5, strokeDashoffset: success ? 0 : 188.5, transition: "stroke-dashoffset 0.6s ease 0.2s" }} />
-            <polyline points="20,32 28,40 44,24" fill="none" stroke="#4a90e2" strokeWidth="3"
-              strokeLinecap="round" strokeLinejoin="round"
-              style={{ strokeDasharray: 34, strokeDashoffset: success ? 0 : 34, transition: "stroke-dashoffset 0.4s ease 0.7s" }} />
-          </svg>
-          <h2 style={{
-            margin: "16px 0 0", color: "#fff", fontSize: "22px", fontWeight: "700",
-            transform: success ? "translateY(0)" : "translateY(12px)",
-            opacity: success ? 1 : 0, transition: "all 0.4s ease 0.6s",
-          }}>Account Created!</h2>
-          <p style={{
-            color: "rgba(255,255,255,0.5)", fontSize: "13px", margin: "8px 0 24px",
-            transform: success ? "translateY(0)" : "translateY(12px)",
-            opacity: success ? 1 : 0, transition: "all 0.4s ease 0.75s",
-          }}>Check your email to verify your account.</p>
-          <button
-            style={{
-              ...button,
-              transform: success ? "translateY(0) scale(1)" : "translateY(12px) scale(0.96)",
-              opacity: success ? 1 : 0, transition: "all 0.4s ease 0.9s",
-            }}
-            onClick={() => navigate("/login", { replace: true })}
-          >Go to Sign In</button>
         </div>
       </div>
     </div>

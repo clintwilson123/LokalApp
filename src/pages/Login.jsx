@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { postAuthPath } from "../lib/authFlow";
 import { pageWrapper, card, title, subtitle, input, inputWrapper, inputIcon, button, link, linkHighlight, radii } from "../uiStyles";
 
 const bgBlob = {
@@ -22,15 +23,14 @@ export default function Login() {
   const [justSignedIn, setJustSignedIn] = useState(false);
   const [userName, setUserName] = useState("");
 
+  // Redirect only once auth AND profile loading have settled, and never while
+  // the welcome overlay is showing. One rule for everyone: an authenticated but
+  // unverified applicant goes to /verify-email, and /verify-email never sends
+  // them back here while they still hold a session.
   useEffect(() => {
-    if (!justSignedIn && !loading && user && profile) {
-      // Redirect unverified users to verify email
-      if (profile.role !== "admin" && !profile.email_verified) {
-        navigate("/verify-email", { replace: true });
-        return;
-      }
-      navigate(profile.role === "admin" ? "/admin" : "/find-jobs", { replace: true });
-    }
+    if (loading || justSignedIn) return;
+    if (!user || !profile) return;
+    navigate(postAuthPath(profile, user), { replace: true });
   }, [user, profile, loading, justSignedIn, navigate]);
 
   const handleLogin = async () => {
@@ -48,18 +48,25 @@ export default function Login() {
         "there"
       );
       const signedInRole = result?.role || "applicant";
+      // Unverified applicants keep their session and are routed to the OTP
+      // screen; admins bypass verification exactly as ProtectedRoute does.
+      const emailVerified =
+        Boolean(result?.email_verified) || Boolean(result?.user?.email_confirmed_at);
+      const destination =
+        signedInRole === "admin" ? "/admin" : emailVerified ? "/find-jobs" : "/verify-email";
       setJustSignedIn(true);
       setSubmitting(false);
       setTimeout(() => {
-        navigate(signedInRole === "admin" ? "/admin" : "/find-jobs", { replace: true });
+        navigate(destination, { replace: true });
       }, 1400);
     } catch (err) {
       if (err.message?.includes("Invalid login credentials")) {
         setError("Wrong email or password.");
       } else if (err.message?.includes("verify your email") || err.message?.includes("Email not confirmed")) {
+        // Supabase itself is refusing the sign-in, so no session exists and
+        // /verify-email would have nothing to work with — report it here
+        // instead of bouncing the user through a redirect loop.
         setError(err.message || "Please verify your email first. Check your inbox for the verification code.");
-        // Redirect to verify email page after showing error
-        setTimeout(() => navigate("/verify-email", { replace: true }), 2000);
       } else {
         setError(err.message || "Login failed.");
       }

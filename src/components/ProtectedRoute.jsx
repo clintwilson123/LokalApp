@@ -15,20 +15,27 @@ export default function ProtectedRoute({ children, allowedRoles, requireVerifica
   }
 
   if (!user) return <Navigate to="/login" replace />;
-  if (profile?.status === "suspended") {
+
+  // Never fail open: an authenticated user with no readable profile gets no
+  // access to protected pages. "/" is public, so this cannot loop.
+  if (!profile) return <Navigate to="/" replace />;
+
+  if (profile.status === "suspended") {
     return <Navigate to="/login" replace />;
   }
-  if (allowedRoles && profile && !allowedRoles.includes(profile.role)) {
+  if (allowedRoles && !allowedRoles.includes(profile.role)) {
     return <Navigate to="/" replace />;
   }
 
-  // Email verification check (skip for admin)
-  if (requireVerification && profile && profile.role !== "admin" && !profile.email_verified) {
+  // Email verification check (skip for admin).
+  // NOTE: /verify-email is a public route and is never wrapped by this
+  // component, so an unverified applicant can always reach it.
+  if (requireVerification && profile.role !== "admin" && !profile.email_verified) {
     return <Navigate to="/verify-email" replace />;
   }
 
   // Consent check (skip for admin)
-  if (profile && profile.role !== "admin" && !profile.consent_accepted) {
+  if (profile.role !== "admin" && !profile.consent_accepted) {
     return <Navigate to="/consent" replace />;
   }
 

@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
 import { pageWrapper, card, title, subtitle } from "../uiStyles";
 import { AUTH_MSG, messageForCode } from "../lib/authErrors";
+import { verifyPageState, dashboardPathFor, roleOf, LOGIN_PATH } from "../lib/authFlow";
 
 async function invokeEdgeForVerify(name, body) {
   const { data, error } = await supabase.functions.invoke(name, { body });
@@ -13,7 +15,9 @@ async function invokeEdgeForVerify(name, body) {
       error.message?.includes("Failed to send a request") ||
       error instanceof TypeError
     ) {
-      throw new Error(AUTH_MSG.network);
+      const netErr = new Error(AUTH_MSG.network);
+      netErr.code = "NETWORK";
+      throw netErr;
     }
     // Prefer structured body error when available
     let payload = data;
@@ -34,20 +38,38 @@ async function invokeEdgeForVerify(name, body) {
     const bodyMsg = payload?.error || payload?.message || error.message;
     const code = payload?.code || "";
     // Classified strictly by error code — no content-based matching.
-    throw new Error(messageForCode(code, bodyMsg));
+    const err = new Error(messageForCode(code, bodyMsg));
+    err.code = code;
+    err.source = "edge";
+    throw err;
   }
   return data;
 }
 
 export default function VerifyEmail() {
-  const { user, signOut, loadProfile } = useAuth();
+  const { user, profile, loading: authLoading, signOut, loadProfile } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Carried from Signup so the page knows whether the first send failed.
+  const navState = location.state || {};
+  const deliveryFailed = navState.deliveryFailed === true;
+  const stateEmail = typeof navState.email === "string" ? navState.email : "";
+
   const [code, setCode] = useState(["", "", "", "", "", ""]);
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
-  const [message, setMessage] = useState({ text: "", type: "" });
+  const [message, setMessage] = useState(() =>
+    deliveryFailed
+      ? { text: AUTH_MSG.emailProviderAfterCreate, type: "error" }
+      : { text: "", type: "" }
+  );
   const [countdown, setCountdown] = useState(60);
   const [verified, setVerified] = useState(false);
   const inputRefs = useRef([]);
+
+  const pageState = verifyPageState({ loading: authLoading, user, profile });
+  const sessionEmail = user?.email || stateEmail;
 
   // Countdown timer for resend
   useEffect(() => {
@@ -56,10 +78,22 @@ export default function VerifyEmail() {
     return () => clearInterval(timer);
   }, [countdown]);
 
-  // Auto-focus first input
+  // Already verified (either arriving that way, or right after submitting the
+  // code) -> leave for the correct dashboard instead of stranding the user here.
   useEffect(() => {
-    inputRefs.current[0]?.focus();
-  }, []);
+    if (verified) return;
+    if (pageState === "already-verified") {
+      navigate(dashboardPathFor(roleOf(profile, user)), { replace: true });
+    }
+  }, [pageState, verified, profile, user, navigate]);
+
+  // Focus the first box only once the form is actually on screen. Never while
+  // the session is still loading — that is a redirect-free state.
+  useEffect(() => {
+    if (pageState === "form" && !verified) {
+      inputRefs.current[0]?.focus();
+    }
+  }, [pageState, verified]);
 
   const handleCodeChange = (index, value) => {
     if (!/^\d*$/.test(value)) return; // Only digits
@@ -85,7 +119,7 @@ export default function VerifyEmail() {
   const handleKeyDown = (index, e) => {
     // Handle backspace
     if (e.key === "Backspace" && !code[index] && index > 0) {
-      inputRefs.current[index - 1]?.focus();
+      inputRefs.current[index - 1].focus();
       const newCode = [...code];
       newCode[index - 1] = "";
       setCode(newCode);
@@ -109,26 +143,42 @@ export default function VerifyEmail() {
   };
 
   const handleVerify = async (codeStr) => {
-    if (!user?.email) return;
+    if (loading || verified) return;
+    if (!sessionEmail) return;
     setLoading(true);
     setMessage({ text: "", type: "" });
 
     try {
       const data = await invokeEdgeForVerify("verify-otp-code", {
-        email: user.email,
+        email: sessionEmail,
         code: codeStr,
       });
 
-      if (!data?.success) throw new Error(data?.error || "Verification failed");
+      if (!data?.success) {
+        const fail = new Error(data?.error || "Verification failed");
+        fail.code = data?.code || "";
+        throw fail;
+      }
 
+      // The OTP succeeded — mark the screen as verified first so no later
+      // render can send the user backwards, then refresh auth/profile state so
+      // ProtectedRoute sees email_verified before we navigate.
       setVerified(true);
-
-      // Reload profile to update email_verified status
-      setTimeout(async () => {
-        await loadProfile(user.id);
-      }, 1500);
+      if (user?.id) {
+        try {
+          await loadProfile(user.id);
+        } catch {
+          // Profile refresh is best effort; the OTP itself already landed.
+        }
+      }
+      const role = roleOf(profile, user);
+      setTimeout(() => navigate(dashboardPathFor(role), { replace: true }), 1400);
     } catch (err) {
-      setMessage({ text: err.message || "Verification failed", type: "error" });
+      // Wrong / expired / exhausted code -> INVALID_CODE -> dedicated message.
+      setMessage({
+        text: messageForCode(err.code || "", err.message || "", { accountCreated: true }),
+        type: "error",
+      });
       setCode(["", "", "", "", "", ""]);
       inputRefs.current[0]?.focus();
     } finally {
@@ -137,24 +187,90 @@ export default function VerifyEmail() {
   };
 
   const handleResend = async () => {
-    if (!user?.email || countdown > 0) return;
+    // Guard against double clicks and any second request while one is running.
+    if (resending || loading || verified) return;
+    if (countdown > 0 || !sessionEmail) return;
     setResending(true);
     setMessage({ text: "", type: "" });
 
     try {
-      await invokeEdgeForVerify("send-verification-code", { email: user.email });
+      await invokeEdgeForVerify("send-verification-code", { email: sessionEmail });
       setMessage({ text: "New code sent! Check your email.", type: "success" });
       setCountdown(60);
       setCode(["", "", "", "", "", ""]);
       inputRefs.current[0]?.focus();
     } catch (err) {
-      setMessage({ text: err.message || "Failed to resend code", type: "error" });
+      // The account already exists at this point, so a provider failure is
+      // reported with the contextual message — never as an invalid address.
+      setMessage({
+        text: messageForCode(err.code || "", err.message || "", { accountCreated: true }),
+        type: "error",
+      });
     } finally {
       setResending(false);
     }
   };
 
   const handleLogout = () => signOut();
+
+  // --- Auth still settling: show a spinner and DO NOT redirect. -------------
+  if (pageState === "loading") {
+    return (
+      <div style={pageWrapper}>
+        <div style={card}>
+          <div style={{ fontSize: "42px", marginBottom: "8px" }}>🔐</div>
+          <h2 style={title}>Verify Your Email</h2>
+          <p style={{ ...subtitle, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+            <span style={{
+              display: "inline-block", width: "16px", height: "16px", border: "2px solid rgba(255,255,255,0.2)",
+              borderTopColor: "#93c5fd", borderRadius: "50%", animation: "spin 0.6s linear infinite",
+            }} />
+            Checking your session...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // --- No authenticated user once loading finished: tell them, do not loop. --
+  if (pageState === "login-again") {
+    return (
+      <div style={pageWrapper}>
+        <div style={card}>
+          <div style={{ fontSize: "42px", marginBottom: "8px" }}>🔐</div>
+          <h2 style={title}>Verify Your Email</h2>
+          <p style={{ ...subtitle, marginBottom: "20px" }}>{AUTH_MSG.loginAgain}</p>
+          <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)", textAlign: "center", marginBottom: "24px" }}>
+            Sign in with the account you just created and we&apos;ll bring you
+            straight back here.
+          </p>
+          <button
+            onClick={() => navigate(LOGIN_PATH, { replace: true })}
+            style={{
+              width: "100%", padding: "12px", borderRadius: "12px", border: "none", cursor: "pointer",
+              background: "linear-gradient(135deg, #4a90e2, #3b82f6)", color: "#fff",
+              fontSize: "15px", fontWeight: "700",
+            }}
+          >
+            Go to Sign In
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Already verified on arrival: notice only, the effect above navigates. --
+  if (pageState === "already-verified" && !verified) {
+    return (
+      <div style={pageWrapper}>
+        <div style={card}>
+          <div style={{ fontSize: "42px", marginBottom: "8px" }}>✅</div>
+          <h2 style={title}>Email Already Verified</h2>
+          <p style={subtitle}>Taking you to your dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={pageWrapper}>
@@ -180,13 +296,13 @@ export default function VerifyEmail() {
           </svg>
           <h2 style={{
             margin: "16px 0 0", color: "#fff", fontSize: "22px", fontWeight: "700",
-            opacity: verified ? 1 : 0, transform: verified ? "translateY(0)" : "translateY(12px)",
-            transition: "all 0.4s ease 0.6s",
+            transform: verified ? "translateY(0)" : "translateY(12px)",
+            opacity: verified ? 1 : 0, transition: "all 0.4s ease 0.6s",
           }}>Email Verified!</h2>
           <p style={{
-            color: "rgba(255,255,255,0.5)", fontSize: "13px", margin: "8px 0 24px",
-            opacity: verified ? 1 : 0, transform: verified ? "translateY(0)" : "translateY(12px)",
-            transition: "all 0.4s ease 0.75s",
+            color: "rgba(255,255,255,0.5)", fontSize: "13px", margin: "8px 0 0",
+            transform: verified ? "translateY(0)" : "translateY(12px)",
+            opacity: verified ? 1 : 0, transition: "all 0.4s ease 0.75s",
           }}>Redirecting to your dashboard...</p>
         </div>
 
@@ -194,13 +310,24 @@ export default function VerifyEmail() {
         <h2 style={title}>Verify Your Email</h2>
         <p style={subtitle}>
           Enter the 6-digit code sent to<br />
-          <strong style={{ color: "#93c5fd" }}>{user?.email || "your email"}</strong>
+          <strong style={{ color: "#93c5fd" }}>{sessionEmail}</strong>
         </p>
+
+        {navState.accountCreated && !deliveryFailed && (
+          <div style={{
+            padding: "10px 12px", borderRadius: "10px", marginBottom: "16px", fontSize: "12px",
+            backgroundColor: "rgba(74,144,226,0.15)", border: "1px solid rgba(74,144,226,0.3)",
+            color: "#93c5fd", textAlign: "center",
+          }}>
+            Your account has been created — just one step left to go.
+          </div>
+        )}
 
         {message.text && (
           <div style={{
             padding: "12px", borderRadius: "10px", marginBottom: "16px", fontSize: "13px",
             backgroundColor: message.type === "success" ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
+            border: `1px solid ${message.type === "success" ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
             color: message.type === "success" ? "#86efac" : "#fca5a5",
             textAlign: "center", fontWeight: "600",
           }}>
@@ -213,7 +340,9 @@ export default function VerifyEmail() {
           {code.map((digit, i) => (
             <input
               key={i}
-              ref={(el) => (inputRefs.current[i] = el)}
+              ref={(el) => {
+                inputRefs.current[i] = el;
+              }}
               type="text"
               inputMode="numeric"
               maxLength={1}
@@ -248,10 +377,11 @@ export default function VerifyEmail() {
           ) : (
             <button
               onClick={handleResend}
-              disabled={resending}
+              disabled={resending || loading}
               style={{
                 background: "none", border: "none", color: "#93c5fd", cursor: "pointer",
                 fontSize: "13px", fontWeight: "600", textDecoration: "underline",
+                opacity: resending ? 0.6 : 1,
               }}
             >
               {resending ? "Sending..." : "Resend Code"}
@@ -260,7 +390,7 @@ export default function VerifyEmail() {
         </div>
 
         <p style={{ fontSize: "12px", color: "rgba(255,255,255,0.4)", textAlign: "center", marginBottom: "16px" }}>
-          Check your spam folder if you don't see the code.
+          Check your spam folder if you don&apos;t see the code.
         </p>
 
         <button
@@ -279,6 +409,9 @@ export default function VerifyEmail() {
 }
 
 const blobStyle = {
-  position: "absolute", borderRadius: "50%", filter: "blur(80px)",
-  opacity: 0.15, pointerEvents: "none", zIndex: 1,
+  position: "absolute",
+  borderRadius: "50%",
+  filter: "blur(80px)",
+  opacity: 0.15,
+  pointerEvents: "none",
 };
