@@ -21,8 +21,10 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-const DELIVERY_FAILED_ERROR =
-  "This Gmail address appears to be invalid or cannot receive emails. Please use a valid Gmail account.";
+// Any failure to PRODUCE the verification email. This is an infrastructure /
+// provider problem and must never be reported as an invalid email address.
+const EMAIL_PROVIDER_ERROR_MESSAGE =
+  "Unable to verify the email address at this time. Please try again later.";
 
 function isValidGmailFormat(email: string): boolean {
   const lower = email.toLowerCase().trim();
@@ -94,15 +96,16 @@ serve(async (req: Request) => {
     const { user: authUser, failed: lookupFailed } = await findUserByEmail(supabase, email);
     if (lookupFailed) {
       console.error("send-verification-code: user lookup failed for email", { email });
-      return json({ error: "Failed to send code. Please try again.", code: "SERVER_ERROR" }, 500);
+      return json({ error: EMAIL_PROVIDER_ERROR_MESSAGE, code: "EMAIL_PROVIDER_ERROR" }, 400);
     }
     if (!authUser) {
-      // Don't reveal if user exists or not — but treat as delivery failure for UX
+      // Don't reveal if user exists or not. We have no basis for calling the
+      // address invalid, so this is reported as a provider/temporary failure.
       console.warn("send-verification-code: user not found for email", { email });
       return json({
         success: false,
-        error: DELIVERY_FAILED_ERROR,
-        code: "DELIVERY_FAILED",
+        error: EMAIL_PROVIDER_ERROR_MESSAGE,
+        code: "EMAIL_PROVIDER_ERROR",
       }, 400);
     }
 
@@ -188,10 +191,12 @@ serve(async (req: Request) => {
         .eq("used", false)
         .eq("purpose", "signup");
 
+      // Resend rejected the send, the network call failed, or RESEND_API_KEY
+      // is missing/invalid — none of which say anything about the address.
       return json({
         success: false,
-        error: DELIVERY_FAILED_ERROR,
-        code: "DELIVERY_FAILED",
+        error: EMAIL_PROVIDER_ERROR_MESSAGE,
+        code: "EMAIL_PROVIDER_ERROR",
       }, 400);
     }
 

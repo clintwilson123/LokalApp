@@ -208,21 +208,24 @@ serve(async (req) => {
     // --- RISK ANALYSIS ---
     const { score: riskScore, flags } = calculateGmailRisk(localPart);
 
-    // Strong undeliverable signals — block before account creation
-    const strongUndeliverable = flags.includes("low_diversity")
+    // Strong risk signals — block before account creation. Heuristic scoring
+    // (repeated/sequential characters, low diversity, high score) says nothing
+    // about whether the mailbox can actually receive mail, so this is reported
+    // as a suspicious-activity block, never as an invalid/undeliverable address.
+    const strongRiskSignal = flags.includes("low_diversity")
       || flags.includes("repeated_chars")
       || flags.includes("sequential_chars")
       || riskScore >= 3;
-    if (strongUndeliverable) {
-      console.warn("spam-prevention: blocked undeliverable/risk email", {
+    if (strongRiskSignal) {
+      console.warn("spam-prevention: blocked high-risk email", {
         email,
         flags,
         riskScore,
       });
       return json({
         success: false,
-        error: "This Gmail address appears to be invalid or cannot receive emails. Please use a valid Gmail account.",
-        code: "UNDELIVERABLE",
+        error: "Registration was blocked because the activity was flagged as suspicious. Please try again later.",
+        code: "HIGH_RISK",
         risk_level: "high",
         checks: {
           gmail_domain: "pass",
@@ -285,7 +288,7 @@ serve(async (req) => {
     if (riskLevel === "high") {
       return json({
         success: false,
-        error: "Registration blocked due to suspicious activity. Please try a different email address.",
+        error: "Registration was blocked because the activity was flagged as suspicious. Please try again later.",
         code: "HIGH_RISK",
         risk_level: riskLevel,
         checks: {
