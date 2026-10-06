@@ -2,12 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
 import { pageWrapper, card, title, subtitle } from "../uiStyles";
-
-const MSG = {
-  invalidFormat: "Please enter a valid Gmail address.",
-  undeliverable: "This Gmail address appears to be invalid or cannot receive emails. Please use a valid Gmail account.",
-  network: "Could not reach the server. Please check your connection and try again.",
-};
+import { AUTH_MSG, messageForCode } from "../lib/authErrors";
 
 async function invokeEdgeForVerify(name, body) {
   const { data, error } = await supabase.functions.invoke(name, { body });
@@ -18,7 +13,7 @@ async function invokeEdgeForVerify(name, body) {
       error.message?.includes("Failed to send a request") ||
       error instanceof TypeError
     ) {
-      throw new Error(MSG.network);
+      throw new Error(AUTH_MSG.network);
     }
     // Prefer structured body error when available
     let payload = data;
@@ -38,12 +33,8 @@ async function invokeEdgeForVerify(name, body) {
     }
     const bodyMsg = payload?.error || payload?.message || error.message;
     const code = payload?.code || "";
-    if (code === "INVALID_FORMAT") throw new Error(MSG.invalidFormat);
-    if (code === "DELIVERY_FAILED" || code === "UNDELIVERABLE") throw new Error(MSG.undeliverable);
-    if (/gmail|deliver|receive emails|invalid or cannot/i.test(bodyMsg || "")) {
-      throw new Error(MSG.undeliverable);
-    }
-    throw new Error(bodyMsg || "Something went wrong. Please try again.");
+    // Classified strictly by error code — no content-based matching.
+    throw new Error(messageForCode(code, bodyMsg));
   }
   return data;
 }

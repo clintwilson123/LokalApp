@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabaseClient";
 import { pageWrapper, card, title, subtitle, input, inputWrapper, inputIcon, button, linkHighlight, radii } from "../uiStyles";
 import { sanitizeName, validateGmail, getPasswordStrength, maxLength } from "../lib/sanitize";
+import { AUTH_MSG, messageForCode } from "../lib/authErrors";
 
 const bgBlob = {
   position: "absolute", borderRadius: "50%", filter: "blur(80px)",
@@ -11,12 +12,6 @@ const bgBlob = {
 };
 
 const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY || "";
-
-const MSG = {
-  invalidFormat: "Please enter a valid Gmail address.",
-  undeliverable: "This Gmail address appears to be invalid or cannot receive emails. Please use a valid Gmail account.",
-  network: "Could not reach the server. Please check your connection and try again.",
-};
 
 // Extract a safe, user-facing error from a supabase.functions.invoke error
 async function extractEdgeError(error) {
@@ -26,7 +21,7 @@ async function extractEdgeError(error) {
     error?.message?.includes("Failed to send a request") ||
     error instanceof TypeError
   ) {
-    return { message: MSG.network, code: "NETWORK" };
+    return { message: AUTH_MSG.network, code: "NETWORK" };
   }
 
   // Non-2xx responses — body usually has { error, code }
@@ -55,43 +50,18 @@ async function extractEdgeError(error) {
     }
   }
 
-  return { message: raw || MSG.network, code: "UNKNOWN" };
-}
-
-// Map known codes/messages to the three allowed user-facing messages
-function toUserMessage(code, message) {
-  if (code === "NETWORK") return MSG.network;
-  if (code === "INVALID_FORMAT") return MSG.invalidFormat;
-  if (
-    code === "UNDELIVERABLE" ||
-    code === "DELIVERY_FAILED" ||
-    /gmail|deliver|receive emails|invalid or cannot/i.test(message || "")
-  ) {
-    return MSG.undeliverable;
-  }
-  if (code === "ALREADY_REGISTERED" || /already registered|duplicate/i.test(message || "")) {
-    return "This email is already registered. Try signing in instead.";
-  }
-  if (code === "RATE_LIMITED" || /rate limit/i.test(message || "")) {
-    return "Too many signups. Please wait a moment and try again.";
-  }
-  if (code === "HIGH_RISK" || /Risk indicators|blocked|suspicious/i.test(message || "")) {
-    return MSG.undeliverable;
-  }
-  if (code === "CAPTCHA_FAILED" || code === "SERVER_ERROR") {
-    return "Something went wrong. Please try again.";
-  }
-  // Unknown server messages — show a safe generic fallback, never internals
-  if (code && code !== "UNKNOWN") return message;
-  return message || "Something went wrong. Please try again.";
+  return { message: raw || AUTH_MSG.network, code: "UNKNOWN" };
 }
 
 async function invokeEdge(name, body) {
   const { data, error } = await supabase.functions.invoke(name, { body });
   if (error) {
     const extracted = await extractEdgeError(error);
-    const err = new Error(toUserMessage(extracted.code, extracted.message));
+    const err = new Error(messageForCode(extracted.code, extracted.message));
     err.code = extracted.code;
+    // Marks the error as coming from one of our Edge Functions so the caller
+    // can classify strictly by err.code instead of by message content.
+    err.source = "edge";
     throw err;
   }
   return data;
@@ -101,14 +71,27 @@ async function verifyCaptcha(email, token) {
   return invokeEdge("spam-prevention", { email, captchaToken: token });
 }
 
-// Best-effort cleanup if OTP was never delivered — remove the unverified account
+// Best-effort cleanup if OTP was never delivered — remove the unverified account.
+// Returns true when cleanup completed. Failures are logged with safe fields
+// only (error code/message) and are never shown to the user.
 async function rollbackSignup(email) {
   try {
-    await supabase.functions.invoke("cleanup-unverified-signup", {
+    const { data, error } = await supabase.functions.invoke("cleanup-unverified-signup", {
       body: { email },
     });
-  } catch {
-    // Cleanup is best-effort; unverified accounts cannot sign in anyway
+    if (error) {
+      const details = await extractEdgeError(error);
+      console.error("[signup] rollback failed:", details.code, details.message);
+      return false;
+    }
+    if (data && data.success === false) {
+      console.error("[signup] rollback rejected:", data.code || "UNKNOWN");
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error("[signup] rollback threw:", err?.name || "Error", err?.message || "");
+    return false;
   }
 }
 
@@ -124,6 +107,9 @@ export default function Signup() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  // Synchronous submit guard: `loading` is state and will not have re-rendered
+  // when two Enter keydowns arrive in the same event cycle.
+  const submittingRef = useRef(false);
 
   // Dynamically load reCAPTCHA script if key is configured
   useEffect(() => {
@@ -138,6 +124,8 @@ export default function Signup() {
   const strength = getPasswordStrength(password);
 
   const handleSignup = async () => {
+    if (submittingRef.current) return;
+
     setError("");
     if (!fullName.trim() || !email || !password) {
       setError("Please fill in all required fields.");
@@ -147,11 +135,12 @@ export default function Signup() {
     // 1) Validate email format BEFORE any network calls
     const gmailCheck = validateGmail(email);
     if (!gmailCheck.valid) {
-      // Format issues → format message; strong undeliverable risk → delivery message
-      if (gmailCheck.code === "UNDELIVERABLE") {
-        setError(MSG.undeliverable);
+      // Format issues → format message; heuristic risk → suspicious-activity
+      // message. Heuristics never claim the address cannot receive mail.
+      if (gmailCheck.code === "HIGH_RISK") {
+        setError(AUTH_MSG.suspicious);
       } else {
-        setError(MSG.invalidFormat);
+        setError(AUTH_MSG.invalidFormat);
       }
       return;
     }
@@ -168,9 +157,16 @@ export default function Signup() {
       setError("You must agree to the terms to create an account.");
       return;
     }
+
+    // Which stage of the flow we are in — used to guarantee that a failure
+    // after the account already exists is never reported as an invalid email.
+    let step = "validate";
+
+    submittingRef.current = true;
     setLoading(true);
     try {
       // Spam prevention — hard gate (also re-validates format/risk server-side)
+      step = "spam";
       let captchaToken = null;
       if (RECAPTCHA_SITE_KEY && typeof window !== "undefined" && window.grecaptcha) {
         try {
@@ -184,15 +180,22 @@ export default function Signup() {
       const riskLevel = spamResult?.risk_level || "low";
 
       // 2) Create account (unverified — cannot sign in until OTP verified)
+      step = "create";
       await signUp(email, password, maxLength(sanitizeName(fullName), 100), "applicant", riskLevel);
 
       // 3) Send OTP — must succeed before we continue
+      step = "otp";
       try {
         await invokeEdge("send-verification-code", { email });
       } catch (otpErr) {
         // OTP not delivered → do not keep the account (cleanup needs the
         // session created by signUp, so sign out only after it runs)
-        await rollbackSignup(email);
+        const rolledBack = await rollbackSignup(email);
+        if (!rolledBack) {
+          // Already logged inside rollbackSignup — recorded here so the
+          // sequence is visible without exposing anything to the user.
+          console.error("[signup] continuing after unconfirmed account rollback");
+        }
         await supabase.auth.signOut();
         throw otpErr;
       }
@@ -202,37 +205,35 @@ export default function Signup() {
       await supabase.auth.signOut();
       setSuccess(true);
     } catch (err) {
-      const msg = err?.message || "";
-      const code = err?.code || "";
+      // Only errors raised by our Edge Functions carry an app error code.
+      // Everything else (Supabase auth / PostgREST) is classified without one.
+      const edgeCode = err?.source === "edge" ? err.code || "" : "";
+      const rawMsg = err?.message || "";
 
-      if (code === "NETWORK" || msg === MSG.network) {
-        setError(MSG.network);
-      } else if (code === "INVALID_FORMAT" || msg === MSG.invalidFormat) {
-        setError(MSG.invalidFormat);
-      } else if (
-        code === "UNDELIVERABLE" ||
-        code === "DELIVERY_FAILED" ||
-        msg === MSG.undeliverable ||
-        /gmail|deliver|receive emails|invalid or cannot/i.test(msg)
+      let nextMessage = messageForCode(edgeCode, rawMsg);
+
+      // The account already exists from here on: never tell the user their
+      // email address is invalid, whatever the underlying failure was.
+      if (
+        (step === "create" || step === "otp") &&
+        (edgeCode === "INVALID_FORMAT" ||
+          edgeCode === "UNDELIVERABLE" ||
+          edgeCode === "DELIVERY_FAILED")
       ) {
-        setError(MSG.undeliverable);
-      } else if (msg.includes("already registered") || msg.includes("duplicate")) {
-        setError("This email is already registered. Try signing in instead.");
-      } else if (msg.includes("rate limit")) {
-        setError("Too many signups. Please wait a moment and try again.");
-      } else if (msg.includes("Risk indicators") || msg.includes("blocked")) {
-        setError(MSG.undeliverable);
-      } else {
-        // Never expose raw internal errors / stack traces
-        setError(msg || "Something went wrong. Please try again.");
+        nextMessage = AUTH_MSG.emailProvider;
       }
+
+      setError(nextMessage);
     } finally {
+      submittingRef.current = false;
       setLoading(false);
     }
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === "Enter") handleSignup();
+    if (e.key === "Enter" && !loading) {
+      handleSignup();
+    }
   };
 
   return (

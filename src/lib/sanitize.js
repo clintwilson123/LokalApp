@@ -130,17 +130,19 @@ export function validateGmail(email) {
     flags.push("sequential_chars");
   }
 
-  // Strong undeliverable signals — treat as invalid for signup
-  const strongUndeliverable = flags.includes("low_diversity")
+  // Strong risk signals — block signup as suspicious. Heuristic scoring says
+  // nothing about whether the mailbox can receive mail, so it is never
+  // described as an invalid or undeliverable address.
+  const strongRiskSignal = flags.includes("low_diversity")
     || flags.includes("repeated_chars")
     || flags.includes("sequential_chars")
     || riskScore >= 3;
-  if (strongUndeliverable) {
+  if (strongRiskSignal) {
     return {
-      valid: false, status: "Invalid", domainVerified: true, risk: "High",
-      reason: "This Gmail address appears to be invalid or cannot receive emails. Please use a valid Gmail account.",
+      valid: false, status: "Suspicious", domainVerified: true, risk: "High",
+      reason: "Registration was blocked because the activity was flagged as suspicious. Please try again later.",
       recommendation: "Block Registration",
-      code: "UNDELIVERABLE",
+      code: "HIGH_RISK",
       flags,
     };
   }
