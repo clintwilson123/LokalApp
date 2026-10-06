@@ -5,6 +5,7 @@ import { supabase } from "../lib/supabaseClient";
 import { pageWrapper, card, title, subtitle, input, inputWrapper, inputIcon, button, linkHighlight } from "../uiStyles";
 import { sanitizeName, validateGmail, getPasswordStrength, maxLength } from "../lib/sanitize";
 import { AUTH_MSG, messageForCode } from "../lib/authErrors";
+import { writePendingEmail } from "../lib/pendingVerification";
 
 const bgBlob = {
   position: "absolute", borderRadius: "50%", filter: "blur(80px)",
@@ -154,7 +155,9 @@ export default function Signup() {
       const riskLevel = spamResult?.risk_level || "low";
 
       // Account creation. Once this returns a user, the account EXISTS — every
-      // failure below is a pending verification, never a failed signup.
+      // failure below is pending confirmation, never a failed signup. The
+      // confirmation email is sent by Supabase Auth itself; nothing custom is
+      // triggered from here.
       const signupResult = await signUp(
         email,
         password,
@@ -172,29 +175,23 @@ export default function Signup() {
       }
 
       setAccountCreated(true);
-      const accountEmail = signupResult.user.email || email;
 
-      // Attempt the OTP. A delivery failure must NOT roll the account back and
-      // must NOT send the user back to Signup — it is carried to /verify-email
-      // as state and shown there as "account created, email still pending".
-      let deliveryFailed = false;
-      try {
-        await invokeEdge("send-verification-code", { email: accountEmail });
-      } catch {
-        deliveryFailed = true;
-      }
+      // Remember the address so /verify-email can still show and resend the
+      // confirmation link — Confirm email is enabled, so signUp() handed us
+      // session: null and nothing else carries it across a reload.
+      const accountEmail = email.trim();
+      writePendingEmail(accountEmail);
 
-      // The session created by signUp() is kept so the user lands on
-      // /verify-email already authenticated and can enter or resend the code.
       navigate("/verify-email", {
         replace: true,
-        state: { email: accountEmail, accountCreated: true, deliveryFailed },
+        state: { email: accountEmail, accountCreated: true },
       });
     } catch (err) {
-      // Only errors raised by our Edge Functions carry an app error code.
-      // Everything else (Supabase auth / PostgREST) is classified without one.
-      const edgeCode = err?.source === "edge" ? err.code || "" : "";
-      setError(messageForCode(edgeCode, err?.message || ""));
+      // Edge Functions classify by err.code; Supabase Auth exposes its own
+      // AuthApiError code (e.g. user_already_exists). Anything else —
+      // PostgREST included — simply has no code and falls through to its
+      // message inside messageForCode.
+      setError(messageForCode(typeof err?.code === "string" ? err.code : "", err?.message || ""));
     } finally {
       submittingRef.current = false;
       setLoading(false);

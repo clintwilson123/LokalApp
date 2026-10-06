@@ -129,6 +129,36 @@ describe('verifyPageState', () => {
     expect(VERIFY_EMAIL_PATH).not.toBe(LOGIN_PATH);
   });
 
+  it('an unauthenticated visitor with a pending address still gets the form', () => {
+    // Confirm email is enabled, so signUp() returns session: null. The user
+    // belongs on the confirmation panel even though there is no session yet —
+    // ejecting them to /login would be a dead end, because Supabase refuses
+    // to sign in an unconfirmed address.
+    expect(
+      verifyPageState({
+        loading: false,
+        user: null,
+        profile: null,
+        pendingEmail: 'normal.realistic@gmail.com',
+      })
+    ).toBe('form');
+    // ...and a blank/padded address does not count as pending.
+    expect(
+      verifyPageState({ loading: false, user: null, profile: null, pendingEmail: '   ' })
+    ).toBe('login-again');
+  });
+
+  it('a remembered address never overrides an authenticated + unverified user', () => {
+    expect(
+      verifyPageState({
+        loading: false,
+        user: unverifiedApplicant.user,
+        profile: unverifiedApplicant.profile,
+        pendingEmail: 'someone.else@gmail.com',
+      })
+    ).toBe('form');
+  });
+
   it('an authenticated user with an unresolved profile still gets the form', () => {
     expect(verifyPageState({ loading: false, user: unverifiedApplicant.user, profile: null })).toBe(
       'form'
@@ -159,7 +189,24 @@ describe('no redirect loop', () => {
 
   it('an unauthenticated visitor is never auto-sent to /verify-email', () => {
     // verifyPageState is the only thing that drives /verify-email, and with no
-    // user it resolves to "login-again" (a static state, no navigate call).
+    // user and no pending address it resolves to "login-again" — a static
+    // state with no navigate call at all.
     expect(verifyPageState({ loading: false, user: null, profile: null })).toBe('login-again');
+    expect(verifyPageState({ loading: false, user: null, profile: null })).not.toBe(
+      'already-verified'
+    );
+  });
+
+  it('the pending-address form state cannot point back at /login', () => {
+    // "form" is a terminal render: it issues no navigation, so a visitor
+    // holding a pending address sits on /verify-email until they confirm.
+    const state = verifyPageState({
+      loading: false,
+      user: null,
+      profile: null,
+      pendingEmail: 'normal.realistic@gmail.com',
+    });
+    expect(state).toBe('form');
+    expect(state).not.toBe('login-again');
   });
 });

@@ -51,15 +51,20 @@ export function postAuthPath(profile, user) {
 /**
  * What /verify-email should render for the current auth state.
  *
- * "loading"        auth/session state not settled yet -> render a spinner, NEVER redirect
- * "login-again"    no authenticated user once loading finished -> show a message (no
- *                  automatic redirect, so this cannot form a loop with /login)
+ * "loading"          auth/session state not settled yet -> render a spinner, NEVER redirect
+ * "login-again"      no session AND no remembered pending address -> show a message
+ *                    (no automatic redirect, so this cannot form a loop with /login)
  * "already-verified" verified -> send the user to their dashboard
- * "form"           authenticated + unverified -> show the OTP form
+ * "form"             unverified -> show the confirmation-link panel
+ *
+ * `pendingEmail` matters because Confirm email is enabled: signUp() returns
+ * `session: null`, so a freshly signed-up visitor is legitimately here with no
+ * session at all. Forgetting that address must not eject them back to /login.
  */
-export function verifyPageState({ loading, user, profile }) {
+export function verifyPageState({ loading, user, profile, pendingEmail = "" }) {
   if (loading) return "loading";
-  if (!user) return "login-again";
-  if (isEmailVerified(user, profile)) return "already-verified";
-  return "form";
+  if (user && isEmailVerified(user, profile)) return "already-verified";
+  if (user) return "form";
+  if (typeof pendingEmail === "string" && pendingEmail.trim()) return "form";
+  return "login-again";
 }

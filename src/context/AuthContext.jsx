@@ -1,5 +1,10 @@
 import { createContext, useContext, useEffect, useState, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
+import {
+  writePendingSignup,
+  readPendingSignup,
+  clearPendingSignup,
+} from "../lib/pendingVerification";
 
 const AuthContext = createContext(null);
 
@@ -8,6 +13,30 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const fetching = useRef(false);
+
+  /**
+   * profiles.email_verified is a mirror of auth.users.email_confirmed_at and
+   * nothing else. sync_email_verified() is the existing SECURITY DEFINER RPC
+   * that reads the source of truth for auth.uid() and writes the mirror for
+   * auth.uid(); callers never touch auth.users and never get to claim
+   * verification on their own — profiles_security_guard enforces that too.
+   *
+   * The direct UPDATE is only a fallback so a missing GRANT on the RPC can
+   * never strand a user whose email really is confirmed.
+   */
+  async function syncEmailVerified(userId) {
+    try {
+      const { data, error } = await supabase.rpc("sync_email_verified");
+      if (!error) return data === true;
+    } catch {
+      // fall through to the direct update
+    }
+    const { error } = await supabase
+      .from("profiles")
+      .update({ email_verified: true })
+      .eq("id", userId);
+    return !error;
+  }
 
   async function loadProfile(userId) {
     if (fetching.current) return;
@@ -24,7 +53,7 @@ export function AuthProvider({ children }) {
           // Sync email verification status from auth.users
           const { data: { user: authUser } } = await supabase.auth.getUser();
           if (authUser?.email_confirmed_at && !profileData.email_verified) {
-            await supabase.from("profiles").update({ email_verified: true }).eq("id", userId);
+            await syncEmailVerified(userId);
             profileData.email_verified = true;
           }
           setProfile(profileData);
@@ -42,7 +71,7 @@ export function AuthProvider({ children }) {
           // Sync email verification status
           const { data: { user: authUser } } = await supabase.auth.getUser();
           if (authUser?.email_confirmed_at && !direct.email_verified) {
-            await supabase.from("profiles").update({ email_verified: true }).eq("id", userId);
+            await syncEmailVerified(userId);
             direct.email_verified = true;
           }
           setProfile(direct);
@@ -70,28 +99,101 @@ export function AuthProvider({ children }) {
     }
   }
 
+  /**
+   * Create the profile row for a signup that had to be deferred.
+   *
+   * With Confirm email enabled, signUp() hands back no session, so the
+   * "Allow insert during signup" policy (auth.uid() = id) has nothing to
+   * match against and the insert cannot run yet. The confirmation link is
+   * what produces the session — by then RLS allows exactly this row, and no
+   * other. Returns true when the row now exists.
+   *
+   * Never throws: it runs inside onAuthStateChange, where an exception would
+   * break every auth notification.
+   */
+  async function ensureProfile(user) {
+    const pending = readPendingSignup();
+    if (!pending || !user?.id) return false;
+
+    const userEmail = (user.email || "").toLowerCase();
+    if (userEmail && userEmail !== String(pending.email).toLowerCase()) {
+      // A different signed-in user — never adopt this pending signup.
+      return false;
+    }
+
+    try {
+      const meta = user.user_metadata || {};
+      const { error: insertError } = await supabase.from("profiles").insert({
+        id: user.id,
+        full_name: String(meta.full_name || "").slice(0, 100),
+        // profiles_security_guard rewrites this to "applicant" for any
+        // non-admin caller, so metadata can never mint an admin.
+        role: meta.role || "applicant",
+        status: "active",
+        email_verified: false,
+        consent_accepted: true,
+        consent_accepted_at: new Date().toISOString(),
+        signup_risk_level: pending.riskLevel || "low",
+      });
+
+      // 23505 = already created (another tab confirmed first). Anything else
+      // is left alone: the marker is kept so a retry is still possible.
+      if (insertError && insertError.code !== "23505") return false;
+
+      clearPendingSignup();
+      if (!insertError) {
+        await supabase.from("notifications").insert({
+          user_id: user.id,
+          message: `Welcome to CJLink! Please verify your email to access all features.`,
+          type: "info",
+        });
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Re-read the session from storage — used after the confirmation link
+   *  lands in another tab, so this one can pick it straight back up. */
+  async function refreshSession() {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) return null;
+      setUser(session.user);
+      await ensureProfile(session.user);
+      await loadProfile(session.user.id);
+      return session.user;
+    } catch {
+      return null;
+    }
+  }
+
+  async function handleSession(session) {
+    if (session?.user) {
+      setUser(session.user);
+      // Runs before loadProfile so a deferred signup has its profile row by
+      // the time loadProfile reads it.
+      await ensureProfile(session.user);
+      loadProfile(session.user.id);
+    } else {
+      setUser(null);
+      setProfile(null);
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        setUser(session.user);
-        loadProfile(session.user.id);
-      } else {
-        setLoading(false);
-      }
+      handleSession(session);
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        setUser(session.user);
-        loadProfile(session.user.id);
-      } else {
-        setUser(null);
-        setProfile(null);
-        setLoading(false);
-      }
+      handleSession(session);
     });
 
     return () => listener?.subscription.unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function signUp(email, password, fullName, role, riskLevel = "low") {
@@ -103,43 +205,55 @@ export function AuthProvider({ children }) {
     if (error) throw error;
 
     if (data.user) {
-      const { error: insertError } = await supabase.from("profiles").insert({
-        id: data.user.id,
-        full_name: fullName,
-        role,
-        status: "active",
-        email_verified: false,
-        consent_accepted: true,
-        consent_accepted_at: new Date().toISOString(),
-        signup_risk_level: riskLevel,
-      });
-      if (insertError) {
-        // The auth user already exists at this point. Remove it so a failed
-        // profile insert never leaves an orphaned/inconsistent account.
-        try {
-          await supabase.functions.invoke("cleanup-unverified-signup", {
-            body: { email },
-          });
-        } catch {
-          // best-effort cleanup only
+      if (data.session) {
+        // Confirmations are off: the session exists, so the profile row can
+        // be written straight away.
+        const { error: insertError } = await supabase.from("profiles").insert({
+          id: data.user.id,
+          full_name: fullName,
+          role,
+          status: "active",
+          email_verified: false,
+          consent_accepted: true,
+          consent_accepted_at: new Date().toISOString(),
+          signup_risk_level: riskLevel,
+        });
+        if (insertError) {
+          // The auth user already exists at this point. Remove it so a failed
+          // profile insert never leaves an orphaned/inconsistent account.
+          try {
+            await supabase.functions.invoke("cleanup-unverified-signup", {
+              body: { email },
+            });
+          } catch {
+            // best-effort cleanup only
+          }
+          try {
+            await supabase.auth.signOut();
+          } catch {
+            // ignore
+          }
+          throw insertError;
         }
-        try {
-          await supabase.auth.signOut();
-        } catch {
-          // ignore
-        }
-        throw insertError;
-      }
 
-      await supabase.from("notifications").insert({
-        user_id: data.user.id,
-        message: `Welcome to CJLink! Please verify your email to access all features.`,
-        type: "info",
-      });
+        await supabase.from("notifications").insert({
+          user_id: data.user.id,
+          message: `Welcome to CJLink! Please verify your email to access all features.`,
+          type: "info",
+        });
+      } else {
+        // Confirm email is enabled: no session, so RLS cannot match
+        // auth.uid() = id yet. Nothing has failed — the row is created as
+        // soon as the confirmation link issues a session. The account is
+        // never rolled back here. Keyed on the address the user submitted so
+        // a mismatched signed-in user can never claim this signup.
+        writePendingSignup(email, riskLevel);
+      }
     }
 
     return data;
   }
+
 
   async function signIn(email, password) {
     const { data, error } = await supabase.auth.signInWithPassword({
@@ -186,7 +300,7 @@ export function AuthProvider({ children }) {
       // auth.users is the source of truth; sync it back onto the profile.
       const { data: { user: authUser } } = await supabase.auth.getUser();
       if (authUser?.email_confirmed_at) {
-        await supabase.from("profiles").update({ email_verified: true }).eq("id", data.user.id);
+        await syncEmailVerified(data.user.id);
         profileData.email_verified = true;
       }
     }
@@ -213,7 +327,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, profile, loading, signUp, signIn, signOut, loadProfile }}
+      value={{ user, profile, loading, signUp, signIn, signOut, loadProfile, refreshSession }}
     >
       {children}
     </AuthContext.Provider>

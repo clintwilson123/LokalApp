@@ -180,3 +180,48 @@ describe('required user-facing messages', () => {
     expect(messageForCode('INVALID_CODE', 'x')).not.toBe(AUTH_MSG.emailProviderAfterCreate);
   });
 });
+
+// Native Supabase Auth confirmation replaced the custom OTP functions, so the
+// codes that reach messageForCode are now Supabase's own AuthApiError codes
+// as well as ours.
+describe('Supabase Auth API codes', () => {
+  it('Test 4 — a duplicate reported by signUp() maps to the same message', () => {
+    expect(messageForCode('user_already_exists', 'User already registered')).toBe(
+      AUTH_MSG.alreadyRegistered
+    );
+    // ...and is never reported as an invalid address.
+    expect(messageForCode('user_already_exists', 'User already registered')).not.toMatch(
+      /valid gmail/i
+    );
+  });
+
+  it('Test 9 — hitting the resend rate limit uses the rate-limit message', () => {
+    expect(messageForCode('over_email_send_rate_limit', 'For security purposes')).toBe(
+      AUTH_MSG.rateLimited
+    );
+    // Never an invalid-address or generic provider message.
+    expect(messageForCode('over_email_send_rate_limit', 'x')).not.toBe(AUTH_MSG.invalidFormat);
+    expect(messageForCode('over_email_send_rate_limit', 'x')).not.toBe(AUTH_MSG.emailProvider);
+  });
+
+  it('never reveals whether an address exists when a resend cannot find it', () => {
+    expect(messageForCode('user_not_found', 'User not found')).toBe(AUTH_MSG.emailProvider);
+    expect(messageForCode('user_not_found', 'User not found')).not.toMatch(/already registered/i);
+  });
+
+  it('maps an inexpressible address to the format message', () => {
+    expect(messageForCode('email_address_invalid', 'x')).toBe(AUTH_MSG.invalidFormat);
+  });
+
+  it('maps a weak password without mentioning anything about the email', () => {
+    expect(messageForCode('weak_password', 'x')).toBe(AUTH_MSG.weakPassword);
+    expect(messageForCode('weak_password', 'x')).not.toMatch(/gmail|email/i);
+  });
+
+  it('an unrecognised Supabase code falls through to the server message', () => {
+    expect(messageForCode('some_brand_new_code', 'Readable server message')).toBe(
+      'Readable server message'
+    );
+    expect(messageForCode('some_brand_new_code', '')).toBe(AUTH_MSG.generic);
+  });
+});

@@ -1,204 +1,85 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
 import { pageWrapper, card, title, subtitle } from "../uiStyles";
 import { AUTH_MSG, messageForCode } from "../lib/authErrors";
-import { verifyPageState, dashboardPathFor, roleOf, LOGIN_PATH } from "../lib/authFlow";
+import { verifyPageState, dashboardPathFor, roleOf } from "../lib/authFlow";
+import {
+  readPendingEmail,
+  clearPendingEmail,
+  clearPendingSignup,
+} from "../lib/pendingVerification";
 
-async function invokeEdgeForVerify(name, body) {
-  const { data, error } = await supabase.functions.invoke(name, { body });
-  if (error) {
-    // True connectivity failure
-    if (
-      error.name === "FunctionsFetchError" ||
-      error.message?.includes("Failed to send a request") ||
-      error instanceof TypeError
-    ) {
-      const netErr = new Error(AUTH_MSG.network);
-      netErr.code = "NETWORK";
-      throw netErr;
-    }
-    // Prefer structured body error when available
-    let payload = data;
-    if (!payload && error.context && typeof error.context.json === "function") {
-      try {
-        payload = await error.context.json();
-      } catch {
-        // body already consumed
-      }
-    }
-    if (!payload && error.message) {
-      try {
-        payload = JSON.parse(error.message);
-      } catch {
-        // not JSON
-      }
-    }
-    const bodyMsg = payload?.error || payload?.message || error.message;
-    const code = payload?.code || "";
-    // Classified strictly by error code — no content-based matching.
-    const err = new Error(messageForCode(code, bodyMsg));
-    err.code = code;
-    err.source = "edge";
-    throw err;
-  }
-  return data;
-}
+// Supabase throttles resends itself; this mirrors its 60 s floor so the button
+// is honest rather than racing the server into an over_email_send_rate_limit.
+const RESEND_COOLDOWN_SECONDS = 60;
 
 export default function VerifyEmail() {
-  const { user, profile, loading: authLoading, signOut, loadProfile } = useAuth();
+  const { user, profile, loading: authLoading, refreshSession } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Carried from Signup so the page knows whether the first send failed.
   const navState = location.state || {};
-  const deliveryFailed = navState.deliveryFailed === true;
-  const stateEmail = typeof navState.email === "string" ? navState.email : "";
 
-  const [code, setCode] = useState(["", "", "", "", "", ""]);
+  // Confirm email is enabled, so a freshly signed-up visitor has no session:
+  // the address comes from navigation state, then from what was persisted
+  // across the reload, and only then from the signed-in user.
+  const sessionEmail = user?.email || readPendingEmail(navState);
+
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
-  const [message, setMessage] = useState(() =>
-    deliveryFailed
-      ? { text: AUTH_MSG.emailProviderAfterCreate, type: "error" }
-      : { text: "", type: "" }
-  );
-  const [countdown, setCountdown] = useState(60);
+  const [message, setMessage] = useState({ text: "", type: "" });
+  const [countdown, setCountdown] = useState(RESEND_COOLDOWN_SECONDS);
   const [verified, setVerified] = useState(false);
-  const inputRefs = useRef([]);
 
-  const pageState = verifyPageState({ loading: authLoading, user, profile });
-  const sessionEmail = user?.email || stateEmail;
+  const pageState = verifyPageState({
+    loading: authLoading,
+    user,
+    profile,
+    pendingEmail: sessionEmail,
+  });
 
-  // Countdown timer for resend
+  // Resend cooldown.
   useEffect(() => {
     if (countdown <= 0) return;
     const timer = setInterval(() => setCountdown((c) => c - 1), 1000);
     return () => clearInterval(timer);
   }, [countdown]);
 
-  // Already verified (either arriving that way, or right after submitting the
-  // code) -> leave for the correct dashboard instead of stranding the user here.
+  // Supabase Auth confirmed the address (the link landed here, or in another
+  // tab and this one picked it up from storage). Show the success state, then
+  // hand off to the dashboard for this user's role — never back to /login.
   useEffect(() => {
-    if (verified) return;
-    if (pageState === "already-verified") {
+    if (pageState !== "already-verified") return;
+    setVerified(true);
+    const timer = setTimeout(() => {
       navigate(dashboardPathFor(roleOf(profile, user)), { replace: true });
-    }
-  }, [pageState, verified, profile, user, navigate]);
-
-  // Focus the first box only once the form is actually on screen. Never while
-  // the session is still loading — that is a redirect-free state.
-  useEffect(() => {
-    if (pageState === "form" && !verified) {
-      inputRefs.current[0]?.focus();
-    }
-  }, [pageState, verified]);
-
-  const handleCodeChange = (index, value) => {
-    if (!/^\d*$/.test(value)) return; // Only digits
-    const newCode = [...code];
-    newCode[index] = value.slice(-1); // Take only last digit
-    setCode(newCode);
-    setMessage({ text: "", type: "" });
-
-    // Auto-advance to next input
-    if (value && index < 5) {
-      inputRefs.current[index + 1]?.focus();
-    }
-
-    // Auto-submit when all 6 digits entered
-    if (value && index === 5) {
-      const fullCode = newCode.join("");
-      if (fullCode.length === 6) {
-        handleVerify(fullCode);
-      }
-    }
-  };
-
-  const handleKeyDown = (index, e) => {
-    // Handle backspace
-    if (e.key === "Backspace" && !code[index] && index > 0) {
-      inputRefs.current[index - 1].focus();
-      const newCode = [...code];
-      newCode[index - 1] = "";
-      setCode(newCode);
-    }
-  };
-
-  const handlePaste = (e) => {
-    e.preventDefault();
-    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
-    if (pasted) {
-      const newCode = pasted.split("").concat(Array(6).fill("")).slice(0, 6);
-      setCode(newCode);
-      // Focus the last filled input or the next empty one
-      const focusIndex = Math.min(pasted.length, 5);
-      inputRefs.current[focusIndex]?.focus();
-      // Auto-submit if full code pasted
-      if (pasted.length === 6) {
-        handleVerify(pasted);
-      }
-    }
-  };
-
-  const handleVerify = async (codeStr) => {
-    if (loading || verified) return;
-    if (!sessionEmail) return;
-    setLoading(true);
-    setMessage({ text: "", type: "" });
-
-    try {
-      const data = await invokeEdgeForVerify("verify-otp-code", {
-        email: sessionEmail,
-        code: codeStr,
-      });
-
-      if (!data?.success) {
-        const fail = new Error(data?.error || "Verification failed");
-        fail.code = data?.code || "";
-        throw fail;
-      }
-
-      // The OTP succeeded — mark the screen as verified first so no later
-      // render can send the user backwards, then refresh auth/profile state so
-      // ProtectedRoute sees email_verified before we navigate.
-      setVerified(true);
-      if (user?.id) {
-        try {
-          await loadProfile(user.id);
-        } catch {
-          // Profile refresh is best effort; the OTP itself already landed.
-        }
-      }
-      const role = roleOf(profile, user);
-      setTimeout(() => navigate(dashboardPathFor(role), { replace: true }), 1400);
-    } catch (err) {
-      // Wrong / expired / exhausted code -> INVALID_CODE -> dedicated message.
-      setMessage({
-        text: messageForCode(err.code || "", err.message || "", { accountCreated: true }),
-        type: "error",
-      });
-      setCode(["", "", "", "", "", ""]);
-      inputRefs.current[0]?.focus();
-    } finally {
-      setLoading(false);
-    }
-  };
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [pageState, profile, user, navigate]);
 
   const handleResend = async () => {
-    // Guard against double clicks and any second request while one is running.
     if (resending || loading || verified) return;
     if (countdown > 0 || !sessionEmail) return;
     setResending(true);
     setMessage({ text: "", type: "" });
 
     try {
-      await invokeEdgeForVerify("send-verification-code", { email: sessionEmail });
-      setMessage({ text: "New code sent! Check your email.", type: "success" });
-      setCountdown(60);
-      setCode(["", "", "", "", "", ""]);
-      inputRefs.current[0]?.focus();
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email: sessionEmail,
+      });
+      if (error) {
+        const err = new Error(error.message || "");
+        err.code = error.code || "";
+        throw err;
+      }
+      setMessage({
+        text: "Confirmation email sent again. It can take a minute to arrive.",
+        type: "success",
+      });
+      setCountdown(RESEND_COOLDOWN_SECONDS);
     } catch (err) {
       // The account already exists at this point, so a provider failure is
       // reported with the contextual message — never as an invalid address.
@@ -211,10 +92,44 @@ export default function VerifyEmail() {
     }
   };
 
-  const handleLogout = () => signOut();
+  // The confirmation link was opened somewhere else (email clients like to use
+  // a new tab). Re-read the session from storage, sync the profile and let the
+  // effect above redirect once the state settles.
+  const handleConfirmed = async () => {
+    if (loading || resending || verified) return;
+    setLoading(true);
+    setMessage({ text: "", type: "" });
+
+    try {
+      const fresh = await refreshSession();
+      if (fresh?.email_confirmed_at) {
+        return; // pageState becomes "already-verified" and the effect navigates
+      }
+      setMessage({
+        text: "We haven't picked up the confirmation yet. Click the link in your email, then try again.",
+        type: "error",
+      });
+    } catch {
+      setMessage({ text: AUTH_MSG.network, type: "error" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDifferentEmail = async () => {
+    clearPendingEmail();
+    clearPendingSignup();
+    setMessage({ text: "", type: "" });
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // Nothing to sign out of.
+    }
+    navigate("/signup", { replace: true });
+  };
 
   // --- Auth still settling: show a spinner and DO NOT redirect. -------------
-  if (pageState === "loading") {
+  if (pageState === "loading" && !verified) {
     return (
       <div style={pageWrapper}>
         <div style={card}>
@@ -232,8 +147,8 @@ export default function VerifyEmail() {
     );
   }
 
-  // --- No authenticated user once loading finished: tell them, do not loop. --
-  if (pageState === "login-again") {
+  // --- No session and no remembered address: tell them, do not loop. -------
+  if (pageState === "login-again" && !verified) {
     return (
       <div style={pageWrapper}>
         <div style={card}>
@@ -241,32 +156,18 @@ export default function VerifyEmail() {
           <h2 style={title}>Verify Your Email</h2>
           <p style={{ ...subtitle, marginBottom: "20px" }}>{AUTH_MSG.loginAgain}</p>
           <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)", textAlign: "center", marginBottom: "24px" }}>
-            Sign in with the account you just created and we&apos;ll bring you
-            straight back here.
+            Sign up again and we&apos;ll send a fresh confirmation email.
           </p>
           <button
-            onClick={() => navigate(LOGIN_PATH, { replace: true })}
+            onClick={() => navigate("/signup", { replace: true })}
             style={{
               width: "100%", padding: "12px", borderRadius: "12px", border: "none", cursor: "pointer",
               background: "linear-gradient(135deg, #4a90e2, #3b82f6)", color: "#fff",
               fontSize: "15px", fontWeight: "700",
             }}
           >
-            Go to Sign In
+            Go to Sign Up
           </button>
-        </div>
-      </div>
-    );
-  }
-
-  // --- Already verified on arrival: notice only, the effect above navigates. --
-  if (pageState === "already-verified" && !verified) {
-    return (
-      <div style={pageWrapper}>
-        <div style={card}>
-          <div style={{ fontSize: "42px", marginBottom: "8px" }}>✅</div>
-          <h2 style={title}>Email Already Verified</h2>
-          <p style={subtitle}>Taking you to your dashboard...</p>
         </div>
       </div>
     );
@@ -291,29 +192,28 @@ export default function VerifyEmail() {
             <circle cx="32" cy="32" r="30" fill="none" stroke="#22c55e" strokeWidth="3"
               style={{ strokeDasharray: 188.5, strokeDashoffset: verified ? 0 : 188.5, transition: "stroke-dashoffset 0.6s ease 0.2s" }} />
             <polyline points="20,32 28,40 44,24" fill="none" stroke="#22c55e" strokeWidth="3"
-              strokeLinecap="round" strokeLinejoin="round"
-              style={{ strokeDasharray: 34, strokeDashoffset: verified ? 0 : 34, transition: "stroke-dashoffset 0.4s ease 0.7s" }} />
+              style={{ strokeDasharray: 34, strokeDashoffset: verified ? 0 : 34, transition: "stroke-dashoffset 0.6s ease 0.7s" }} />
           </svg>
           <h2 style={{
             margin: "16px 0 0", color: "#fff", fontSize: "22px", fontWeight: "700",
             transform: verified ? "translateY(0)" : "translateY(12px)",
-            opacity: verified ? 1 : 0, transition: "all 0.4s ease 0.6s",
+            opacity: verified ? 1 : 0, transition: "all 0.5s ease 0.6s",
           }}>Email Verified!</h2>
           <p style={{
             color: "rgba(255,255,255,0.5)", fontSize: "13px", margin: "8px 0 0",
             transform: verified ? "translateY(0)" : "translateY(12px)",
-            opacity: verified ? 1 : 0, transition: "all 0.4s ease 0.75s",
+            opacity: verified ? 1 : 0, transition: "all 0.5s ease 0.75s",
           }}>Redirecting to your dashboard...</p>
         </div>
 
-        <div style={{ fontSize: "42px", marginBottom: "8px" }}>🔐</div>
+        <div style={{ fontSize: "42px", marginBottom: "8px" }}>✉️</div>
         <h2 style={title}>Verify Your Email</h2>
         <p style={subtitle}>
-          Enter the 6-digit code sent to<br />
+          We sent a confirmation link to<br />
           <strong style={{ color: "#93c5fd" }}>{sessionEmail}</strong>
         </p>
 
-        {navState.accountCreated && !deliveryFailed && (
+        {navState.accountCreated && (
           <div style={{
             padding: "10px 12px", borderRadius: "10px", marginBottom: "16px", fontSize: "12px",
             backgroundColor: "rgba(74,144,226,0.15)", border: "1px solid rgba(74,144,226,0.3)",
@@ -322,6 +222,15 @@ export default function VerifyEmail() {
             Your account has been created — just one step left to go.
           </div>
         )}
+
+        <div style={{
+          padding: "12px", borderRadius: "10px", marginBottom: "16px", fontSize: "13px",
+          backgroundColor: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
+          color: "rgba(255,255,255,0.7)", textAlign: "center", lineHeight: 1.6,
+        }}>
+          Open that email and click <strong style={{ color: "#93c5fd" }}>Confirm your email address</strong>.
+          You&apos;ll come straight back here once it&apos;s done.
+        </div>
 
         {message.text && (
           <div style={{
@@ -335,44 +244,31 @@ export default function VerifyEmail() {
           </div>
         )}
 
-        {/* Code inputs */}
-        <div style={{ display: "flex", gap: "8px", justifyContent: "center", marginBottom: "20px" }}>
-          {code.map((digit, i) => (
-            <input
-              key={i}
-              ref={(el) => {
-                inputRefs.current[i] = el;
-              }}
-              type="text"
-              inputMode="numeric"
-              maxLength={1}
-              value={digit}
-              onChange={(e) => handleCodeChange(i, e.target.value)}
-              onKeyDown={(e) => handleKeyDown(i, e)}
-              onPaste={i === 0 ? handlePaste : undefined}
-              disabled={loading || verified}
-              style={{
-                width: "48px", height: "56px", textAlign: "center", fontSize: "22px", fontWeight: "700",
-                borderRadius: "12px", border: digit ? "2px solid #4a90e2" : "2px solid rgba(255,255,255,0.15)",
-                backgroundColor: digit ? "rgba(74,144,226,0.15)" : "rgba(255,255,255,0.06)",
-                color: "#fff", outline: "none", fontFamily: "monospace",
-                transition: "all 0.2s ease",
-              }}
-            />
-          ))}
-        </div>
+        <button
+          onClick={handleConfirmed}
+          disabled={loading || resending}
+          style={{
+            width: "100%", padding: "12px", marginBottom: "12px", borderRadius: "12px",
+            border: "none", cursor: loading ? "not-allowed" : "pointer",
+            background: "linear-gradient(135deg, #4a90e2, #3b82f6)", color: "#fff",
+            fontSize: "15px", fontWeight: "700", opacity: loading ? 0.7 : 1,
+            display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
+          }}
+        >
+          {loading && (
+            <span style={{
+              display: "inline-block", width: "16px", height: "16px",
+              border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff",
+              borderRadius: "50%", animation: "spin 0.6s linear infinite",
+            }} />
+          )}
+          {loading ? "Checking..." : "I've confirmed my email"}
+        </button>
 
-        {loading && (
-          <p style={{ fontSize: "13px", color: "#93c5fd", textAlign: "center", marginBottom: "16px" }}>
-            Verifying...
-          </p>
-        )}
-
-        {/* Resend button */}
         <div style={{ textAlign: "center", marginBottom: "16px" }}>
           {countdown > 0 ? (
             <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)" }}>
-              Resend code in <strong style={{ color: "#93c5fd" }}>{countdown}s</strong>
+              Resend link in <strong style={{ color: "#93c5fd" }}>{countdown}s</strong>
             </p>
           ) : (
             <button
@@ -384,17 +280,17 @@ export default function VerifyEmail() {
                 opacity: resending ? 0.6 : 1,
               }}
             >
-              {resending ? "Sending..." : "Resend Code"}
+              {resending ? "Sending..." : "Resend confirmation email"}
             </button>
           )}
         </div>
 
         <p style={{ fontSize: "12px", color: "rgba(255,255,255,0.4)", textAlign: "center", marginBottom: "16px" }}>
-          Check your spam folder if you don&apos;t see the code.
+          Check your spam folder if you don&apos;t see the email.
         </p>
 
         <button
-          onClick={handleLogout}
+          onClick={handleDifferentEmail}
           style={{
             width: "100%", padding: "10px", background: "rgba(255,255,255,0.06)",
             border: "1px solid rgba(255,255,255,0.15)", borderRadius: "10px",

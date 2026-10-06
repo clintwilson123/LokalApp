@@ -19,6 +19,7 @@ export const AUTH_MSG = {
   rateLimited: "Too many signups. Please wait a moment and try again.",
   captchaFailed: "Something went wrong. Please try again.",
   serverError: "Something went wrong. Please try again.",
+  weakPassword: "Password must be at least 6 characters.",
   generic: "Something went wrong. Please try again.",
 };
 
@@ -48,6 +49,19 @@ const CODE_MESSAGES = {
   CAPTCHA_FAILED: AUTH_MSG.captchaFailed,
   SERVER_ERROR: AUTH_MSG.serverError,
   INVALID_CODE: AUTH_MSG.invalidOtp,
+
+  // Codes returned by Supabase Auth itself (AuthApiError.code) rather than by
+  // one of our Edge Functions. Native confirmation is used for signup, so these
+  // are now the codes signup/resend actually surface.
+  user_already_exists: AUTH_MSG.alreadyRegistered,
+  over_email_send_rate_limit: AUTH_MSG.rateLimited,
+  email_address_invalid: AUTH_MSG.invalidFormat,
+  email_address_not_authorized: AUTH_MSG.emailProvider,
+  // Do not reveal whether an address exists when resending a confirmation.
+  user_not_found: AUTH_MSG.emailProvider,
+  weak_password: AUTH_MSG.weakPassword,
+  signup_disabled: AUTH_MSG.serverError,
+  validation_failed: AUTH_MSG.invalidFormat,
 };
 
 // Narrow fallback used ONLY when no error code was supplied at all. Matches
