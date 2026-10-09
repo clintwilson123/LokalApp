@@ -3,6 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { postAuthPath } from "../lib/authFlow";
 import { AUTH_MSG, messageForCode } from "../lib/authErrors";
+import { writePendingEmail } from "../lib/pendingVerification";
 import { isTurnstileConfigured } from "../lib/turnstile";
 import TurnstileWidget from "../components/TurnstileWidget";
 import { pageWrapper, card, title, subtitle, input, inputWrapper, inputIcon, button, link, linkHighlight, radii } from "../uiStyles";
@@ -90,11 +91,23 @@ export default function Login() {
         setError(messageForCode(code, err.message));
       } else if (err.message?.includes("Invalid login credentials")) {
         setError("Wrong email or password.");
-      } else if (err.message?.includes("verify your email") || err.message?.includes("Email not confirmed")) {
-        // Supabase itself is refusing the sign-in, so no session exists and
-        // /verify-email would have nothing to work with — report it here
-        // instead of bouncing the user through a redirect loop.
-        setError(err.message || "Please verify your email first. Check your inbox for the verification code.");
+      } else if (
+        code === "email_not_confirmed" ||
+        err.message?.includes("verify your email") ||
+        err.message?.includes("Email not confirmed")
+      ) {
+        // Supabase itself is refusing the sign-in: no session exists, so
+        // there is nothing to access. Remember the attempted address so
+        // /verify-email can display it and resend the confirmation, then
+        // send the user there with a clear instruction instead of a raw
+        // server string — and never a redirect loop (/verify-email only
+        // comes back here via an explicit "use a different email").
+        const attempted = email.trim();
+        writePendingEmail(attempted);
+        setError(AUTH_MSG.emailNotConfirmed);
+        navigate("/verify-email", {
+          state: { email: attempted, notice: AUTH_MSG.emailNotConfirmed },
+        });
       } else {
         setError(err.message || "Login failed.");
       }

@@ -31,7 +31,12 @@ export default function VerifyEmail() {
 
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
-  const [message, setMessage] = useState({ text: "", type: "" });
+  // Carried from Login when GoTrue refused the password grant with
+  // email_not_confirmed — the user is redirected here with the reason.
+  const [message, setMessage] = useState({
+    text: navState.notice || "",
+    type: navState.notice ? "error" : "",
+  });
   const [countdown, setCountdown] = useState(RESEND_COOLDOWN_SECONDS);
   const [verified, setVerified] = useState(false);
   // Turnstile handle for the resend action: /resend is captcha-protected once

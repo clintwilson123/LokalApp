@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 
 // Login with Turnstile: the token must reach signInWithPassword and CAPTCHA
 // failures must never be reported as wrong credentials.
@@ -33,6 +33,19 @@ vi.mock('../context/AuthContext', () => ({
 import Login from '../pages/Login';
 import { AUTH_MSG } from '../lib/authErrors';
 
+// Stub that also surfaces what Login carried over in navigation state, so
+// tests can assert the reason followed the user to the verification screen.
+function VerifyEmailStub() {
+  const location = useLocation();
+  return (
+    <div>
+      VERIFY_EMAIL_PAGE
+      {location.state?.notice && <div>{location.state.notice}</div>}
+      {location.state?.email && <div>{location.state.email}</div>}
+    </div>
+  );
+}
+
 function renderLogin() {
   return render(
     <MemoryRouter initialEntries={['/login']}>
@@ -40,7 +53,7 @@ function renderLogin() {
         <Route path="/login" element={<Login />} />
         <Route path="/find-jobs" element={<div>APPLICANT_DASHBOARD</div>} />
         <Route path="/admin" element={<div>ADMIN_DASHBOARD</div>} />
-        <Route path="/verify-email" element={<div>VERIFY_EMAIL_PAGE</div>} />
+        <Route path="/verify-email" element={<VerifyEmailStub />} />
       </Routes>
     </MemoryRouter>
   );
@@ -139,7 +152,8 @@ describe('Login with Turnstile', () => {
     expect(screen.queryByText(AUTH_MSG.captchaFailed)).toBeNull();
   });
 
-  it('resets the widget after a non-CAPTCHA Auth failure and keeps its message', async () => {
+  it('an unconfirmed login is refused with a clear message and redirected to /verify-email', async () => {
+    window.localStorage.clear();
     h.signIn.mockRejectedValue({
       code: 'email_not_confirmed',
       message: 'Email not confirmed',
@@ -149,10 +163,26 @@ describe('Login with Turnstile', () => {
     await act(async () => {});
     await fillAndSubmit();
 
-    expect(await screen.findByText('Email not confirmed')).toBeInTheDocument();
-    expect(h.reset).toHaveBeenCalled();
-    expect(screen.queryByText(AUTH_MSG.captchaFailed)).toBeNull();
+    // Clear instruction from our message table — never "wrong password",
+    // never a CAPTCHA/network message, never the raw server string.
+    expect(await screen.findByText(AUTH_MSG.emailNotConfirmed)).toBeInTheDocument();
+    expect(screen.queryByText('Email not confirmed')).toBeNull();
     expect(screen.queryByText('Wrong email or password.')).toBeNull();
+    expect(screen.queryByText(AUTH_MSG.captchaFailed)).toBeNull();
+
+    // No session exists → there is nothing to access. The user lands on the
+    // verification screen instead of any protected page…
+    expect(await screen.findByText('VERIFY_EMAIL_PAGE')).toBeInTheDocument();
+    expect(screen.queryByText('APPLICANT_DASHBOARD')).toBeNull();
+    expect(screen.queryByText('ADMIN_DASHBOARD')).toBeNull();
+
+    // …with the attempted address remembered so the confirmation can be
+    // resent from there.
+    expect(window.localStorage.getItem('cjlink:pending-verification-email')).toBe(
+      'ana@gmail.com'
+    );
+    // C-2: the password grant was still reached, so the spent token is burned.
+    expect(h.reset).toHaveBeenCalled();
   });
 
   it('Test 8 — missing CAPTCHA configuration never silently bypasses protection', async () => {

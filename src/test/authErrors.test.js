@@ -240,6 +240,17 @@ describe('Supabase Auth API codes', () => {
     expect(messageForCode('user_not_found', 'User not found')).not.toMatch(/already registered/i);
   });
 
+  it('maps GoTrue email_not_confirmed to the confirmation instruction, not to wrong-password/network', () => {
+    expect(messageForCode('email_not_confirmed', 'Email not confirmed')).toBe(
+      AUTH_MSG.emailNotConfirmed
+    );
+    expect(AUTH_MSG.emailNotConfirmed).toMatch(/confirm your email address/i);
+    expect(AUTH_MSG.emailNotConfirmed).not.toBe('Wrong email or password.');
+    expect(AUTH_MSG.emailNotConfirmed).not.toBe(AUTH_MSG.network);
+    expect(AUTH_MSG.emailNotConfirmed).not.toBe(AUTH_MSG.captchaFailed);
+  });
+
+
   it('maps an inexpressible address to the format message', () => {
     expect(messageForCode('email_address_invalid', 'x')).toBe(AUTH_MSG.invalidFormat);
   });

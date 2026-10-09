@@ -61,11 +61,38 @@ describe('ProtectedRoute', () => {
     expect(screen.queryByText('PROTECTED_CONTENT')).toBeNull();
   });
 
-  it('fails closed when an authenticated user has no readable profile', () => {
-    h.auth = { user: { id: 'u1' }, profile: null, loading: false };
+  it('an unconfirmed user with no profile row is sent to /verify-email, never a protected page', () => {
+    // This is the shape a fresh signup has BEFORE the confirmation link
+    // issues a session: Auth user present, no profile row yet.
+    h.auth = { user: { id: 'u1', email_confirmed_at: null }, profile: null, loading: false };
+    renderProtected();
+    expect(screen.getByText('VERIFY_EMAIL_PAGE')).toBeInTheDocument();
+    expect(screen.queryByText('PROTECTED_CONTENT')).toBeNull();
+    expect(screen.queryByText('HOME_PAGE')).toBeNull();
+  });
+
+  it('fails closed when a CONFIRMED user has no readable profile', () => {
+    h.auth = {
+      user: { id: 'u1', email_confirmed_at: '2026-01-01T00:00:00Z' },
+      profile: null,
+      loading: false,
+    };
     renderProtected();
     expect(screen.getByText('HOME_PAGE')).toBeInTheDocument();
     expect(screen.queryByText('PROTECTED_CONTENT')).toBeNull();
+  });
+
+  it('grants access from the trusted session confirmation even if the profile mirror lags', () => {
+    // Requirement 5: right after the confirmation link lands, the session
+    // carries email_confirmed_at — access must work even before the
+    // profiles.email_verified mirror catches up.
+    h.auth = {
+      user: { id: 'u1', email_confirmed_at: '2026-01-01T00:00:00Z' },
+      profile: applicant({ email_verified: false }),
+      loading: false,
+    };
+    renderProtected();
+    expect(screen.getByText('PROTECTED_CONTENT')).toBeInTheDocument();
   });
 
   it('blocks suspended accounts', () => {

@@ -1,5 +1,6 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { isEmailVerified } from "../lib/authFlow";
 import { SkeletonLine } from "./Skeleton";
 
 export default function ProtectedRoute({ children, allowedRoles, requireVerification = true }) {
@@ -16,9 +17,21 @@ export default function ProtectedRoute({ children, allowedRoles, requireVerifica
 
   if (!user) return <Navigate to="/login" replace />;
 
+  // Verification is decided from the trusted Auth session/user state
+  // (user.email_confirmed_at) plus profiles.email_verified — a mirror that
+  // profiles_security_guard makes impossible to set client-side without a
+  // real confirmation in auth.users. Nothing consulted here is client-supplied.
+  const verified = isEmailVerified(user, profile);
+
   // Never fail open: an authenticated user with no readable profile gets no
   // access to protected pages. "/" is public, so this cannot loop.
-  if (!profile) return <Navigate to="/" replace />;
+  if (!profile) {
+    // An unconfirmed signup legitimately has no profile row yet (RLS creates
+    // it only after the confirmation link issues a session) — send them to
+    // the verification screen rather than a blank home.
+    if (!verified) return <Navigate to="/verify-email" replace />;
+    return <Navigate to="/" replace />;
+  }
 
   if (profile.status === "suspended") {
     return <Navigate to="/login" replace />;
@@ -30,7 +43,7 @@ export default function ProtectedRoute({ children, allowedRoles, requireVerifica
   // Email verification check (skip for admin).
   // NOTE: /verify-email is a public route and is never wrapped by this
   // component, so an unverified applicant can always reach it.
-  if (requireVerification && profile.role !== "admin" && !profile.email_verified) {
+  if (requireVerification && profile.role !== "admin" && !verified) {
     return <Navigate to="/verify-email" replace />;
   }
 

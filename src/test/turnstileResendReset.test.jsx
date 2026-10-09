@@ -248,6 +248,26 @@ describe('VerifyEmail resend with Turnstile', () => {
     expect(screen.queryByText(/The security check failed/i)).toBeNull();
   });
 
+  it('shows the notice carried from a refused login, with the address ready to resend', () => {
+    render(
+      <MemoryRouter
+        initialEntries={[
+          { pathname: '/verify-email', state: { email: 'ana@gmail.com', notice: AUTH_MSG.emailNotConfirmed } },
+        ]}
+      >
+        <Routes>
+          <Route path="/verify-email" element={<VerifyEmail />} />
+          <Route path="/signup" element={<div>SIGNUP_PAGE</div>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Requirement 4: clear message + pending verification state, no access.
+    // Regex because the banner prefixes the message with an icon.
+    expect(screen.getByText(/Please confirm your email address first/i)).toBeInTheDocument();
+    expect(screen.getByText('ana@gmail.com')).toBeInTheDocument();
+  });
+
   it('a resend delivery failure is reported as "created, but could not send" — never as verified or invalid', async () => {
     vi.useFakeTimers();
     h.resend.mockResolvedValue({

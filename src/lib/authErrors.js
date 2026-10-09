@@ -20,6 +20,11 @@ export const AUTH_MSG = {
     "An account with this Gmail address already exists. Please log in or reset your password.",
   invalidOtp: "The verification code is incorrect or has expired. Please request a new code.",
   loginAgain: "Please log in again to continue verifying your email.",
+  // GoTrue refused the password grant because the address was never
+  // confirmed. Kept distinct so the user is sent to the verification step,
+  // never told their password is wrong or that the server is unreachable.
+  emailNotConfirmed:
+    "Please confirm your email address first. Check your inbox for the confirmation link.",
   suspicious:
     "Registration was blocked because the activity was flagged as suspicious. Please try again later.",
   network: "Could not reach the server. Please check your connection and try again.",
@@ -67,6 +72,8 @@ const CODE_MESSAGES = {
   // GoTrue's own code when CAPTCHA protection is enabled and the token is
   // missing, expired or rejected by the provider.
   captcha_failed: AUTH_MSG.captchaFailed,
+  // GoTrue's own code when Sign In is attempted before Confirm email is done.
+  email_not_confirmed: AUTH_MSG.emailNotConfirmed,
   SERVER_ERROR: AUTH_MSG.serverError,
   INVALID_CODE: AUTH_MSG.invalidOtp,
 
