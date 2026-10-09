@@ -61,13 +61,69 @@ describe('validateGmail — rejects obviously invalid input', () => {
   });
 });
 
+// Regression (false-positive fix): a single pattern flag — repeated
+// characters, low character diversity, or sequential characters — is no longer
+// enough to hard-block signup. Each of these addresses is format-valid and was
+// previously rejected with HIGH_RISK even though no single pattern can prove a
+// mailbox is abusive (josejosejose@ and lovelovelove@ are ordinary-looking
+// names; aaaaaa@ / abcdefg@ are at worst weak choices). They are now accepted
+// as risk "Medium" with NEEDS_VERIFICATION, and signup_risk_level is still
+// persisted on the profile for audit/step-up.
+describe('validateGmail — a single pattern signal no longer blocks a legitimate address', () => {
+  const singleSignalButLegit = [
+    'lovelovelove@gmail.com', // low_diversity only
+    'josejosejose@gmail.com', // low_diversity only
+    'aaaaaa@gmail.com', // repeated_chars only
+    'ssssss@gmail.com', // repeated_chars only
+    'abcdefg@gmail.com', // sequential_chars only
+    'sadasdsadsadsadsa@gmail.com', // low_diversity only
+  ];
+
+  for (const email of singleSignalButLegit) {
+    it(`accepts ${email} as medium risk instead of HIGH_RISK`, () => {
+      const result = validateGmail(email);
+      expect(result.valid).toBe(true);
+      expect(result.code).toBe('NEEDS_VERIFICATION');
+      expect(result.risk).toBe('Medium');
+      expect(result.code).not.toBe('HIGH_RISK');
+      expect(result.code).not.toBe('INVALID_FORMAT');
+    });
+  }
+});
+
+// Multiple independent risk signals are still a hard block: escalation now
+// requires riskScore >= 3, which can only be reached by two or more signals
+// (low_diversity = 2, every other flag = 1). Anti-abuse protection for real
+// junk patterns is fully retained.
+describe('validateGmail — two or more independent signals still escalate to HIGH_RISK', () => {
+  const stillBlocked = [
+    { email: 'lovelovelovelovelovelovelovelove@gmail.com', flags: ['long_username', 'low_diversity'] },
+    { email: 'aaaa1111222233334444555@gmail.com', flags: ['excessive_numbers', 'long_username', 'low_diversity'] },
+  ];
+
+  for (const { email, flags } of stillBlocked) {
+    it(`still blocks ${email}`, () => {
+      const result = validateGmail(email);
+      expect(result.valid).toBe(false);
+      expect(result.code).toBe('HIGH_RISK');
+      expect(result.reason).toMatch(/suspicious/i);
+      // A blocked address must never be described as a valid Gmail address.
+      expect(result.reason).not.toMatch(/valid gmail address/i);
+      expect(result.flags).toEqual(expect.arrayContaining(flags));
+    });
+  }
+});
+
 describe('validateGmail — a format-valid but risky address is never called "invalid format"', () => {
-  it('reports HIGH_RISK instead of INVALID_FORMAT for suspicious input', () => {
+  it('reports a risk verdict, never INVALID_FORMAT, for suspicious input', () => {
+    // Strongest single signal available: repeated characters. Under the
+    // single-signal rule this used to return HIGH_RISK; it is now accepted as
+    // medium risk. The invariant that matters is that a format-valid address
+    // is never mislabelled as malformed.
     const result = validateGmail('ssssss@gmail.com');
-    expect(result.valid).toBe(false);
-    expect(result.code).toBe('HIGH_RISK');
-    expect(result.reason).toMatch(/suspicious/i);
-    expect(result.reason).not.toMatch(/valid gmail address/i);
+    expect(result.valid).toBe(true);
+    expect(result.code).toBe('NEEDS_VERIFICATION');
+    expect(result.code).not.toBe('INVALID_FORMAT');
   });
 });
 

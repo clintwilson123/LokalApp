@@ -130,13 +130,21 @@ export function validateGmail(email) {
     flags.push("sequential_chars");
   }
 
-  // Strong risk signals — block signup as suspicious. Heuristic scoring says
-  // nothing about whether the mailbox can receive mail, so it is never
-  // described as an invalid or undeliverable address.
-  const strongRiskSignal = flags.includes("low_diversity")
-    || flags.includes("repeated_chars")
-    || flags.includes("sequential_chars")
-    || riskScore >= 3;
+  // Strong risk signals — block signup as suspicious. A SINGLE pattern flag
+  // (repeated characters, low diversity, sequential characters) is too weak to
+  // identify an abusive mailbox on its own and was rejecting legitimate users
+  // (e.g. "lovelovelove@", "josejosejose@", "aaaaaa@"). Escalation therefore
+  // requires riskScore >= 3, which — given the weights above (low_diversity =
+  // 2, every other flag = 1) — can only be reached by TWO OR MORE independent
+  // signals. Syntax validation stays separate (INVALID_FORMAT above), and an
+  // address that trips a single signal is still accepted as risk "Medium" with
+  // NEEDS_VERIFICATION and signup_risk_level persisted for audit/step-up.
+  // Heuristic scoring still says nothing about whether the mailbox can receive
+  // mail, so a block is never reported as an invalid/undeliverable address.
+  // MUST stay identical to strongRiskSignal in
+  // supabase/functions/spam-prevention/index.ts (enforced by
+  // src/test/riskRuleSync.test.js).
+  const strongRiskSignal = riskScore >= 3;
   if (strongRiskSignal) {
     return {
       valid: false, status: "Suspicious", domainVerified: true, risk: "High",

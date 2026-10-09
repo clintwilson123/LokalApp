@@ -208,14 +208,18 @@ serve(async (req) => {
     // --- RISK ANALYSIS ---
     const { score: riskScore, flags } = calculateGmailRisk(localPart);
 
-    // Strong risk signals — block before account creation. Heuristic scoring
-    // (repeated/sequential characters, low diversity, high score) says nothing
-    // about whether the mailbox can actually receive mail, so this is reported
-    // as a suspicious-activity block, never as an invalid/undeliverable address.
-    const strongRiskSignal = flags.includes("low_diversity")
-      || flags.includes("repeated_chars")
-      || flags.includes("sequential_chars")
-      || riskScore >= 3;
+    // Strong risk signals — block before account creation. A SINGLE pattern
+    // flag (repeated characters, low diversity, sequential characters) is not
+    // enough to identify an abusive mailbox and was rejecting legitimate
+    // users, so escalation now requires riskScore >= 3 — reachable only via
+    // TWO OR MORE independent signals (low_diversity = 2, all others = 1).
+    // Heuristic scoring still says nothing about whether the mailbox can
+    // receive mail, so blocked results are reported as suspicious activity,
+    // never as an invalid/undeliverable address. One-signal addresses are
+    // accepted with risk_level "medium" (recorded on the profile).
+    // MUST stay identical to strongRiskSignal in src/lib/sanitize.js
+    // (enforced by src/test/riskRuleSync.test.js).
+    const strongRiskSignal = riskScore >= 3;
     if (strongRiskSignal) {
       console.warn("spam-prevention: blocked high-risk email", {
         email,

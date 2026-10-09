@@ -77,7 +77,17 @@ describe('messageForCode', () => {
     expect(messageForCode('RATE_LIMITED', 'any')).toBe(AUTH_MSG.rateLimited);
     expect(messageForCode('CAPTCHA_FAILED', 'any')).toBe(AUTH_MSG.captchaFailed);
     expect(messageForCode('SERVER_ERROR', 'any')).toBe(AUTH_MSG.serverError);
+
+    // A rate-limit failure must stay distinguishable from a CAPTCHA failure:
+    // the user is told to wait, never that the security check failed (and
+    // vice versa), including GoTrue's own lowercase captcha_failed code.
+    expect(AUTH_MSG.rateLimited).not.toBe(AUTH_MSG.captchaFailed);
+    expect(messageForCode('RATE_LIMITED', 'any')).not.toBe(AUTH_MSG.captchaFailed);
+    expect(messageForCode('captcha_failed', 'any')).toBe(AUTH_MSG.captchaFailed);
+    expect(messageForCode('captcha_failed', 'any')).not.toBe(AUTH_MSG.rateLimited);
+    expect(messageForCode('over_email_send_rate_limit', 'any')).not.toBe(AUTH_MSG.captchaFailed);
   });
+
 
   it('does not classify an unknown code whose message mentions gmail or deliver', () => {
     const gmailMsg = 'Could not look up that gmail account right now';
@@ -185,7 +195,7 @@ describe('required user-facing messages', () => {
 // codes that reach messageForCode are now Supabase's own AuthApiError codes
 // as well as ours.
 describe('Supabase Auth API codes', () => {
-  it('Test 4 — a duplicate reported by signUp() maps to the same message', () => {
+  it('Test 4 ï¿½ a duplicate reported by signUp() maps to the same message', () => {
     expect(messageForCode('user_already_exists', 'User already registered')).toBe(
       AUTH_MSG.alreadyRegistered
     );
@@ -195,7 +205,7 @@ describe('Supabase Auth API codes', () => {
     );
   });
 
-  it('Test 9 — hitting the resend rate limit uses the rate-limit message', () => {
+  it('Test 9 ï¿½ hitting the resend rate limit uses the rate-limit message', () => {
     expect(messageForCode('over_email_send_rate_limit', 'For security purposes')).toBe(
       AUTH_MSG.rateLimited
     );
