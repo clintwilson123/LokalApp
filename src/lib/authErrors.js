@@ -61,6 +61,16 @@ export const AUTH_MSG = {
   // The callback confirmed the address. The session it created is released on
   // purpose: verification never signs anyone in, the user does that themselves.
   verifiedSuccess: "Your email has been confirmed. Please sign in to your account.",
+  // Google (OAuth) sign-in. Each state gets its own wording so a cancelled
+  // attempt, a missing dashboard configuration and a real provider failure are
+  // never blurred into one "something went wrong".
+  oauthCancelled: "Google sign-in was cancelled. You can try again or sign in with your password.",
+  oauthNotConfigured:
+    "Google sign-in is not set up for this site yet. Please sign in with your email and password.",
+  oauthFailed:
+    "Could not sign in with Google right now. Please try again or sign in with your password.",
+  oauthProfileFailed:
+    "You signed in with Google, but we could not finish setting up your account. Please sign in with your password.",
 };
 
 // Codes that describe a failure to PRODUCE the verification email. After the
@@ -199,4 +209,35 @@ export function messageForVerifyError(err) {
   // and guessing more specifically would risk telling the user something
   // untrue about their account).
   return AUTH_MSG.invalidOtp;
+}
+
+// Words Supabase Auth uses when the Google provider is switched off in the
+// Dashboard (or the OAuth client is misconfigured). Matched against the
+// server's own message so the user is told the feature is unavailable rather
+// than that their account is broken.
+const OAUTH_NOT_CONFIGURED_RE =
+  /provider\s+(is\s+)?not\s+(enabled|supported)|oauth\s+provider|invalid\s+(client|redirect)|not\s+enabled/i;
+
+/**
+ * Resolve a user-facing message for a failed signInWithOAuth() start.
+ *
+ * The redirect has not happened yet, so this covers "Google could not be
+ * started at all": the provider is disabled in the Dashboard, the client ID
+ * or secret is wrong, or the request never left the browser. A cancelled
+ * sign-in happens on Google's side and is classified by the callback instead.
+ *
+ * @param {Error|{message?:string, code?:string, status?:number}|undefined} err
+ * @returns {string} Message to display to the user.
+ */
+export function messageForOAuthError(err) {
+  const msg = typeof err?.message === "string" ? err.message : "";
+  const code = typeof err?.code === "string" ? err.code : "";
+
+  if (err instanceof TypeError || /failed to fetch|network|load failed/i.test(msg)) {
+    return AUTH_MSG.network;
+  }
+  if (code === "provider_not_enabled" || OAUTH_NOT_CONFIGURED_RE.test(msg)) {
+    return AUTH_MSG.oauthNotConfigured;
+  }
+  return AUTH_MSG.oauthFailed;
 }

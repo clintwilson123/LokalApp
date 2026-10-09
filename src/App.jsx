@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AuthCallbackHandler from "./components/AuthCallbackHandler";
+import OAuthCallback from "./components/OAuthCallback";
 import ErrorBoundary from "./components/ErrorBoundary";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
@@ -17,7 +18,7 @@ import AdminDashboard from "./pages/AdminDashboard";
 import ApplicantDashboard from "./pages/ApplicantDashboard";
 
 
-const publicPaths = ["/", "/login", "/signup", "/forgot-password", "/update-password", "/about", "/verify-email", "/consent"];
+const publicPaths = ["/", "/login", "/signup", "/forgot-password", "/update-password", "/about", "/verify-email", "/consent", "/auth/callback"];
 
 function AppContent() {
   const location = useLocation();
@@ -37,6 +38,9 @@ function AppContent() {
         <Route path="/about" element={<About />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/consent" element={<Consent />} />
+        {/* Google (OAuth) redirect target — owned by OAuthCallback, never by
+            the confirmation-link hand-off in AuthCallbackHandler. */}
+        <Route path="/auth/callback" element={<OAuthCallback />} />
 
         {/* Applicant routes */}
         <Route path="/find-jobs" element={<ProtectedRoute allowedRoles={["applicant"]}><ApplicantDashboard /></ProtectedRoute>} />

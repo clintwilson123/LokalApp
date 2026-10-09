@@ -186,6 +186,12 @@ export default function VerifyEmail() {
         type: "success",
       });
       setCountdown(RESEND_COOLDOWN_SECONDS);
+      // Turnstile tokens are single-use and /resend already consumed this one.
+      // The widget stays mounted across resends, so a success MUST also hand
+      // the next attempt a fresh challenge — otherwise the 60 s-later resend
+      // would replay the spent token and GoTrue would reject it as
+      // timeout-or-duplicate ("The security check failed").
+      captchaRef.current?.reset();
     } catch (err) {
       // The account already exists at this point, so a provider failure is
       // reported with the contextual message — never as an invalid address.

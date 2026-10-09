@@ -12,6 +12,7 @@ import {
 } from "../lib/pendingVerification";
 import { isTurnstileConfigured } from "../lib/turnstile";
 import TurnstileWidget from "../components/TurnstileWidget";
+import GoogleSignInButton from "../components/GoogleSignInButton";
 import { pageWrapper, card, title, subtitle, input, inputWrapper, inputIcon, button, link, linkHighlight, radii } from "../uiStyles";
 
 const bgBlob = {
@@ -205,6 +206,11 @@ export default function Login() {
               <span>{error}</span>
             </div>
           )}
+
+          {/* Google sign-in is offered alongside the password form, never
+              instead of it: a cancelled or unconfigured OAuth attempt falls
+              straight back to the form below. */}
+          <GoogleSignInButton />
 
           <div style={inputWrapper}>
             <span style={inputIcon}>✉️</span>

@@ -62,6 +62,7 @@ export function parseAuthCallback(rawHash) {
     sub: "",
     email: "",
     accessToken: "",
+    hasProviderToken: false,
   };
   const raw = typeof rawHash === "string" ? rawHash : "";
   const fragment = raw.startsWith("#") ? raw.slice(1) : raw;
@@ -81,6 +82,11 @@ export function parseAuthCallback(rawHash) {
       sub,
       email,
       accessToken,
+      // Only a Google (OAuth) redirect carries the provider tokens. Email
+      // confirmation and recovery fragments never do.
+      hasProviderToken: Boolean(
+        params.get("provider_token") || params.get("provider_refresh_token")
+      ),
     };
   }
 
@@ -89,7 +95,16 @@ export function parseAuthCallback(rawHash) {
   const code = (params.get("error_code") || params.get("error") || "").trim();
   const description = (params.get("error_description") || "").trim();
   if (code || description) {
-    return { kind: "error", code, description, type, sub: "", email: "", accessToken: "" };
+    return {
+      kind: "error",
+      code,
+      description,
+      type,
+      sub: "",
+      email: "",
+      accessToken: "",
+      hasProviderToken: false,
+    };
   }
 
   return none;
@@ -107,6 +122,22 @@ export function isConfirmationCallback(parsed) {
   if (!parsed || parsed.kind !== "success") return false;
   const type = (parsed.type || "").toLowerCase();
   return type === "" || type === "signup" || type === "confirmation";
+}
+
+/**
+ * Is this success fragment a Google (OAuth) sign-in redirect?
+ *
+ * Supabase's implicit OAuth redirect carries provider_token /
+ * provider_refresh_token alongside the session tokens, and never sets
+ * type=signup. That combination is how the OAuth callback page tells a
+ * Google sign-in apart from an email confirmation — both arrive as an
+ * access_token fragment, but only OAuth carries the provider_* fields.
+ *
+ * Purely a classifier: the token values are never logged, only inspected.
+ */
+export function isOAuthCallback(parsed) {
+  if (!parsed || parsed.kind !== "success") return false;
+  return Boolean(parsed.hasProviderToken);
 }
 
 /**

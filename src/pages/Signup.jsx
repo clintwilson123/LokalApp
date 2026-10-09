@@ -8,6 +8,7 @@ import { AUTH_MSG, messageForCode } from "../lib/authErrors";
 import { writePendingEmail } from "../lib/pendingVerification";
 import { isTurnstileConfigured } from "../lib/turnstile";
 import TurnstileWidget from "../components/TurnstileWidget";
+import GoogleSignInButton from "../components/GoogleSignInButton";
 import ConsentDocument from "../components/ConsentDocument";
 
 const bgBlob = {
@@ -252,6 +253,12 @@ export default function Signup() {
               <span>⚠️</span><span>{error}</span>
             </div>
           )}
+
+          {/* Google sign-up is offered alongside the password form. OAuth
+              never needs the Turnstile widget or the consent checkbox above
+              the fold: consent is still collected on /consent, because a
+              Google profile row starts with consent_accepted = false. */}
+          <GoogleSignInButton />
 
           <div style={inputWrapper}>
             <span style={inputIcon}>👤</span>

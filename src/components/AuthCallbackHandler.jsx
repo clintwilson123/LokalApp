@@ -65,7 +65,15 @@ export default function AuthCallbackHandler() {
     // Confirmation redirects land on the Site URL root. An error that arrives
     // anywhere else (a recovery link failing while pointing at
     // /update-password) belongs to that page, not here.
+    //
+    // Success fragments are scoped to "/" for the same reason, with higher
+    // stakes: a Google (OAuth) sign-in also arrives as an access_token
+    // fragment, but at /auth/callback. Its type is empty — exactly like an
+    // older confirmation template — so without this pathname guard the
+    // handoff below would treat a fresh Google session as a confirmation,
+    // sign it out, and dump the user on /login "verified".
     if (parsed.kind === "error" && location.pathname !== "/") return;
+    if (parsed.kind === "success" && location.pathname !== "/") return;
     if (parsed.kind === "success" && !isConfirmationCallback(parsed)) return;
 
     callbackHandled = true;

@@ -323,3 +323,55 @@ describe('AuthCallbackHandler — scope and ordering', () => {
     expect(h.getSession).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('AuthCallbackHandler — OAuth fragment guard', () => {
+  it('NEVER signs out an OAuth (provider_token) success fragment on /auth/callback', async () => {
+    // The bug this guards against: a Google OAuth implicit-grant redirect is
+    // an untyped success fragment (type==="", access_token, provider_token)
+    // landing at /auth/callback. Without the pathname guard the hand-off
+    // would treat it as a confirmation, sign the FRESH Google session out,
+    // and dump the user on /login "verified".
+    window.history.replaceState(
+      null,
+      '',
+      '/auth/callback#access_token=at&provider_token=pt&type='
+    );
+    h.getSession.mockResolvedValue({
+      data: { session: { user: { id: 'google-user' }, access_token: 'at' } },
+    });
+
+    const Handler = await loadHandler();
+    render(
+      <MemoryRouter initialEntries={['/auth/callback']}>
+        <Handler />
+        <Routes>
+          <Route path="/" element={<div>HOME_PAGE</div>} />
+          <Route path="/login" element={<StateProbe name="LOGIN_PAGE" />} />
+          <Route path="/auth/callback" element={<div>OAUTH_CALLBACK_PAGE</div>} />
+        </Routes>
+      </MemoryRouter>
+    );
+    await act(async () => {});
+    await act(async () => {});
+
+    expect(h.signOut).not.toHaveBeenCalled();
+    expect(screen.getByText('OAUTH_CALLBACK_PAGE')).toBeInTheDocument();
+    expect(screen.queryByText('LOGIN_PAGE')).toBeNull();
+  });
+
+  it('still hands off a REAL confirmation link on / (no provider_token)', async () => {
+    // A confirmation fragment has access_token but no provider_token, and
+    // lands on "/" (the Site URL) — the hand-off must keep working unchanged.
+    const token = makeToken({ sub: SUB, email: EMAIL });
+    setFragment(`#access_token=${token}&type=signup`);
+    h.getSession.mockResolvedValue({
+      data: { session: { user: { id: SUB }, access_token: token } },
+    });
+
+    const Handler = await loadHandler();
+    renderHandler(Handler);
+    await screen.findByText('LOGIN_PAGE');
+    await waitFor(() => expect(h.signOut).toHaveBeenCalledTimes(1));
+    expect(h.signOut).toHaveBeenCalledWith({ scope: 'local' });
+  });
+});

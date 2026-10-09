@@ -204,6 +204,24 @@ describe('VerifyEmail resend with Turnstile', () => {
     expect(screen.getByText(/verification code sent again/i)).toBeInTheDocument();
   });
 
+  it('resets the widget after a SUCCESSFUL resend so the next one cannot replay a spent token', async () => {
+    // Turnstile tokens are single-use. /resend consumes the token on a
+    // success, and the widget stays mounted across resends — so without a
+    // reset the next resend would send the SAME spent token and GoTrue would
+    // reject it as timeout-or-duplicate ("The security check failed").
+    vi.useFakeTimers();
+    h.resend.mockResolvedValue({ error: null });
+    renderVerify();
+    await act(async () => {});
+    await advanceToResend();
+
+    fireEvent.click(screen.getByRole('button', { name: /resend verification code/i }));
+    await act(async () => {});
+
+    expect(h.resend).toHaveBeenCalledTimes(1);
+    expect(h.reset).toHaveBeenCalled();
+  });
+
   it('Test 3 — missing CAPTCHA token → resend is blocked', async () => {
     vi.useFakeTimers();
     h.token = '';

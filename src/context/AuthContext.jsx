@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
+import { oauthRedirectTo } from "../lib/oauth";
 import {
   writePendingSignup,
   readPendingSignup,
@@ -162,10 +163,59 @@ export function AuthProvider({ children }) {
       if (!session?.user) return null;
       setUser(session.user);
       await ensureProfile(session.user);
+      await ensureOAuthProfile(session.user);
       await loadProfile(session.user.id);
       return session.user;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Create the profile row for a Google (OAuth) sign-in, if it is missing.
+   *
+   * Google already proved the address, so Supabase Auth hands back a session
+   * with email_confirmed_at set — but nothing has written a profiles row yet
+   * (the deferred-signup marker only exists for the email+password flow).
+   * Without this, ProtectedRoute would bounce every new Google user to "/"
+   * because there is no readable profile.
+   *
+   * Hard rules, all enforced here and again by the DB:
+   *   * NEVER creates a row that already exists (23505 is treated as success)
+   *     and NEVER touches role/consent on an existing row — an existing Admin
+   *     keeps the role the database already recorded, and only that role can
+   *     ever reach /admin.
+   *   * A brand-new Google user is ALWAYS "applicant". OAuth metadata can
+   *     never mint an admin (profiles_security_guard rewrites it anyway).
+   *   * consent_accepted starts false: a Google signup never saw the consent
+   *     checkbox, so the existing /consent screen still has to collect it.
+   *
+   * Returns true when a profile row is readable afterwards.
+   */
+  async function ensureOAuthProfile(user) {
+    if (!user?.id) return false;
+    const provider = user.app_metadata?.provider;
+    // Only OAuth identities. The email+password flow keeps its own marker path.
+    if (!provider || provider === "email") return false;
+
+    try {
+      const meta = user.user_metadata || {};
+      const { error: insertError } = await supabase.from("profiles").insert({
+        id: user.id,
+        full_name: String(meta.full_name || meta.name || "").slice(0, 100),
+        role: "applicant",
+        status: "active",
+        email_verified: true,
+        consent_accepted: false,
+        signup_risk_level: "low",
+      });
+
+      // 23505 = already created (another tab, or a returning Google user).
+      // Anything else is left alone so a later loadProfile retry can recover.
+      if (insertError && insertError.code !== "23505") return false;
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -175,6 +225,7 @@ export function AuthProvider({ children }) {
       // Runs before loadProfile so a deferred signup has its profile row by
       // the time loadProfile reads it.
       await ensureProfile(session.user);
+      await ensureOAuthProfile(session.user);
       loadProfile(session.user.id);
     } else {
       setUser(null);
@@ -334,9 +385,31 @@ export function AuthProvider({ children }) {
     window.location.replace("/");
   }
 
+  /**
+   * Start a Google sign-in.
+   *
+   * Only the PUBLIC site origin ever appears here. The Google client ID and
+   * secret live exclusively in Supabase Dashboard -> Authentication ->
+   * Providers -> Google and are never sent to the browser.
+   *
+   * Supabase redirects the browser to Google and back to /auth/callback,
+   * where the session is picked up, the profile row is created if missing,
+   * and the role-based redirect runs. A disabled provider or a bad redirect
+   * URL surfaces as an AuthApiError the calling screen classifies.
+   */
+  async function signInWithGoogle() {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: oauthRedirectTo(),
+      },
+    });
+    if (error) throw error;
+  }
+
   return (
     <AuthContext.Provider
-      value={{ user, profile, loading, signUp, signIn, signOut, loadProfile, refreshSession }}
+      value={{ user, profile, loading, signUp, signIn, signInWithGoogle, signOut, loadProfile, refreshSession }}
     >
       {children}
     </AuthContext.Provider>

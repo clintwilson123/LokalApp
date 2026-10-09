@@ -9,6 +9,10 @@ export const VERIFY_EMAIL_PATH = "/verify-email";
 export const LOGIN_PATH = "/login";
 export const ADMIN_PATH = "/admin";
 export const APPLICANT_PATH = "/find-jobs";
+// Where Supabase Auth sends the browser back after a Google (OAuth) sign-in.
+// Kept off "/" so the confirmation-link callback never mistakes an OAuth
+// fragment for an email confirmation and signs the fresh session back out.
+export const OAUTH_CALLBACK_PATH = "/auth/callback";
 
 /**
  * Single source of truth for "is this email verified?".
