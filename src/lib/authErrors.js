@@ -3,7 +3,14 @@
 // screens classify server errors identically.
 
 export const AUTH_MSG = {
-  invalidFormat: "Please enter a valid Gmail address.",
+  // Malformed syntax ONLY. Whether a mailbox exists is never claimed here —
+  // only the Supabase confirmation link proves access to the address.
+  invalidFormat: "Please enter a valid email address.",
+  // Syntax is fine but the domain is not Gmail/Googlemail — the Gmail-only
+  // product rule, kept distinct from a malformed address so the user is told
+  // exactly which requirement failed.
+  gmailRequired:
+    "A Gmail address is required — CJLink signups use Gmail or Googlemail.",
   emailProvider: "Unable to verify the email address at this time. Please try again later.",
   // Used only AFTER the Auth account already exists. The account is created and
   // verification is pending — never report this as a failed signup.
@@ -48,6 +55,7 @@ const EMAIL_DELIVERY_CODES = [
 const CODE_MESSAGES = {
   NETWORK: AUTH_MSG.network,
   INVALID_FORMAT: AUTH_MSG.invalidFormat,
+  GMAIL_REQUIRED: AUTH_MSG.gmailRequired,
   ALREADY_REGISTERED: AUTH_MSG.alreadyRegistered,
   EMAIL_PROVIDER_ERROR: AUTH_MSG.emailProvider,
   DELIVERY_FAILED: AUTH_MSG.emailProvider,

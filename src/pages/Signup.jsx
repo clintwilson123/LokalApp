@@ -112,13 +112,11 @@ export default function Signup() {
     // 1) Validate email format BEFORE any network calls
     const gmailCheck = validateGmail(email);
     if (!gmailCheck.valid) {
-      // Format issues → format message; heuristic risk → suspicious-activity
-      // message. Heuristics never claim the address cannot receive mail.
-      if (gmailCheck.code === "HIGH_RISK") {
-        setError(AUTH_MSG.suspicious);
-      } else {
-        setError(AUTH_MSG.invalidFormat);
-      }
+      // Distinct codes → distinct messages: INVALID_FORMAT = malformed
+      // syntax, GMAIL_REQUIRED = non-Gmail domain. Risk verdicts can no
+      // longer block here — they only set the risk level below, and the
+      // address is proved real (or not) by the confirmation link.
+      setError(messageForCode(gmailCheck.code, gmailCheck.reason));
       return;
     }
 

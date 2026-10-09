@@ -37,12 +37,27 @@ export function validateEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-// Gmail validation with risk assessment
+// Gmail validation with risk assessment.
+//
+// VERIFICATION-LED POLICY: these rules decide FORMAT and a risk LEVEL only.
+// No string-shape heuristic ever hard-blocks signup, because nothing here can
+// tell whether the mailbox actually exists. Nonexistent addresses are
+// separated from real ones by the Supabase confirmation link — no session, no
+// profile, no protected features until the address proves it can receive mail.
 export function validateGmail(email) {
   const invalidFormat = {
     valid: false, status: "Invalid", domainVerified: false, risk: "High",
-    reason: "Please enter a valid Gmail address.", recommendation: "Block Registration",
+    reason: "Please enter a valid email address.", recommendation: "Block Registration",
     code: "INVALID_FORMAT",
+  };
+
+  // Syntax is fine but the domain is not gmail.com/googlemail.com — a
+  // different failed requirement, so it gets its own code and message.
+  const gmailRequired = {
+    valid: false, status: "Invalid", domainVerified: false, risk: "High",
+    reason: "A Gmail address is required — CJLink signups use Gmail or Googlemail.",
+    recommendation: "Block Registration",
+    code: "GMAIL_REQUIRED",
   };
 
   if (typeof email !== "string") return invalidFormat;
@@ -56,7 +71,7 @@ export function validateGmail(email) {
 
   // Domain must be gmail.com or googlemail.com
   const validDomains = ["gmail.com", "googlemail.com"];
-  if (!validDomains.includes(domain)) return invalidFormat;
+  if (!validDomains.includes(domain)) return gmailRequired;
 
   // Local part checks
   if (localPart.length < 6) return invalidFormat;
@@ -130,30 +145,19 @@ export function validateGmail(email) {
     flags.push("sequential_chars");
   }
 
-  // Strong risk signals — block signup as suspicious. A SINGLE pattern flag
-  // (repeated characters, low diversity, sequential characters) is too weak to
-  // identify an abusive mailbox on its own and was rejecting legitimate users
-  // (e.g. "lovelovelove@", "josejosejose@", "aaaaaa@"). Escalation therefore
-  // requires riskScore >= 3, which — given the weights above (low_diversity =
-  // 2, every other flag = 1) — can only be reached by TWO OR MORE independent
-  // signals. Syntax validation stays separate (INVALID_FORMAT above), and an
-  // address that trips a single signal is still accepted as risk "Medium" with
-  // NEEDS_VERIFICATION and signup_risk_level persisted for audit/step-up.
-  // Heuristic scoring still says nothing about whether the mailbox can receive
-  // mail, so a block is never reported as an invalid/undeliverable address.
-  // MUST stay identical to strongRiskSignal in
+  // Risk flags NEVER hard-block signup. An address whose local part looks
+  // random (repeated characters, low diversity, long keyboard-smash strings)
+  // may still belong to a real person, and this code has no way to know —
+  // "fsafsdfsdfsdfsdfdssadsa@" and a genuine first-time user are
+  // indistinguishable by string shape. Blocking such an address would reject
+  // a legitimate signup while still letting a truly nonexistent one through,
+  // so flags only raise the risk LEVEL: score >= 1 becomes risk "Medium" with
+  // NEEDS_VERIFICATION, recorded on the profile as signup_risk_level for
+  // audit/step-up. Actual rejection of nonexistent mailboxes happens when the
+  // Supabase confirmation link cannot be completed.
+  // MUST stay identical to the scoring in
   // supabase/functions/spam-prevention/index.ts (enforced by
   // src/test/riskRuleSync.test.js).
-  const strongRiskSignal = riskScore >= 3;
-  if (strongRiskSignal) {
-    return {
-      valid: false, status: "Suspicious", domainVerified: true, risk: "High",
-      reason: "Registration was blocked because the activity was flagged as suspicious. Please try again later.",
-      recommendation: "Block Registration",
-      code: "HIGH_RISK",
-      flags,
-    };
-  }
 
   let risk, recommendation;
   if (riskScore >= 1) {
@@ -164,8 +168,9 @@ export function validateGmail(email) {
     recommendation = "Allow Registration";
   }
 
+  // "format", never "address": risk scoring cannot validate a mailbox.
   const reason = flags.length > 0
-    ? `Valid Gmail address. Risk indicators: ${flags.join(", ")}.`
+    ? `Valid Gmail format. Risk indicators: ${flags.join(", ")}.`
     : "Valid Gmail format, no risk indicators detected.";
 
   return {

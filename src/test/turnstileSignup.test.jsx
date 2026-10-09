@@ -117,16 +117,33 @@ describe('Signup with Turnstile', () => {
     expect(screen.getByText('VERIFY_EMAIL_PAGE')).toBeInTheDocument();
   });
 
-  it('Test 2 — a suspicious address is rejected with a clear message and no network calls', async () => {
+  it('Test 2 — a random-looking multi-signal address is NOT hard-blocked and proceeds to verification', async () => {
+    h.invoke.mockResolvedValue({ data: { risk_level: 'medium' }, error: null });
+    h.signUp.mockResolvedValue({ user: { id: 'user-1' }, session: null });
+
     renderSignup();
     await act(async () => {});
-    // Two independent signals (long_username + low_diversity, score 3) —
-    // still a hard client-side block before any request.
-    await fillAndSubmit({ email: 'lovelovelovelovelovelovelovelove@gmail.com' });
+    // long_username + low_diversity (score 3) — previously returned a
+    // "suspicious activity" block before any network call. Verification-led
+    // policy: shape never blocks; the confirmation link proves the mailbox.
+    await fillAndSubmit({ email: 'fsafsdfsdfsdfsdfdssadsa@gmail.com' });
 
-    expect(screen.getByText(AUTH_MSG.suspicious)).toBeInTheDocument();
-    expect(h.invoke).not.toHaveBeenCalled();
-    expect(h.signUp).not.toHaveBeenCalled();
+    expect(screen.queryByText(AUTH_MSG.suspicious)).toBeNull();
+    expect(h.invoke).toHaveBeenCalledTimes(1);
+    expect(h.invoke).toHaveBeenCalledWith('spam-prevention', {
+      body: { email: 'fsafsdfsdfsdfsdfdssadsa@gmail.com' },
+    });
+    // The medium verdict still travels to Supabase Auth and is persisted as
+    // signup_risk_level — the address is flagged, never silently trusted.
+    expect(h.signUp).toHaveBeenCalledWith(
+      'fsafsdfsdfsdfsdfdssadsa@gmail.com',
+      'secret123',
+      'Juan Dela Cruz',
+      'applicant',
+      'medium',
+      'valid-token'
+    );
+    expect(screen.getByText('VERIFY_EMAIL_PAGE')).toBeInTheDocument();
   });
 
   it('Test 2b — a single-signal address is NOT blocked client-side and reaches spam-prevention', async () => {
@@ -156,12 +173,26 @@ describe('Signup with Turnstile', () => {
     );
   });
 
+  it('Test 2c — a non-Gmail domain is rejected with the Gmail-required message', async () => {
+    renderSignup();
+    await act(async () => {});
+    await fillAndSubmit({ email: 'john.doe@yahoo.com' });
+
+    // Its own message: the requirement that failed is the Gmail-only rule,
+    // not the address syntax.
+    expect(screen.getByText(AUTH_MSG.gmailRequired)).toBeInTheDocument();
+    expect(screen.queryByText(AUTH_MSG.invalidFormat)).toBeNull();
+    expect(h.invoke).not.toHaveBeenCalled();
+    expect(h.signUp).not.toHaveBeenCalled();
+  });
+
   it('Test 2 — a malformed address is rejected with the format message', async () => {
     renderSignup();
     await act(async () => {});
     await fillAndSubmit({ email: 'not-an-email' });
 
     expect(screen.getByText(AUTH_MSG.invalidFormat)).toBeInTheDocument();
+    expect(screen.queryByText(AUTH_MSG.gmailRequired)).toBeNull();
     expect(h.invoke).not.toHaveBeenCalled();
     expect(h.signUp).not.toHaveBeenCalled();
   });

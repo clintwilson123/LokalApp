@@ -8,7 +8,7 @@ function isValidGmailDomain(domain: string): boolean {
 
 // Gmail local part validation
 function validateGmailLocal(localPart: string): { valid: boolean; reason?: string; code?: string } {
-  const invalidFormat = (reason: string) => ({ valid: false, reason: "Please enter a valid Gmail address.", code: "INVALID_FORMAT" });
+  const invalidFormat = (reason: string) => ({ valid: false, reason: "Please enter a valid email address.", code: "INVALID_FORMAT" });
 
   if (localPart.length < 6) return invalidFormat("Gmail username must be at least 6 characters.");
   if (localPart.length > 64) return invalidFormat("Gmail username cannot exceed 64 characters.");
@@ -149,7 +149,7 @@ serve(async (req) => {
     const { email } = await req.json();
 
     if (!email || typeof email !== "string" || !email.includes("@")) {
-      return json({ error: "Please enter a valid Gmail address.", code: "INVALID_FORMAT" }, 400);
+      return json({ error: "Please enter a valid email address.", code: "INVALID_FORMAT" }, 400);
     }
 
     const supabase = createClient(
@@ -161,10 +161,13 @@ serve(async (req) => {
     const [localPart, domain] = email.toLowerCase().split("@");
 
     if (!isValidGmailDomain(domain)) {
+      // Syntax may be perfectly fine — the failed requirement is the
+      // Gmail-only product rule, so it gets its own code and message rather
+      // than being reported as a malformed address.
       return json({
         success: false,
-        error: "Please enter a valid Gmail address.",
-        code: "INVALID_FORMAT",
+        error: "A Gmail address is required — CJLink signups use Gmail or Googlemail.",
+        code: "GMAIL_REQUIRED",
         risk_level: "high",
         checks: { gmail_domain: "fail" },
       }, 400);
@@ -208,38 +211,13 @@ serve(async (req) => {
     // --- RISK ANALYSIS ---
     const { score: riskScore, flags } = calculateGmailRisk(localPart);
 
-    // Strong risk signals — block before account creation. A SINGLE pattern
-    // flag (repeated characters, low diversity, sequential characters) is not
-    // enough to identify an abusive mailbox and was rejecting legitimate
-    // users, so escalation now requires riskScore >= 3 — reachable only via
-    // TWO OR MORE independent signals (low_diversity = 2, all others = 1).
-    // Heuristic scoring still says nothing about whether the mailbox can
-    // receive mail, so blocked results are reported as suspicious activity,
-    // never as an invalid/undeliverable address. One-signal addresses are
-    // accepted with risk_level "medium" (recorded on the profile).
-    // MUST stay identical to strongRiskSignal in src/lib/sanitize.js
-    // (enforced by src/test/riskRuleSync.test.js).
-    const strongRiskSignal = riskScore >= 3;
-    if (strongRiskSignal) {
-      console.warn("spam-prevention: blocked high-risk email", {
-        email,
-        flags,
-        riskScore,
-      });
-      return json({
-        success: false,
-        error: "Registration was blocked because the activity was flagged as suspicious. Please try again later.",
-        code: "HIGH_RISK",
-        risk_level: "high",
-        checks: {
-          gmail_domain: "pass",
-          gmail_format: "pass",
-          alias_duplicate: "pass",
-          risk_analysis: "fail",
-        },
-        flags,
-      }, 400);
-    }
+    // Risk flags NEVER hard-block signup. String shape cannot distinguish a
+    // random-looking local part that belongs to a real person from one that
+    // does not, so flags only raise the risk LEVEL recorded on the profile
+    // (signup_risk_level) — rejection of nonexistent mailboxes happens later,
+    // when the Supabase confirmation link cannot be completed. MUST stay
+    // identical to validateGmail in src/lib/sanitize.js (enforced by
+    // src/test/riskRuleSync.test.js).
 
     let riskLevel: string;
     if (riskScore >= 1) {
@@ -271,23 +249,6 @@ serve(async (req) => {
         error: "Too many signups recently. Please try again later.",
         code: "RATE_LIMITED",
       }, 429);
-    }
-
-    // --- BLOCK HIGH RISK ---
-    if (riskLevel === "high") {
-      return json({
-        success: false,
-        error: "Registration was blocked because the activity was flagged as suspicious. Please try again later.",
-        code: "HIGH_RISK",
-        risk_level: riskLevel,
-        checks: {
-          gmail_domain: "pass",
-          gmail_format: "pass",
-          alias_duplicate: "pass",
-          risk_analysis: "fail",
-        },
-        flags,
-      }, 400);
     }
 
     return json({

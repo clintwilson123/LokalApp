@@ -40,6 +40,7 @@ describe('messageForCode', () => {
       'HIGH_RISK',
       'SUSPICIOUS',
       'INVALID_FORMAT',
+      'GMAIL_REQUIRED',
       'NETWORK',
       'SERVER_ERROR',
       'RATE_LIMITED',
@@ -65,9 +66,19 @@ describe('messageForCode', () => {
     expect(AUTH_MSG.suspicious).toMatch(/suspicious/i);
   });
 
-  it('maps INVALID_FORMAT to the invalid Gmail format message', () => {
+  it('maps INVALID_FORMAT to the malformed-address message', () => {
     expect(messageForCode('INVALID_FORMAT', 'any')).toBe(AUTH_MSG.invalidFormat);
+    expect(AUTH_MSG.invalidFormat).toBe('Please enter a valid email address.');
   });
+
+  it('maps GMAIL_REQUIRED to its own message, distinct from a malformed address', () => {
+    expect(messageForCode('GMAIL_REQUIRED', 'any')).toBe(AUTH_MSG.gmailRequired);
+    expect(AUTH_MSG.gmailRequired).toMatch(/gmail address is required/i);
+    // The user must be able to tell WHICH requirement failed.
+    expect(AUTH_MSG.gmailRequired).not.toBe(AUTH_MSG.invalidFormat);
+    expect(AUTH_MSG.gmailRequired).not.toMatch(/valid email address/i);
+  });
+
 
   it('maps NETWORK to the network message', () => {
     expect(messageForCode('NETWORK', 'any')).toBe(AUTH_MSG.network);
@@ -156,8 +167,18 @@ describe('account state separation', () => {
 
 describe('required user-facing messages', () => {
   it('Test 3 — invalid format', () => {
-    expect(messageForCode('INVALID_FORMAT', 'x')).toBe('Please enter a valid Gmail address.');
+    expect(messageForCode('INVALID_FORMAT', 'x')).toBe('Please enter a valid email address.');
+    // Format rejection must never claim anything about mailbox existence or
+    // verification — only the confirmation link can prove access.
+    expect(messageForCode('INVALID_FORMAT', 'x')).not.toMatch(/verified|exists|receive/i);
   });
+
+  it('Test 3b — unsupported (non-Gmail) domain', () => {
+    expect(messageForCode('GMAIL_REQUIRED', 'x')).toBe(
+      'A Gmail address is required — CJLink signups use Gmail or Googlemail.'
+    );
+  });
+
 
   it('Test 4 — account already exists', () => {
     const msg = messageForCode('ALREADY_REGISTERED', 'x');

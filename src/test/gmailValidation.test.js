@@ -4,9 +4,10 @@ import { validateGmail } from '../lib/sanitize';
 // Gmail format validation runs BEFORE any Supabase call, so an obviously
 // invalid address must be rejected without creating an Auth account.
 //
-// These assertions are about FORMAT only. A well-formed address is accepted
-// here and the OTP email is what proves the mailbox actually exists — a regex
-// can never establish that.
+// These assertions are about FORMAT and the Gmail-only product rule only. A
+// well-formed address is accepted here and the Supabase confirmation link is
+// what proves the mailbox actually exists — a regex can never establish that,
+// and no test may claim it does.
 
 describe('validateGmail — accepts well-formed Gmail addresses', () => {
   const accepted = ['john.doe@gmail.com', 'user123@gmail.com', 'jane12345@gmail.com'];
@@ -16,6 +17,7 @@ describe('validateGmail — accepts well-formed Gmail addresses', () => {
       const result = validateGmail(email);
       expect(result.valid).toBe(true);
       expect(result.code).not.toBe('INVALID_FORMAT');
+      expect(result.code).not.toBe('GMAIL_REQUIRED');
     });
   }
 
@@ -28,10 +30,9 @@ describe('validateGmail — accepts well-formed Gmail addresses', () => {
   });
 });
 
-describe('validateGmail — rejects obviously invalid input', () => {
+describe('validateGmail — malformed syntax is rejected with the format message', () => {
   const rejected = [
     'example@gmail', // no TLD
-    'example@yahoo.com', // not Gmail
     '@example.com', // no local part
     'abc@', // no domain
     'sadasdasdasd@', // no domain
@@ -50,7 +51,7 @@ describe('validateGmail — rejects obviously invalid input', () => {
       const result = validateGmail(email);
       expect(result.valid).toBe(false);
       expect(result.code).toBe('INVALID_FORMAT');
-      expect(result.reason).toBe('Please enter a valid Gmail address.');
+      expect(result.reason).toBe('Please enter a valid email address.');
     });
   }
 
@@ -61,69 +62,74 @@ describe('validateGmail — rejects obviously invalid input', () => {
   });
 });
 
-// Regression (false-positive fix): a single pattern flag — repeated
-// characters, low character diversity, or sequential characters — is no longer
-// enough to hard-block signup. Each of these addresses is format-valid and was
-// previously rejected with HIGH_RISK even though no single pattern can prove a
-// mailbox is abusive (josejosejose@ and lovelovelove@ are ordinary-looking
-// names; aaaaaa@ / abcdefg@ are at worst weak choices). They are now accepted
-// as risk "Medium" with NEEDS_VERIFICATION, and signup_risk_level is still
-// persisted on the profile for audit/step-up.
-describe('validateGmail — a single pattern signal no longer blocks a legitimate address', () => {
-  const singleSignalButLegit = [
-    'lovelovelove@gmail.com', // low_diversity only
-    'josejosejose@gmail.com', // low_diversity only
-    'aaaaaa@gmail.com', // repeated_chars only
-    'ssssss@gmail.com', // repeated_chars only
-    'abcdefg@gmail.com', // sequential_chars only
-    'sadasdsadsadsadsa@gmail.com', // low_diversity only
+// D1: a well-formed address on a non-Gmail domain is NOT a syntax error —
+// the failed requirement is the Gmail-only product rule, and the user must be
+// told that specifically instead of being told their address is malformed.
+describe('validateGmail — non-Gmail domains get their own GMAIL_REQUIRED verdict', () => {
+  const nonGmail = [
+    'john.doe@yahoo.com',
+    'john@outlook.com',
+    'someone@example.org',
   ];
 
-  for (const email of singleSignalButLegit) {
-    it(`accepts ${email} as medium risk instead of HIGH_RISK`, () => {
+  for (const email of nonGmail) {
+    it(`rejects ${email} as GMAIL_REQUIRED, not INVALID_FORMAT`, () => {
       const result = validateGmail(email);
-      expect(result.valid).toBe(true);
-      expect(result.code).toBe('NEEDS_VERIFICATION');
-      expect(result.risk).toBe('Medium');
-      expect(result.code).not.toBe('HIGH_RISK');
-      expect(result.code).not.toBe('INVALID_FORMAT');
+      expect(result.valid).toBe(false);
+      expect(result.code).toBe('GMAIL_REQUIRED');
+      expect(result.reason).toBe(
+        'A Gmail address is required — CJLink signups use Gmail or Googlemail.'
+      );
+      expect(result.reason).not.toBe('Please enter a valid email address.');
     });
   }
 });
 
-// Multiple independent risk signals are still a hard block: escalation now
-// requires riskScore >= 3, which can only be reached by two or more signals
-// (low_diversity = 2, every other flag = 1). Anti-abuse protection for real
-// junk patterns is fully retained.
-describe('validateGmail — two or more independent signals still escalate to HIGH_RISK', () => {
-  const stillBlocked = [
+// Verification-led policy regression: string shape NEVER hard-blocks signup.
+// These addresses are format-valid and were previously split between
+// "suspicious" blocks (score >= 3) and acceptance (score < 3) — an arbitrary
+// boundary that neither proved anything about the mailbox. All of them are now
+// accepted with a risk LEVEL only; nonexistent ones are stopped later by the
+// confirmation link.
+describe('validateGmail — random-looking local parts are never hard-blocked', () => {
+  const randomLooking = [
+    { email: 'lovelovelove@gmail.com', flags: ['low_diversity'] },
+    { email: 'josejosejose@gmail.com', flags: ['low_diversity'] },
+    { email: 'aaaaaa@gmail.com', flags: ['repeated_chars'] },
+    { email: 'ssssss@gmail.com', flags: ['repeated_chars'] },
+    { email: 'abcdefg@gmail.com', flags: ['sequential_chars'] },
+    { email: 'sadasdsadsadsadsa@gmail.com', flags: ['low_diversity'] },
+    // The reported problem address: long + low-diversity (score 3), which was
+    // hard-blocked as "suspicious activity". It must now proceed.
+    { email: 'fsafsdfsdfsdfsdfdssadsa@gmail.com', flags: ['long_username', 'low_diversity'] },
     { email: 'lovelovelovelovelovelovelovelove@gmail.com', flags: ['long_username', 'low_diversity'] },
     { email: 'aaaa1111222233334444555@gmail.com', flags: ['excessive_numbers', 'long_username', 'low_diversity'] },
   ];
 
-  for (const { email, flags } of stillBlocked) {
-    it(`still blocks ${email}`, () => {
+  for (const { email, flags } of randomLooking) {
+    it(`accepts ${email} as medium risk with flags recorded`, () => {
       const result = validateGmail(email);
-      expect(result.valid).toBe(false);
-      expect(result.code).toBe('HIGH_RISK');
-      expect(result.reason).toMatch(/suspicious/i);
-      // A blocked address must never be described as a valid Gmail address.
-      expect(result.reason).not.toMatch(/valid gmail address/i);
+      expect(result.valid).toBe(true);
+      expect(result.code).toBe('NEEDS_VERIFICATION');
+      expect(result.risk).toBe('Medium');
       expect(result.flags).toEqual(expect.arrayContaining(flags));
+      // The old hard-block verdict must never come back.
+      expect(result.code).not.toBe('HIGH_RISK');
+      expect(result.reason).not.toMatch(/suspicious/i);
+      // Risk scoring may never describe the mailbox itself as verified.
+      expect(result.reason).toMatch(/valid gmail format/i);
     });
   }
-});
 
-describe('validateGmail — a format-valid but risky address is never called "invalid format"', () => {
-  it('reports a risk verdict, never INVALID_FORMAT, for suspicious input', () => {
-    // Strongest single signal available: repeated characters. Under the
-    // single-signal rule this used to return HIGH_RISK; it is now accepted as
-    // medium risk. The invariant that matters is that a format-valid address
-    // is never mislabelled as malformed.
-    const result = validateGmail('ssssss@gmail.com');
-    expect(result.valid).toBe(true);
-    expect(result.code).toBe('NEEDS_VERIFICATION');
-    expect(result.code).not.toBe('INVALID_FORMAT');
+  it('no address of any shape ever returns HIGH_RISK from validateGmail', () => {
+    const battery = [
+      'plainaddress', 'not-an-email', 'john.doe@yahoo.com', 'abc@gmail.com',
+      ...randomLooking.map((c) => c.email),
+      'john.smith@gmail.com', 'example@gmail.com',
+    ];
+    for (const email of battery) {
+      expect(validateGmail(email).code).not.toBe('HIGH_RISK');
+    }
   });
 });
 

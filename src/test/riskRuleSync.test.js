@@ -3,10 +3,14 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-// The Gmail risk decision must be IDENTICAL in the browser and in the
-// spam-prevention Edge Function, otherwise a user blocked client-side (or the
-// reverse) sees an inconsistent verdict for the same address. Both copies of
+// The Gmail risk verdict must be IDENTICAL in the browser and in the
+// spam-prevention Edge Function, otherwise a user accepted client-side gets
+// rejected by the server (or the reverse) for the same address. Both copies of
 // the rule are read from disk and compared, so any drift fails the suite.
+//
+// The policy itself is also pinned here: risk scoring is LEVEL-ONLY (verified
+// mailbox access comes from the Supabase confirmation link), so neither file
+// may contain a risk-based hard block.
 
 const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const clientSrc = readFileSync(join(projectRoot, 'src', 'lib', 'sanitize.js'), 'utf8');
@@ -14,11 +18,6 @@ const serverSrc = readFileSync(
   join(projectRoot, 'supabase', 'functions', 'spam-prevention', 'index.ts'),
   'utf8'
 );
-
-function strongRiskExpression(src) {
-  const match = src.match(/const strongRiskSignal = ([^;]+);/);
-  return match ? match[1].replace(/\s+/g, ' ').trim() : null;
-}
 
 function scoreWeights(src, variable) {
   const re = new RegExp(`${variable} \\+= (\\d+);`, 'g');
@@ -30,22 +29,6 @@ function flagOrder(src) {
 }
 
 describe('risk rule sync — client and Edge Function agree', () => {
-  it('both files define strongRiskSignal', () => {
-    expect(strongRiskExpression(clientSrc)).not.toBeNull();
-    expect(strongRiskExpression(serverSrc)).not.toBeNull();
-  });
-
-  it('strongRiskSignal is byte-identical in both files', () => {
-    expect(strongRiskExpression(clientSrc)).toBe(strongRiskExpression(serverSrc));
-  });
-
-  it('escalates only on two or more independent signals (riskScore >= 3)', () => {
-    const expr = strongRiskExpression(clientSrc);
-    expect(expr).toBe('riskScore >= 3');
-    // A single pattern flag must never hard-block on its own again.
-    expect(expr).not.toMatch(/flags\.includes/);
-  });
-
   it('flag weights are identical (low_diversity = 2, everything else = 1)', () => {
     expect(scoreWeights(clientSrc, 'riskScore')).toEqual(scoreWeights(serverSrc, 'score'));
     expect(scoreWeights(clientSrc, 'riskScore')).toEqual([1, 1, 1, 1, 2, 1]);
@@ -61,5 +44,22 @@ describe('risk rule sync — client and Edge Function agree', () => {
       'low_diversity',
       'sequential_chars',
     ]);
+  });
+
+  it('the medium-risk threshold (score >= 1) is identical in both files', () => {
+    expect(clientSrc).toContain('riskScore >= 1');
+    expect(serverSrc).toContain('riskScore >= 1');
+  });
+
+  it('neither file hard-blocks on risk score', () => {
+    for (const src of [clientSrc, serverSrc]) {
+      // No score threshold may reject an address...
+      expect(src).not.toMatch(/riskScore\s*>=\s*[2-9]/);
+      expect(src).not.toMatch(/score\s*>=\s*[2-9]/);
+      // ...no legacy strong-risk escalation may linger...
+      expect(src).not.toContain('strongRiskSignal');
+      // ...and neither file may emit a HIGH_RISK verdict.
+      expect(src).not.toMatch(/code:\s*["']HIGH_RISK["']/);
+    }
   });
 });

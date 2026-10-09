@@ -247,4 +247,28 @@ describe('VerifyEmail resend with Turnstile', () => {
     expect(h.reset).toHaveBeenCalled();
     expect(screen.queryByText(/The security check failed/i)).toBeNull();
   });
+
+  it('a resend delivery failure is reported as "created, but could not send" — never as verified or invalid', async () => {
+    vi.useFakeTimers();
+    h.resend.mockResolvedValue({
+      error: { code: 'EMAIL_PROVIDER_ERROR', message: 'smtp unavailable' },
+    });
+    renderVerify();
+    await act(async () => {});
+    await advanceToResend();
+
+    fireEvent.click(screen.getByRole('button', { name: /resend confirmation email/i }));
+    await act(async () => {});
+
+    // The account exists — the failure is about DELIVERY, and the wording
+    // must not claim verification succeeded or that the address is bad.
+    expect(
+      screen.getByText(/account was created successfully, but we couldn't send the verification email/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/valid email address/i)).toBeNull();
+    // The success overlay ("Email Verified!") is always mounted but must stay
+    // hidden — the delivery failure may never activate the verified state.
+    expect(screen.getByText('Email Verified!')).toHaveStyle({ opacity: '0' });
+    expect(h.reset).toHaveBeenCalled();
+  });
 });
