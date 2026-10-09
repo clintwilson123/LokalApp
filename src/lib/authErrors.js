@@ -4,7 +4,7 @@
 
 export const AUTH_MSG = {
   // Malformed syntax ONLY. Whether a mailbox exists is never claimed here —
-  // only the Supabase confirmation link proves access to the address.
+  // only a Supabase-validated verification code proves access to the address.
   invalidFormat: "Please enter a valid email address.",
   // Syntax is fine but the domain is not Gmail/Googlemail — the Gmail-only
   // product rule, kept distinct from a malformed address so the user is told
@@ -19,12 +19,22 @@ export const AUTH_MSG = {
   alreadyRegistered:
     "An account with this Gmail address already exists. Please log in or reset your password.",
   invalidOtp: "The verification code is incorrect or has expired. Please request a new code.",
+  // The OTP entry form, before the server is asked anything.
+  otpIncomplete: "Enter the 6-digit verification code from your email.",
+  // verifyOtp() outcomes. Kept separate from invalidOtp above (which is the
+  // generic signup/Edge-Function code message) so the OTP screen can say
+  // exactly what happened: expired vs already-used vs already-confirmed vs
+  // throttled — never one blurred "incorrect or expired".
+  otpExpired: "That code has expired. Please request a new one and enter it below.",
+  otpUsed: "That code was already used. Please request a new one.",
+  alreadyVerified: "This email address is already verified. Please sign in to your account.",
+  verifyThrottled: "Too many attempts. Please wait a minute and try again.",
   loginAgain: "Please log in again to continue verifying your email.",
   // GoTrue refused the password grant because the address was never
   // confirmed. Kept distinct so the user is sent to the verification step,
   // never told their password is wrong or that the server is unreachable.
   emailNotConfirmed:
-    "Please confirm your email address first. Check your inbox for the confirmation link.",
+    "Please confirm your email address first. Check your inbox for the 6-digit verification code.",
   suspicious:
     "Registration was blocked because the activity was flagged as suspicious. Please try again later.",
   network: "Could not reach the server. Please check your connection and try again.",
@@ -138,4 +148,55 @@ export function messageForCode(code, fallbackMsg, opts = {}) {
   if (msg.trim()) return msg;
 
   return AUTH_MSG.generic;
+}
+
+// Codes supabase.auth.verifyOtp() can report for a failed verification.
+const VERIFY_CODE_MESSAGES = {
+  otp_expired: AUTH_MSG.otpExpired,
+  expired_code: AUTH_MSG.otpExpired,
+  session_expired: AUTH_MSG.otpExpired,
+  otp_not_found: AUTH_MSG.invalidOtp,
+  bad_token: AUTH_MSG.invalidOtp,
+};
+
+// Wording heuristics for verifyOtp() failures that arrive without a code.
+// These only ever SELECT one of our own messages — unlike messageForCode,
+// raw server text is never passed through: a verify error may echo request
+// details (sub, token fragments, internals) the screen must not display.
+const VERIFY_NETWORK_RE = /failed to fetch|networkerror|network request failed|load failed/i;
+const VERIFY_THROTTLE_RE = /rate\s*limit|too\s+many/i;
+const VERIFY_CONFIRMED_RE = /already\s+confirmed/i;
+const VERIFY_EXPIRED_RE = /expired/i;
+const VERIFY_USED_RE = /already\s*(been\s*)?(used|claimed)|reused|not\s+active/i;
+
+/**
+ * Resolve a user-facing message for a verifyOtp() failure.
+ *
+ * Classification order mirrors how a person would triage it: an explicit
+ * error code wins, then infrastructure (no connection), then throttling
+ * (wait), then the specific code states, and finally the generic
+ * wrong-code message. Nothing here ever echoes the server's own text.
+ *
+ * @param {{code?: string, message?: string, status?: number}|Error|undefined} err
+ * @returns {string} Message to display to the user.
+ */
+export function messageForVerifyError(err) {
+  const code = typeof err?.code === "string" ? err.code : "";
+  const msg = typeof err?.message === "string" ? err.message : "";
+  const status = Number(err?.status) || 0;
+
+  if (code && VERIFY_CODE_MESSAGES[code]) return VERIFY_CODE_MESSAGES[code];
+
+  // Connectivity first: a dead network must never be reported as a bad code.
+  if (err instanceof TypeError || VERIFY_NETWORK_RE.test(msg)) return AUTH_MSG.network;
+
+  if (status === 429 || VERIFY_THROTTLE_RE.test(msg)) return AUTH_MSG.verifyThrottled;
+  if (VERIFY_CONFIRMED_RE.test(msg)) return AUTH_MSG.alreadyVerified;
+  if (VERIFY_EXPIRED_RE.test(msg)) return AUTH_MSG.otpExpired;
+  if (VERIFY_USED_RE.test(msg)) return AUTH_MSG.otpUsed;
+
+  // Default: the code was simply wrong (or we cannot classify the failure —
+  // and guessing more specifically would risk telling the user something
+  // untrue about their account).
+  return AUTH_MSG.invalidOtp;
 }

@@ -7,6 +7,8 @@ import {
   writePendingEmail,
   clearPendingEmail,
   clearVerifiedNotice,
+  readLoginFlash,
+  clearLoginFlash,
 } from "../lib/pendingVerification";
 import { isTurnstileConfigured } from "../lib/turnstile";
 import TurnstileWidget from "../components/TurnstileWidget";
@@ -28,9 +30,18 @@ export default function Login() {
   // Carried by the confirmation callback (verified, sign in yourself) and by
   // the error fragment from a dead link.
   const navState = location.state || {};
-  const successNotice = navState.noticeType === "success";
+  // One-shot hand-off from the OTP screen's hard-reset path (a full-page
+  // reload cannot carry navigation state). Read during the first render as
+  // a pure read — StrictMode double-invokes initializers, so consuming it
+  // here would eat the message — and consumed just after mount instead.
+  const [flash] = useState(() => readLoginFlash());
+  useEffect(() => {
+    clearLoginFlash();
+  }, []);
+  const notice = navState.notice || (flash ? AUTH_MSG.verifiedSuccess : "");
+  const successNotice = navState.noticeType === "success" || Boolean(flash);
   // The confirmed address, when the callback knew it — saves retyping.
-  const [email, setEmail] = useState(navState.email || "");
+  const [email, setEmail] = useState(navState.email || flash?.email || "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -44,10 +55,11 @@ export default function Login() {
   // unverified applicant goes to /verify-email, and /verify-email never sends
   // them back here while they still hold a session.
   //
-  // The exception: a success notice from the confirmation callback means
-  // verification just finished here — the user signs in with their password
-  // first, so no session (or a leftover one the sign-out could not clear)
-  // ever auto-redirects past this screen.
+  // The exception: a success notice means verification just finished here —
+  // carried by navigation state (the normal OTP / confirmation hand-off) or
+  // by the one-shot flash (the hard-reset path). Either way the user signs
+  // in with their password first, so no session (or a leftover one the
+  // sign-out could not clear) ever auto-redirects past this screen.
   useEffect(() => {
     if (loading || justSignedIn) return;
     if (successNotice) return;
@@ -155,7 +167,7 @@ export default function Login() {
           <h2 style={title}>Welcome Back</h2>
           <p style={subtitle}>Sign in to your CJLink account</p>
 
-          {navState.notice && (
+          {notice && (
             <div style={{
               display: "flex",
               alignItems: "center",
@@ -171,7 +183,7 @@ export default function Login() {
               fontWeight: "600",
             }}>
               <span>{successNotice ? "✅ " : "⚠️ "}</span>
-              <span>{navState.notice}</span>
+              <span>{notice}</span>
             </div>
           )}
 

@@ -2,8 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
-import { pageWrapper, card, title, subtitle } from "../uiStyles";
-import { AUTH_MSG, messageForCode } from "../lib/authErrors";
+import { pageWrapper, card, title, subtitle, input, inputWrapper, inputIcon } from "../uiStyles";
+import { AUTH_MSG, messageForCode, messageForVerifyError } from "../lib/authErrors";
 import { verifyPageState, dashboardPathFor, roleOf } from "../lib/authFlow";
 import { isTurnstileConfigured } from "../lib/turnstile";
 import TurnstileWidget from "../components/TurnstileWidget";
@@ -11,13 +11,58 @@ import {
   readPendingEmail,
   clearPendingEmail,
   clearPendingSignup,
-  readVerifiedNotice,
   clearVerifiedNotice,
+  readVerifiedNotice,
+  writeLoginFlash,
 } from "../lib/pendingVerification";
 
 // Supabase throttles resends itself; this mirrors its 60 s floor so the button
 // is honest rather than racing the server into an over_email_send_rate_limit.
 const RESEND_COOLDOWN_SECONDS = 60;
+
+const OTP_LENGTH = 6;
+
+// A signOut that reports failure is retried a few times before the caller
+// falls back to wiping the persisted keys: short waits, because this is
+// cleanup, not the action the user is waiting for.
+const SIGNOUT_RETRY_DELAYS_MS = [100, 200, 400];
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Release the session with scope "local" (other devices stay signed in),
+ * retrying a reported failure a few times. Returns the last error, or null
+ * once GoTrue confirms the session is gone.
+ */
+async function signOutLocalWithRetries(auth) {
+  let lastError = null;
+  for (let attempt = 0; attempt <= SIGNOUT_RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      const { error } = await auth.signOut({ scope: "local" });
+      if (!error) return null;
+      lastError = error;
+    } catch (err) {
+      lastError = err;
+    }
+    if (attempt < SIGNOUT_RETRY_DELAYS_MS.length) {
+      await sleep(SIGNOUT_RETRY_DELAYS_MS[attempt]);
+    }
+  }
+  return lastError;
+}
+
+/** Drop every persisted Supabase Auth session key — last-resort cleanup. */
+function clearStoredAuthKeys() {
+  try {
+    for (const store of [window.localStorage, window.sessionStorage]) {
+      for (const key of Object.keys(store)) {
+        if (key.startsWith("sb-") && key.endsWith("-auth-token")) store.removeItem(key);
+      }
+    }
+  } catch {
+    // Storage blocked — the flash below still lands on a later /login.
+  }
+}
 
 export default function VerifyEmail() {
   const { user, profile, loading: authLoading, refreshSession } = useAuth();
@@ -41,9 +86,9 @@ export default function VerifyEmail() {
   });
   const [countdown, setCountdown] = useState(RESEND_COOLDOWN_SECONDS);
   const [verified, setVerified] = useState(false);
-  // Offered only when the confirmation really happened somewhere we cannot
-  // see a session for: honest escape hatch instead of a dead end.
-  const [showSignIn, setShowSignIn] = useState(false);
+  // The six digits typed by the user. Client-side input shaping only —
+  // correctness is decided by supabase.auth.verifyOtp() on the server.
+  const [otp, setOtp] = useState("");
   // Turnstile handle for the resend action: /resend is captcha-protected once
   // the Dashboard toggle is enabled.
   const captchaRef = useRef(null);
@@ -137,7 +182,7 @@ export default function VerifyEmail() {
         throw err;
       }
       setMessage({
-        text: "Confirmation email sent again. It can take a minute to arrive.",
+        text: "Verification code sent again. It can take a minute to arrive.",
         type: "success",
       });
       setCountdown(RESEND_COOLDOWN_SECONDS);
@@ -158,30 +203,122 @@ export default function VerifyEmail() {
     }
   };
 
-  // The confirmation link was opened somewhere else (email clients like to use
-  // a new tab). Re-read the session from storage, sync the profile and let the
-  // effect above take over once the state settles.
-  const handleConfirmed = async () => {
+  const handleOtpChange = (e) => {
+    // Shape only: digits, at most six. The server decides correctness.
+    setOtp(e.target.value.replace(/\D/g, "").slice(0, OTP_LENGTH));
+  };
+
+  const handleVerify = async (event) => {
+    event?.preventDefault?.();
+    const code = otp.replace(/\s/g, "");
     if (loading || resending || verified) return;
+    if (!sessionEmail) return;
+    if (code.length !== OTP_LENGTH) {
+      setMessage({ text: AUTH_MSG.otpIncomplete, type: "error" });
+      return;
+    }
+
     setLoading(true);
-    setShowSignIn(false);
     setMessage({ text: "", type: "" });
 
     try {
-      const fresh = await refreshSession();
-      if (fresh?.email_confirmed_at) {
-        return; // pageState becomes "already-verified" and the effect takes over
-      }
-      // Honest about what this device can and cannot see: the confirmation
-      // may well have completed somewhere else, where we have no session to
-      // read. Offer the real next step instead of a dead end.
-      setMessage({
-        text: "We can't see the confirmation from this device yet. If you clicked the link in another app or on another device, sign in with your password to continue.",
-        type: "error",
+      // Snapshot any unrelated signed-in account BEFORE verifyOtp: a
+      // successful verification creates a session for the address being
+      // verified, which would otherwise silently replace it.
+      const { data: beforeData } = await supabase.auth.getSession();
+      const beforeSession = beforeData?.session || null;
+      const selfEmail = sessionEmail.toLowerCase();
+      const foreignSession =
+        beforeSession &&
+        beforeSession.access_token &&
+        (beforeSession.user?.email || "").toLowerCase() !== selfEmail
+          ? beforeSession
+          : null;
+
+      // Server-side validation — the only thing that can confirm the
+      // address. No local check, no stored copy of the code, ever.
+      const { error } = await supabase.auth.verifyOtp({
+        email: sessionEmail,
+        token: code,
+        type: "signup",
       });
-      setShowSignIn(true);
-    } catch {
-      setMessage({ text: AUTH_MSG.network, type: "error" });
+      if (error) {
+        const err = new Error(error.message || "");
+        err.code = error.code || "";
+        err.status = error.status || 0;
+        throw err;
+      }
+
+      // The address is confirmed. verifyOtp() just created a session, and
+      // that session is exactly what AuthContext needs to create the profile
+      // row (the pendingSignup marker is consumed there, and only when the
+      // row really exists — otherwise it stays for the login-time retry).
+      try {
+        await refreshSession();
+      } catch {
+        // Adoption then happens after the manual sign-in instead.
+      }
+      clearPendingEmail();
+
+      // Verification never signs anyone in: release the session verifyOtp
+      // just created, then put back any unrelated account that was signed
+      // in on this device before (its tokens were snapshotted above; the
+      // verify session replaced it in storage).
+      await signOutLocalWithRetries(supabase.auth);
+      if (foreignSession) {
+        try {
+          await supabase.auth.setSession({
+            access_token: foreignSession.access_token,
+            refresh_token: foreignSession.refresh_token,
+          });
+        } catch {
+          // The other account could not be restored — nothing is signed in,
+          // which a plain password sign-in fixes anyway.
+        }
+      }
+
+      // The last word is always what is actually in storage. If OUR session
+      // survived signOut entirely, a plain SPA navigate could keep it alive
+      // (auto-refresh and all): wipe the persisted keys and start clean
+      // with a full reload instead. Navigation state cannot survive that,
+      // so the success message rides in the one-shot flash.
+      const { data: afterData } = await supabase.auth.getSession();
+      const remainingEmail = (afterData?.session?.user?.email || "").toLowerCase();
+      if (remainingEmail === selfEmail) {
+        clearStoredAuthKeys();
+        writeLoginFlash(sessionEmail);
+        try {
+          window.location.replace("/login");
+        } catch {
+          // Blocked navigation (e.g. test environment) — the flash still
+          // reaches /login on the next load.
+        }
+        return;
+      }
+
+      navigate("/login", {
+        replace: true,
+        state: {
+          notice: AUTH_MSG.verifiedSuccess,
+          noticeType: "success",
+          email: sessionEmail,
+        },
+      });
+    } catch (err) {
+      const text = messageForVerifyError(err);
+      if (text === AUTH_MSG.alreadyVerified) {
+        // GoTrue says the address is already confirmed — there is nothing
+        // left to verify, and nothing here created a session to release.
+        // Send the user to sign in with the reason instead of letting them
+        // retype a code that can never succeed.
+        clearPendingEmail();
+        navigate("/login", {
+          replace: true,
+          state: { notice: AUTH_MSG.alreadyVerified, email: sessionEmail },
+        });
+        return;
+      }
+      setMessage({ text, type: "error" });
     } finally {
       setLoading(false);
     }
@@ -192,7 +329,6 @@ export default function VerifyEmail() {
     clearPendingSignup();
     clearVerifiedNotice();
     setMessage({ text: "", type: "" });
-    setShowSignIn(false);
     try {
       await supabase.auth.signOut();
     } catch {
@@ -229,7 +365,7 @@ export default function VerifyEmail() {
           <h2 style={title}>Verify Your Email</h2>
           <p style={{ ...subtitle, marginBottom: "20px" }}>{AUTH_MSG.loginAgain}</p>
           <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)", textAlign: "center", marginBottom: "24px" }}>
-            Sign up again and we&apos;ll send a fresh confirmation email.
+            Sign up again and we&apos;ll send a fresh verification email.
           </p>
           <button
             onClick={() => navigate("/signup", { replace: true })}
@@ -308,7 +444,7 @@ export default function VerifyEmail() {
         <div style={{ fontSize: "42px", marginBottom: "8px" }}>✉️</div>
         <h2 style={title}>Verify Your Email</h2>
         <p style={subtitle}>
-          We sent a confirmation link to<br />
+          Enter the 6-digit code we sent to<br />
           <strong style={{ color: "#93c5fd" }}>{sessionEmail}</strong>
         </p>
 
@@ -327,8 +463,8 @@ export default function VerifyEmail() {
           backgroundColor: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
           color: "rgba(255,255,255,0.7)", textAlign: "center", lineHeight: 1.6,
         }}>
-          Open that email and click <strong style={{ color: "#93c5fd" }}>Confirm your email address</strong>.
-          You&apos;ll come straight back here once it&apos;s done.
+          Open that email and type the code below to confirm this address.
+          You&apos;ll sign in with your password right after.
         </div>
 
         {message.text && (
@@ -343,46 +479,50 @@ export default function VerifyEmail() {
           </div>
         )}
 
-        {showSignIn && (
+        <form onSubmit={handleVerify} noValidate>
+          <div style={inputWrapper}>
+            <span style={inputIcon}>🔢</span>
+            <input
+              style={{ ...input, letterSpacing: "0.5em", textAlign: "center", paddingLeft: "38px" }}
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={OTP_LENGTH}
+              placeholder="123456"
+              aria-label="Verification code"
+              value={otp}
+              onChange={handleOtpChange}
+              disabled={loading || resending || verified}
+            />
+          </div>
+
           <button
-            onClick={() => navigate("/login", { replace: true })}
+            type="submit"
+            disabled={loading || resending || verified}
             style={{
               width: "100%", padding: "12px", marginBottom: "12px", borderRadius: "12px",
-              border: "none", cursor: "pointer",
+              border: "none", cursor: loading ? "not-allowed" : "pointer",
               background: "linear-gradient(135deg, #4a90e2, #3b82f6)", color: "#fff",
-              fontSize: "15px", fontWeight: "700",
+              fontSize: "15px", fontWeight: "700", opacity: loading ? 0.7 : 1,
+              display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
             }}
           >
-            Sign In
+            {loading && (
+              <span style={{
+                display: "inline-block", width: "16px", height: "16px",
+                border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff",
+                borderRadius: "50%", animation: "spin 0.6s linear infinite",
+              }} />
+            )}
+            {loading ? "Verifying..." : "Verify Email"}
           </button>
-        )}
-
-        <button
-          onClick={handleConfirmed}
-          disabled={loading || resending}
-          style={{
-            width: "100%", padding: "12px", marginBottom: "12px", borderRadius: "12px",
-            border: "none", cursor: loading ? "not-allowed" : "pointer",
-            background: "linear-gradient(135deg, #4a90e2, #3b82f6)", color: "#fff",
-            fontSize: "15px", fontWeight: "700", opacity: loading ? 0.7 : 1,
-            display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
-          }}
-        >
-          {loading && (
-            <span style={{
-              display: "inline-block", width: "16px", height: "16px",
-              border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff",
-              borderRadius: "50%", animation: "spin 0.6s linear infinite",
-            }} />
-          )}
-          {loading ? "Checking..." : "I've confirmed my email"}
-        </button>
+        </form>
 
         <div style={{ textAlign: "center", marginBottom: "16px" }}>
           <TurnstileWidget ref={captchaRef} />
           {countdown > 0 ? (
             <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)" }}>
-              Resend link in <strong style={{ color: "#93c5fd" }}>{countdown}s</strong>
+              Resend code in <strong style={{ color: "#93c5fd" }}>{countdown}s</strong>
             </p>
           ) : (
             <button
@@ -394,7 +534,7 @@ export default function VerifyEmail() {
                 opacity: resending ? 0.6 : 1,
               }}
             >
-              {resending ? "Sending..." : "Resend confirmation email"}
+              {resending ? "Sending..." : "Resend verification code"}
             </button>
           )}
         </div>

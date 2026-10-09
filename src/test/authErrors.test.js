@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AUTH_MSG, messageForCode } from '../lib/authErrors';
+import { AUTH_MSG, messageForCode, messageForVerifyError } from '../lib/authErrors';
 
 // Regression tests for the false "invalid Gmail address" signup bug.
 // Error classification must be driven by explicit error codes only — never by
@@ -265,5 +265,68 @@ describe('Supabase Auth API codes', () => {
       'Readable server message'
     );
     expect(messageForCode('some_brand_new_code', '')).toBe(AUTH_MSG.generic);
+  });
+});
+
+// The OTP screen classifies verifyOtp() failures with its own mapper:
+// unlike messageForCode, raw server text is NEVER passed through, because a
+// verify error may echo request details (sub, internals) the screen must not
+// display — every outcome resolves to one of our own fixed messages.
+describe('messageForVerifyError', () => {
+  it('maps an expired code by explicit code and by wording', () => {
+    expect(messageForVerifyError({ code: 'otp_expired', message: 'Token has expired' })).toBe(
+      AUTH_MSG.otpExpired
+    );
+    expect(messageForVerifyError({ message: 'OTP has expired' })).toBe(AUTH_MSG.otpExpired);
+  });
+
+  it('maps a reused code distinctly from an expired one', () => {
+    expect(messageForVerifyError({ message: 'Token has already been used' })).toBe(
+      AUTH_MSG.otpUsed
+    );
+    expect(AUTH_MSG.otpUsed).not.toBe(AUTH_MSG.otpExpired);
+  });
+
+  it('maps an already-confirmed address distinctly', () => {
+    expect(messageForVerifyError({ message: 'User already confirmed' })).toBe(
+      AUTH_MSG.alreadyVerified
+    );
+  });
+
+  it('maps throttling distinctly from a bad code', () => {
+    expect(messageForVerifyError({ status: 429, message: 'Too many requests' })).toBe(
+      AUTH_MSG.verifyThrottled
+    );
+    expect(AUTH_MSG.verifyThrottled).not.toBe(AUTH_MSG.invalidOtp);
+    expect(AUTH_MSG.verifyThrottled).not.toBe(AUTH_MSG.rateLimited);
+  });
+
+  it('reports connectivity failures as the network message, never as a bad code', () => {
+    expect(messageForVerifyError(new TypeError('Failed to fetch'))).toBe(AUTH_MSG.network);
+    expect(
+      messageForVerifyError({ name: 'AuthRetryableFetchError', message: 'Failed to fetch' })
+    ).toBe(AUTH_MSG.network);
+    expect(AUTH_MSG.network).not.toBe(AUTH_MSG.invalidOtp);
+  });
+
+  it('never leaks raw server text — an unrecognised failure is the invalid-code message', () => {
+    expect(messageForVerifyError({ message: 'Something internal went sideways (sub=abc123)' })).toBe(
+      AUTH_MSG.invalidOtp
+    );
+    expect(messageForVerifyError(undefined)).toBe(AUTH_MSG.invalidOtp);
+    expect(messageForVerifyError({})).toBe(AUTH_MSG.invalidOtp);
+  });
+
+  it('every verification message is distinct, so the user can always tell them apart', () => {
+    const messages = [
+      AUTH_MSG.invalidOtp,
+      AUTH_MSG.otpIncomplete,
+      AUTH_MSG.otpExpired,
+      AUTH_MSG.otpUsed,
+      AUTH_MSG.alreadyVerified,
+      AUTH_MSG.verifyThrottled,
+      AUTH_MSG.network,
+    ];
+    expect(new Set(messages).size).toBe(messages.length);
   });
 });

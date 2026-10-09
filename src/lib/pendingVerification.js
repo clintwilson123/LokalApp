@@ -165,3 +165,62 @@ export function readVerifiedNotice() {
 export function clearVerifiedNotice() {
   removeFrom("local", VERIFIED_KEY);
 }
+
+// ---------------------------------------------------------------------------
+// One-shot hand-off to /login after a HARD reset.
+//
+// The OTP screen normally hands its "you are verified" message over in
+// navigation state, but the last-resort cleanup (when signOut itself keeps
+// failing) reloads the page with window.location.replace(), and navigation
+// state cannot survive a reload. This records the message across it.
+//
+// Like writeVerifiedNotice, this is a MESSAGE, never proof of
+// authentication: it grants nothing, it only decides what /login says.
+// ---------------------------------------------------------------------------
+
+const LOGIN_FLASH_KEY = "cjlink:login-flash";
+
+// Long enough to bridge the reload and a slow reader; short enough that a
+// stale "verified" banner can never outlive its usefulness.
+const LOGIN_FLASH_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * Read the flash WITHOUT consuming it — safe to call during render (React
+ * StrictMode double-invokes initializers, and a consuming read here would
+ * eat the message on the first pass). clearLoginFlash() consumes it once
+ * the screen that read it has mounted.
+ *
+ * Fresh { email } object, otherwise null (self-healing: corrupt or expired
+ * entries are removed on read).
+ */
+export function readLoginFlash() {
+  const raw = readFrom("session", LOGIN_FLASH_KEY) || readFrom("local", LOGIN_FLASH_KEY);
+  if (!raw) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    removeFrom("session", LOGIN_FLASH_KEY);
+    removeFrom("local", LOGIN_FLASH_KEY);
+    return null;
+  }
+  if (!parsed || typeof parsed.at !== "number" || Date.now() - parsed.at > LOGIN_FLASH_TTL_MS) {
+    removeFrom("session", LOGIN_FLASH_KEY);
+    removeFrom("local", LOGIN_FLASH_KEY);
+    return null;
+  }
+  return { email: typeof parsed.email === "string" ? parsed.email.trim() : "" };
+}
+
+export function clearLoginFlash() {
+  removeFrom("session", LOGIN_FLASH_KEY);
+  removeFrom("local", LOGIN_FLASH_KEY);
+}
+
+/** Remember the verified address across a hard reload to /login. */
+export function writeLoginFlash(email) {
+  const value = typeof email === "string" ? email.trim() : "";
+  const payload = JSON.stringify({ email: value, at: Date.now() });
+  writeTo("session", LOGIN_FLASH_KEY, payload);
+  writeTo("local", LOGIN_FLASH_KEY, payload);
+}

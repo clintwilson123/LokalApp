@@ -13,6 +13,9 @@ const h = vi.hoisted(() => ({
   resetPasswordForEmail: vi.fn(),
   resend: vi.fn(),
   signOut: vi.fn(),
+  verifyOtp: vi.fn(),
+  getSession: vi.fn(),
+  setSession: vi.fn(),
   auth: {
     user: { id: 'u1', email: 'ana@gmail.com' },
     profile: { id: 'u1', role: 'applicant', email_verified: false, consent_accepted: true },
@@ -40,6 +43,9 @@ vi.mock('../lib/supabaseClient', () => ({
       resetPasswordForEmail: (...args) => h.resetPasswordForEmail(...args),
       resend: (...args) => h.resend(...args),
       signOut: (...args) => h.signOut(...args),
+      verifyOtp: (...args) => h.verifyOtp(...args),
+      getSession: (...args) => h.getSession(...args),
+      setSession: (...args) => h.setSession(...args),
     },
   },
 }));
@@ -59,6 +65,9 @@ beforeEach(() => {
   h.resetPasswordForEmail.mockReset();
   h.resend.mockReset();
   h.signOut.mockReset();
+  h.verifyOtp.mockReset();
+  h.getSession.mockReset();
+  h.setSession.mockReset();
   h.auth = {
     user: { id: 'u1', email: 'ana@gmail.com' },
     profile: { id: 'u1', role: 'applicant', email_verified: false, consent_accepted: true },
@@ -177,14 +186,14 @@ describe('VerifyEmail resend with Turnstile', () => {
     });
   }
 
-  it('passes the CAPTCHA token when resending the confirmation link', async () => {
+  it('passes the CAPTCHA token when resending the verification code', async () => {
     vi.useFakeTimers();
     h.resend.mockResolvedValue({ error: null });
     renderVerify();
     await act(async () => {});
     await advanceToResend();
 
-    fireEvent.click(screen.getByRole('button', { name: /resend confirmation email/i }));
+    fireEvent.click(screen.getByRole('button', { name: /resend verification code/i }));
     await act(async () => {});
 
     expect(h.resend).toHaveBeenCalledWith({
@@ -192,7 +201,7 @@ describe('VerifyEmail resend with Turnstile', () => {
       email: 'ana@gmail.com',
       options: { captchaToken: 'valid-token' },
     });
-    expect(screen.getByText(/confirmation email sent again/i)).toBeInTheDocument();
+    expect(screen.getByText(/verification code sent again/i)).toBeInTheDocument();
   });
 
   it('Test 3 — missing CAPTCHA token → resend is blocked', async () => {
@@ -203,7 +212,7 @@ describe('VerifyEmail resend with Turnstile', () => {
     await act(async () => {});
     await advanceToResend();
 
-    fireEvent.click(screen.getByRole('button', { name: /resend confirmation email/i }));
+    fireEvent.click(screen.getByRole('button', { name: /resend verification code/i }));
     await act(async () => {});
 
     expect(screen.getByText(/Please complete the security check/i)).toBeInTheDocument();
@@ -219,7 +228,7 @@ describe('VerifyEmail resend with Turnstile', () => {
     await act(async () => {});
     await advanceToResend();
 
-    fireEvent.click(screen.getByRole('button', { name: /resend confirmation email/i }));
+    fireEvent.click(screen.getByRole('button', { name: /resend verification code/i }));
     await act(async () => {});
 
     // getByText, not findByText: waitFor polls with timers, and this suite
@@ -240,7 +249,7 @@ describe('VerifyEmail resend with Turnstile', () => {
     await act(async () => {});
     await advanceToResend();
 
-    fireEvent.click(screen.getByRole('button', { name: /resend confirmation email/i }));
+    fireEvent.click(screen.getByRole('button', { name: /resend verification code/i }));
     await act(async () => {});
 
     // C-2: /resend's middleware spent the token, so the retry gets a fresh
@@ -281,7 +290,7 @@ describe('VerifyEmail resend with Turnstile', () => {
     await act(async () => {});
     await advanceToResend();
 
-    fireEvent.click(screen.getByRole('button', { name: /resend confirmation email/i }));
+    fireEvent.click(screen.getByRole('button', { name: /resend verification code/i }));
     await act(async () => {});
 
     // The account exists — the failure is about DELIVERY, and the wording
@@ -346,25 +355,26 @@ describe('VerifyEmail resend with Turnstile', () => {
     // …nothing is signed out (there is no session) and nobody is told to
     // sign up again.
     expect(h.signOut).not.toHaveBeenCalled();
-    expect(screen.queryByText(/Sign up again and we'll send a fresh confirmation email/)).toBeNull();
+    expect(screen.queryByText(/Sign up again and we'll send a fresh verification email/)).toBeNull();
   });
 
-  it('claiming the confirmation with no local session gives an honest message and a way to sign in', async () => {
-    h.auth.refreshSession.mockResolvedValue(null);
+  it('the code form shows for a pending address and never claims verification on its own', async () => {
+    h.auth.user = null;
+    h.auth.profile = null;
+    window.localStorage.setItem('cjlink:pending-verification-email', 'ana@gmail.com');
 
     renderVerify();
     await act(async () => {});
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /i've confirmed my email/i }));
-    });
-
-    // Honest about what this device can see — no claim of success, no dead
-    // end: the real next step (a password sign-in) is one click away.
-    expect(screen.getByText(/can't see the confirmation from this device/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Sign In' })).toBeInTheDocument();
+    // Server-validated OTP is the only path: the input and its button are
+    // here, and the old "I've confirmed my email" self-claim is gone.
+    expect(screen.getByLabelText(/verification code/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /verify email/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /i've confirmed my email/i })).toBeNull();
+    // No success claim and no sign-out without a code the server accepted.
     expect(screen.getByText('Email Verified!')).toHaveStyle({ opacity: '0' });
     expect(h.signOut).not.toHaveBeenCalled();
+    expect(h.auth.refreshSession).not.toHaveBeenCalled();
   });
 
   it('an unverified session never shows a verified claim, even with a stored notice', async () => {
@@ -381,7 +391,7 @@ describe('VerifyEmail resend with Turnstile', () => {
     expect(h.signOut).not.toHaveBeenCalled();
   });
 
-  it('never resends the confirmation email on its own — only an explicit click does', async () => {
+  it('never resends the verification code on its own — only an explicit click does', async () => {
     vi.useFakeTimers();
     h.resend.mockResolvedValue({ error: null });
     renderVerify();
@@ -394,7 +404,7 @@ describe('VerifyEmail resend with Turnstile', () => {
     });
     expect(h.resend).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: /resend confirmation email/i }));
+    fireEvent.click(screen.getByRole('button', { name: /resend verification code/i }));
     await act(async () => {});
     expect(h.resend).toHaveBeenCalledTimes(1);
   });

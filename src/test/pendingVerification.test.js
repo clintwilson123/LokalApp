@@ -6,6 +6,9 @@ import {
   writePendingSignup,
   readPendingSignup,
   clearPendingSignup,
+  readLoginFlash,
+  clearLoginFlash,
+  writeLoginFlash,
 } from '../lib/pendingVerification';
 
 // Confirm email is enabled, so signUp() returns session: null and /verify-email
@@ -114,5 +117,44 @@ describe('pending signup (deferred profile row)', () => {
     writePendingSignup('a@gmail.com', 'low');
     clearPendingSignup();
     expect(readPendingSignup()).toBeNull();
+  });
+});
+
+describe('login flash (hard-reset hand-off)', () => {
+  it('round-trips the verified address without consuming it on read', () => {
+    writeLoginFlash('normal.realistic@gmail.com');
+    // StrictMode-safe: a read must NOT eat the message — clearLoginFlash does.
+    expect(readLoginFlash().email).toBe('normal.realistic@gmail.com');
+    expect(readLoginFlash().email).toBe('normal.realistic@gmail.com');
+    clearLoginFlash();
+    expect(readLoginFlash()).toBeNull();
+  });
+
+  it('lives in both storage areas so it survives the reload that follows', () => {
+    writeLoginFlash('a@gmail.com');
+    expect(window.sessionStorage.getItem('cjlink:login-flash')).not.toBeNull();
+    expect(window.localStorage.getItem('cjlink:login-flash')).not.toBeNull();
+    expect(readLoginFlash().email).toBe('a@gmail.com');
+  });
+
+  it('expires and self-heals on corrupt data', () => {
+    writeLoginFlash('a@gmail.com');
+    // Session copy first: the flash only expires once BOTH copies are stale.
+    window.sessionStorage.removeItem('cjlink:login-flash');
+    const stored = JSON.parse(window.localStorage.getItem('cjlink:login-flash'));
+    window.localStorage.setItem(
+      'cjlink:login-flash',
+      JSON.stringify({ ...stored, at: Date.now() - 11 * 60 * 1000 })
+    );
+    expect(readLoginFlash()).toBeNull();
+
+    window.localStorage.setItem('cjlink:login-flash', 'not json');
+    expect(readLoginFlash()).toBeNull();
+    expect(window.localStorage.getItem('cjlink:login-flash')).toBeNull();
+  });
+
+  it('a blank address still produces a flash — the message does not need one', () => {
+    writeLoginFlash('   ');
+    expect(readLoginFlash()).toEqual({ email: '' });
   });
 });
