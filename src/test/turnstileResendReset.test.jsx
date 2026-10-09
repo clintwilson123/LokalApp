@@ -58,6 +58,7 @@ beforeEach(() => {
   h.reset.mockClear();
   h.resetPasswordForEmail.mockReset();
   h.resend.mockReset();
+  h.signOut.mockReset();
   h.auth = {
     user: { id: 'u1', email: 'ana@gmail.com' },
     profile: { id: 'u1', role: 'applicant', email_verified: false, consent_accepted: true },
@@ -65,6 +66,7 @@ beforeEach(() => {
     refreshSession: vi.fn(),
   };
   window.localStorage.clear();
+  window.sessionStorage.clear();
 });
 
 afterEach(() => {
@@ -161,6 +163,8 @@ describe('VerifyEmail resend with Turnstile', () => {
         <Routes>
           <Route path="/verify-email" element={<VerifyEmail />} />
           <Route path="/signup" element={<div>SIGNUP_PAGE</div>} />
+          <Route path="/login" element={<div>LOGIN_PAGE</div>} />
+          <Route path="/find-jobs" element={<div>APPLICANT_DASHBOARD</div>} />
         </Routes>
       </MemoryRouter>
     );
@@ -290,5 +294,108 @@ describe('VerifyEmail resend with Turnstile', () => {
     // hidden — the delivery failure may never activate the verified state.
     expect(screen.getByText('Email Verified!')).toHaveStyle({ opacity: '0' });
     expect(h.reset).toHaveBeenCalled();
+  });
+
+  it('a fresh verification notice shows success with Sign In — never a dashboard redirect', async () => {
+    vi.useFakeTimers();
+    // Verified session, fresh confirmation notice — the notice drives the
+    // UI handoff only. It never signs anyone out: session cleanup belongs
+    // to the confirmation callback (proof-based), never to a stored message.
+    h.auth.user = { ...h.auth.user, email_confirmed_at: '2026-01-01T00:00:00Z' };
+    h.auth.profile = { ...h.auth.profile, email_verified: true };
+    window.localStorage.setItem(
+      'cjlink:verified-notice',
+      JSON.stringify({ email: 'ana@gmail.com', at: Date.now() })
+    );
+
+    renderVerify();
+    await act(async () => {});
+
+    expect(screen.getByText('Email Verified!')).toHaveStyle({ opacity: '1' });
+    expect(screen.getByText('You can now sign in to your account.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign In' })).toBeInTheDocument();
+
+    // The notice is wording, not an auth decision: nothing is signed out here.
+    expect(h.signOut).not.toHaveBeenCalled();
+
+    // No timer ever takes over for the dashboard.
+    await act(async () => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(screen.queryByText('APPLICANT_DASHBOARD')).toBeNull();
+    expect(screen.queryByText('LOGIN_PAGE')).toBeNull();
+  });
+
+  it('a confirmation completed with no session here ends in an explicit Sign In, not a dead end', async () => {
+    h.auth.user = null;
+    h.auth.profile = null;
+    window.localStorage.setItem('cjlink:pending-verification-email', 'ana@gmail.com');
+    window.localStorage.setItem(
+      'cjlink:verified-notice',
+      JSON.stringify({ email: 'ana@gmail.com', at: Date.now() })
+    );
+
+    renderVerify();
+    await act(async () => {});
+
+    expect(screen.getByText('Email Verified!')).toHaveStyle({ opacity: '1' });
+    expect(screen.getByText('You can now sign in to your account.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign In' })).toBeInTheDocument();
+    // The address it is talking about is still on screen…
+    expect(screen.getByText('ana@gmail.com')).toBeInTheDocument();
+    // …nothing is signed out (there is no session) and nobody is told to
+    // sign up again.
+    expect(h.signOut).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Sign up again and we'll send a fresh confirmation email/)).toBeNull();
+  });
+
+  it('claiming the confirmation with no local session gives an honest message and a way to sign in', async () => {
+    h.auth.refreshSession.mockResolvedValue(null);
+
+    renderVerify();
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /i've confirmed my email/i }));
+    });
+
+    // Honest about what this device can see — no claim of success, no dead
+    // end: the real next step (a password sign-in) is one click away.
+    expect(screen.getByText(/can't see the confirmation from this device/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign In' })).toBeInTheDocument();
+    expect(screen.getByText('Email Verified!')).toHaveStyle({ opacity: '0' });
+    expect(h.signOut).not.toHaveBeenCalled();
+  });
+
+  it('an unverified session never shows a verified claim, even with a stored notice', async () => {
+    window.localStorage.setItem(
+      'cjlink:verified-notice',
+      JSON.stringify({ email: 'ana@gmail.com', at: Date.now() })
+    );
+
+    renderVerify();
+    await act(async () => {});
+
+    expect(screen.getByText('Email Verified!')).toHaveStyle({ opacity: '0' });
+    expect(screen.queryByRole('button', { name: 'Sign In' })).toBeNull();
+    expect(h.signOut).not.toHaveBeenCalled();
+  });
+
+  it('never resends the confirmation email on its own — only an explicit click does', async () => {
+    vi.useFakeTimers();
+    h.resend.mockResolvedValue({ error: null });
+    renderVerify();
+    await act(async () => {});
+
+    // Even once the 60 s cooldown has long elapsed, nothing sends by itself:
+    // no timer, no effect and no notice may trigger a repeat email.
+    await act(async () => {
+      vi.advanceTimersByTime(120000);
+    });
+    expect(h.resend).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /resend confirmation email/i }));
+    await act(async () => {});
+    expect(h.resend).toHaveBeenCalledTimes(1);
   });
 });

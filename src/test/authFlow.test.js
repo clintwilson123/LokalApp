@@ -32,13 +32,16 @@ const admin = {
 };
 
 describe('isEmailVerified', () => {
-  it('is true when either signal says so', () => {
-    expect(isEmailVerified(null, { email_verified: true })).toBe(true);
+  it('follows the Auth session, not the profile mirror', () => {
     expect(isEmailVerified({ email_confirmed_at: 'x' }, null)).toBe(true);
     expect(isEmailVerified({ email_confirmed_at: 'x' }, { email_verified: false })).toBe(true);
+    // profiles.email_verified alone may NEVER authorize access — only the
+    // current Auth user's own state counts.
+    expect(isEmailVerified(null, { email_verified: true })).toBe(false);
+    expect(isEmailVerified({ email_confirmed_at: null }, { email_verified: true })).toBe(false);
   });
 
-  it('is false when neither signal is set', () => {
+  it('is false when the session carries no confirmation', () => {
     expect(isEmailVerified({ email_confirmed_at: null }, { email_verified: false })).toBe(false);
     expect(isEmailVerified(null, null)).toBe(false);
     expect(isEmailVerified(undefined, undefined)).toBe(false);

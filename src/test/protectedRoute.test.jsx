@@ -103,7 +103,11 @@ describe('ProtectedRoute', () => {
   });
 
   it('sends a consent-less applicant to the consent page', () => {
-    h.auth = { user: { id: 'u1' }, profile: applicant({ consent_accepted: false }), loading: false };
+    h.auth = {
+      user: { id: 'u1', email_confirmed_at: '2026-01-01T00:00:00Z' },
+      profile: applicant({ consent_accepted: false }),
+      loading: false,
+    };
     renderProtected();
     expect(screen.getByText('CONSENT_PAGE')).toBeInTheDocument();
     expect(screen.queryByText('PROTECTED_CONTENT')).toBeNull();
@@ -117,7 +121,11 @@ describe('ProtectedRoute', () => {
   });
 
   it('lets a confirmed applicant through', () => {
-    h.auth = { user: { id: 'u1' }, profile: applicant(), loading: false };
+    h.auth = {
+      user: { id: 'u1', email_confirmed_at: '2026-01-01T00:00:00Z' },
+      profile: applicant(),
+      loading: false,
+    };
     renderProtected();
     expect(screen.getByText('PROTECTED_CONTENT')).toBeInTheDocument();
   });
@@ -138,5 +146,35 @@ describe('ProtectedRoute', () => {
     expect(screen.queryByText('HOME_PAGE')).toBeNull();
     expect(screen.queryByText('LOGIN_PAGE')).toBeNull();
     expect(screen.queryByText('PROTECTED_CONTENT')).toBeNull();
+  });
+
+  it('a stored verification notice can never grant access to an unconfirmed user', () => {
+    // The localStorage notice is wording for the verification screens — it
+    // is never consulted here and never authorizes anything.
+    window.localStorage.setItem(
+      'cjlink:verified-notice',
+      JSON.stringify({ email: 'ana@gmail.com', at: Date.now() })
+    );
+    h.auth = {
+      user: { id: 'u1', email: 'ana@gmail.com', email_confirmed_at: null },
+      profile: applicant({ email_verified: false }),
+      loading: false,
+    };
+    renderProtected();
+    expect(screen.getByText('VERIFY_EMAIL_PAGE')).toBeInTheDocument();
+    expect(screen.queryByText('PROTECTED_CONTENT')).toBeNull();
+    window.localStorage.clear();
+  });
+
+  it('a stored verification notice can never authenticate a visitor with no session', () => {
+    window.localStorage.setItem(
+      'cjlink:verified-notice',
+      JSON.stringify({ email: 'ana@gmail.com', at: Date.now() })
+    );
+    h.auth = { user: null, profile: null, loading: false };
+    renderProtected();
+    expect(screen.getByText('LOGIN_PAGE')).toBeInTheDocument();
+    expect(screen.queryByText('PROTECTED_CONTENT')).toBeNull();
+    window.localStorage.clear();
   });
 });

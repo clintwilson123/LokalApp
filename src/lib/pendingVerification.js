@@ -12,10 +12,16 @@
 
 const EMAIL_KEY = "cjlink:pending-verification-email";
 const SIGNUP_KEY = "cjlink:pending-signup";
+const VERIFIED_KEY = "cjlink:verified-notice";
 
 // Long enough to outlive a slow reader, short enough that an abandoned
 // signup cannot keep influencing routing a week later.
 const PENDING_SIGNUP_TTL_MS = 2 * 60 * 60 * 1000;
+
+// The notice only has to bridge the redirect from the confirmation callback
+// to the screen that displays it. Short enough that a stale "verified"
+// message can never be mistaken for a fresh confirmation later.
+const VERIFIED_TTL_MS = 60 * 60 * 1000;
 
 function storageOf(kind) {
   if (typeof window === "undefined") return null;
@@ -115,4 +121,47 @@ export function readPendingSignup() {
 
 export function clearPendingSignup() {
   removeFrom("local", SIGNUP_KEY);
+}
+
+/**
+ * Remember that Supabase Auth confirmed an address, so the screens the
+ * redirect visits can say so and ask for a manual sign-in.
+ *
+ * localStorage only: whichever tab lands on the confirmation callback writes
+ * it, and the original tab (or a later visit to /login) has to read it.
+ *
+ * This is a MESSAGE, never proof of authentication. Nothing here grants
+ * access — it only decides what wording to show.
+ */
+export function writeVerifiedNotice(email) {
+  const value = typeof email === "string" ? email.trim() : "";
+  if (!value) return;
+  writeTo("local", VERIFIED_KEY, JSON.stringify({ email: value, at: Date.now() }));
+}
+
+/** { email, at } while the notice is fresh, otherwise null (self-healing). */
+export function readVerifiedNotice() {
+  const raw = readFrom("local", VERIFIED_KEY);
+  if (!raw) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    removeFrom("local", VERIFIED_KEY);
+    return null;
+  }
+  if (!parsed || typeof parsed.email !== "string" || !parsed.email.trim()) {
+    removeFrom("local", VERIFIED_KEY);
+    return null;
+  }
+  if (Date.now() - (Number(parsed.at) || 0) > VERIFIED_TTL_MS) {
+    removeFrom("local", VERIFIED_KEY);
+    return null;
+  }
+  parsed.email = parsed.email.trim();
+  return parsed;
+}
+
+export function clearVerifiedNotice() {
+  removeFrom("local", VERIFIED_KEY);
 }

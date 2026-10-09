@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
 import { pageWrapper, card, title, subtitle, button } from "../uiStyles";
+import ConsentDocument from "../components/ConsentDocument";
 
 export default function Consent() {
   const navigate = useNavigate();
@@ -46,32 +47,7 @@ export default function Consent() {
         <h2 style={title}>Terms & Conditions</h2>
         <p style={subtitle}>Please read and accept the following</p>
 
-        <div style={policyBox}>
-          <h3 style={policyTitle}>Platform Terms</h3>
-          <p style={policyText}>
-            By using CJLink, you agree to provide accurate information in your profile and applications.
-            You understand that employers may review your profile, resume, and application details.
-          </p>
-
-          <h3 style={policyTitle}>Privacy Policy</h3>
-          <p style={policyText}>
-            Your personal information (name, email, phone, skills, resume) is stored securely and only
-            shared with employers you apply to. We do not sell your data to third parties.
-          </p>
-
-          <h3 style={policyTitle}>Employer Consent</h3>
-          <p style={policyText}>
-            Employers agree to use applicant information solely for hiring purposes. They will not
-            share applicant data with unauthorized parties. All communication must be professional
-            and related to job opportunities.
-          </p>
-
-          <h3 style={policyTitle}>Applicant Responsibilities</h3>
-          <p style={policyText}>
-            Applicants must maintain accurate profile information, respond to interview invitations
-            promptly, and inform employers of any changes to their availability or qualifications.
-          </p>
-        </div>
+        <ConsentDocument />
 
         {error && (
           <div style={{
@@ -107,16 +83,6 @@ export default function Consent() {
 const blobStyle = {
   position: "absolute", borderRadius: "50%", filter: "blur(80px)",
   opacity: 0.15, pointerEvents: "none", zIndex: 1,
-};
-const policyBox = {
-  backgroundColor: "rgba(255,255,255,0.04)", borderRadius: "12px", padding: "16px",
-  marginBottom: "16px", border: "1px solid rgba(255,255,255,0.08)", textAlign: "left",
-};
-const policyTitle = {
-  color: "#93c5fd", fontSize: "14px", fontWeight: "700", margin: "12px 0 4px",
-};
-const policyText = {
-  color: "rgba(255,255,255,0.6)", fontSize: "12px", lineHeight: "1.6", margin: "0 0 8px",
 };
 const checkboxLabel = {
   display: "flex", alignItems: "flex-start", gap: "10px", fontSize: "13px",

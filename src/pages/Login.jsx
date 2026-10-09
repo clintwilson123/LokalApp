@@ -1,9 +1,13 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { postAuthPath } from "../lib/authFlow";
 import { AUTH_MSG, messageForCode } from "../lib/authErrors";
-import { writePendingEmail } from "../lib/pendingVerification";
+import {
+  writePendingEmail,
+  clearPendingEmail,
+  clearVerifiedNotice,
+} from "../lib/pendingVerification";
 import { isTurnstileConfigured } from "../lib/turnstile";
 import TurnstileWidget from "../components/TurnstileWidget";
 import { pageWrapper, card, title, subtitle, input, inputWrapper, inputIcon, button, link, linkHighlight, radii } from "../uiStyles";
@@ -19,8 +23,14 @@ const bgBlob = {
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { signIn, user, profile, loading } = useAuth();
-  const [email, setEmail] = useState("");
+  // Carried by the confirmation callback (verified, sign in yourself) and by
+  // the error fragment from a dead link.
+  const navState = location.state || {};
+  const successNotice = navState.noticeType === "success";
+  // The confirmed address, when the callback knew it — saves retyping.
+  const [email, setEmail] = useState(navState.email || "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -33,11 +43,17 @@ export default function Login() {
   // the welcome overlay is showing. One rule for everyone: an authenticated but
   // unverified applicant goes to /verify-email, and /verify-email never sends
   // them back here while they still hold a session.
+  //
+  // The exception: a success notice from the confirmation callback means
+  // verification just finished here — the user signs in with their password
+  // first, so no session (or a leftover one the sign-out could not clear)
+  // ever auto-redirects past this screen.
   useEffect(() => {
     if (loading || justSignedIn) return;
+    if (successNotice) return;
     if (!user || !profile) return;
     navigate(postAuthPath(profile, user), { replace: true });
-  }, [user, profile, loading, justSignedIn, navigate]);
+  }, [user, profile, loading, justSignedIn, successNotice, navigate]);
 
   const handleLogin = async () => {
     setError("");
@@ -60,6 +76,11 @@ export default function Login() {
     setSubmitting(true);
     try {
       const result = await signIn(email, password, captchaToken);
+      // A real password sign-in retires the whole verification handoff: the
+      // pending address and the "just confirmed" notice have done their job,
+      // and a stale one must never influence a later routing decision.
+      clearPendingEmail();
+      clearVerifiedNotice();
       setUserName(
         result?.user?.user_metadata?.full_name ||
         result?.user?.email?.split("@")[0] ||
@@ -133,6 +154,26 @@ export default function Login() {
           <div style={{ fontSize: "42px", marginBottom: "8px" }}>🔐</div>
           <h2 style={title}>Welcome Back</h2>
           <p style={subtitle}>Sign in to your CJLink account</p>
+
+          {navState.notice && (
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              background: successNotice ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.15)",
+              border: `1px solid ${successNotice ? "rgba(34, 197, 94, 0.3)" : "rgba(239, 68, 68, 0.3)"}`,
+              color: successNotice ? "#86efac" : "#fca5a5",
+              fontSize: "13px",
+              padding: "12px 16px",
+              borderRadius: "10px",
+              marginBottom: "16px",
+              textAlign: "left",
+              fontWeight: "600",
+            }}>
+              <span>{successNotice ? "✅ " : "⚠️ "}</span>
+              <span>{navState.notice}</span>
+            </div>
+          )}
 
           {error && (
             <div style={{

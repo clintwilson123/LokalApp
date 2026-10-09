@@ -42,6 +42,15 @@ export const AUTH_MSG = {
   serverError: "Something went wrong. Please try again.",
   weakPassword: "Password must be at least 6 characters.",
   generic: "Something went wrong. Please try again.",
+  // The confirmation link was rejected by Supabase Auth (expired, already
+  // used, or malformed) — surfaced from the error fragment the link redirects
+  // to the Site URL with. Kept distinct so a dead link is never reported as a
+  // connection problem or as a generic failure.
+  linkInvalidOrExpired:
+    "This confirmation link is invalid or has expired. Please request a new one.",
+  // The callback confirmed the address. The session it created is released on
+  // purpose: verification never signs anyone in, the user does that themselves.
+  verifiedSuccess: "Your email has been confirmed. Please sign in to your account.",
 };
 
 // Codes that describe a failure to PRODUCE the verification email. After the
@@ -89,6 +98,12 @@ const CODE_MESSAGES = {
   weak_password: AUTH_MSG.weakPassword,
   signup_disabled: AUTH_MSG.serverError,
   validation_failed: AUTH_MSG.invalidFormat,
+
+  // Supabase Auth link/callback failures, read from the error fragment the
+  // confirmation link redirects to the Site URL with (error_code / error).
+  otp_expired: AUTH_MSG.linkInvalidOrExpired,
+  expired_code: AUTH_MSG.linkInvalidOrExpired,
+  access_denied: AUTH_MSG.linkInvalidOrExpired,
 };
 
 // Narrow fallback used ONLY when no error code was supplied at all. Matches

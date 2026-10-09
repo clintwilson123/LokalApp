@@ -13,13 +13,15 @@ export const APPLICANT_PATH = "/find-jobs";
 /**
  * Single source of truth for "is this email verified?".
  *
- * Both signals are accepted: the profile column is what the UI reads, while
- * auth.users.email_confirmed_at is what the OTP actually writes. Treating either
- * as sufficient stops a just-verified user from being bounced back to
- * /verify-email by a stale profile row.
+ * Decided from the Auth session alone (user.email_confirmed_at — the value
+ * GoTrue itself writes at confirmation time). profiles.email_verified is a
+ * mirror kept for display, but it is never enough on its own: only the
+ * current Auth user's own state may authorize access. A stale mirror saying
+ * "false" cannot bounce a really-confirmed user, and a mirror saying "true"
+ * can never open a route for an unconfirmed one.
  */
-export function isEmailVerified(user, profile) {
-  return Boolean(profile?.email_verified) || Boolean(user?.email_confirmed_at);
+export function isEmailVerified(user) {
+  return Boolean(user?.email_confirmed_at);
 }
 
 /**
@@ -44,7 +46,7 @@ export function dashboardPathFor(role) {
  */
 export function postAuthPath(profile, user) {
   const role = roleOf(profile, user);
-  if (role !== "admin" && !isEmailVerified(user, profile)) return VERIFY_EMAIL_PATH;
+  if (role !== "admin" && !isEmailVerified(user)) return VERIFY_EMAIL_PATH;
   return dashboardPathFor(role);
 }
 
@@ -61,9 +63,9 @@ export function postAuthPath(profile, user) {
  * `session: null`, so a freshly signed-up visitor is legitimately here with no
  * session at all. Forgetting that address must not eject them back to /login.
  */
-export function verifyPageState({ loading, user, profile, pendingEmail = "" }) {
+export function verifyPageState({ loading, user, pendingEmail = "" }) {
   if (loading) return "loading";
-  if (user && isEmailVerified(user, profile)) return "already-verified";
+  if (user && isEmailVerified(user)) return "already-verified";
   if (user) return "form";
   if (typeof pendingEmail === "string" && pendingEmail.trim()) return "form";
   return "login-again";

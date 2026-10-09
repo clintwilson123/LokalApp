@@ -23,7 +23,16 @@ export default defineConfig([
       },
     },
     rules: {
-      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      'no-unused-vars': [
+        'error',
+        {
+          varsIgnorePattern: '^[A-Z_]',
+          // Mirrors varsIgnorePattern for parameters: component-typed params
+          // are referenced as JSX element names, which core ESLint's
+          // no-unused-vars does not count as usage.
+          argsIgnorePattern: '^[A-Z_]',
+        },
+      ],
       'react-hooks/set-state-in-effect': 'off',
     },
   },

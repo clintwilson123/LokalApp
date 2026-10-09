@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabaseClient";
@@ -8,6 +8,7 @@ import { AUTH_MSG, messageForCode } from "../lib/authErrors";
 import { writePendingEmail } from "../lib/pendingVerification";
 import { isTurnstileConfigured } from "../lib/turnstile";
 import TurnstileWidget from "../components/TurnstileWidget";
+import ConsentDocument from "../components/ConsentDocument";
 
 const bgBlob = {
   position: "absolute", borderRadius: "50%", filter: "blur(80px)",
@@ -97,6 +98,18 @@ export default function Signup() {
   // Synchronous submit guard: `loading` is state and will not have re-rendered
   // when two Enter keydowns arrive in the same event cycle.
   const submittingRef = useRef(false);
+  // Read-only view of the consent document — closes without touching the
+  // checkbox, the form or the route.
+  const [consentOpen, setConsentOpen] = useState(false);
+
+  useEffect(() => {
+    if (!consentOpen) return;
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") setConsentOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [consentOpen]);
 
   const strength = getPasswordStrength(password);
 
@@ -285,6 +298,20 @@ export default function Signup() {
             <span>I agree to the <Link to="/consent" style={{ color: "#93c5fd" }}>Terms, Privacy Policy, and Employer Consent</Link></span>
           </label>
 
+          {/* Outside the label on purpose: reading the document must never
+              tick the checkbox or navigate away from the form. */}
+          <button
+            type="button"
+            onClick={() => setConsentOpen(true)}
+            style={{
+              display: "block", background: "none", border: "none", padding: 0,
+              margin: "-8px 0 16px", color: "#93c5fd", cursor: "pointer",
+              fontSize: "12px", fontWeight: "600", textDecoration: "underline",
+            }}
+          >
+            View Consent
+          </button>
+
           <TurnstileWidget ref={captchaRef} />
 
           <button
@@ -304,6 +331,65 @@ export default function Signup() {
           </p>
         </div>
       </div>
+
+      {consentOpen && (
+        <div
+          role="presentation"
+          onClick={(e) => { if (e.target === e.currentTarget) setConsentOpen(false); }}
+          style={{
+            position: "fixed", inset: 0, zIndex: 100,
+            background: "rgba(2, 6, 23, 0.75)", backdropFilter: "blur(6px)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: "20px",
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Terms & Conditions"
+            style={{
+              position: "relative", width: "100%", maxWidth: "520px",
+              maxHeight: "80vh", overflowY: "auto",
+              background: "rgba(15, 23, 42, 0.98)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: "18px", padding: "28px 24px 20px",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.5)", textAlign: "center",
+            }}
+          >
+            <button
+              type="button"
+              aria-label="Close"
+              onClick={() => setConsentOpen(false)}
+              style={{
+                position: "absolute", top: "10px", right: "12px",
+                background: "none", border: "none", color: "rgba(255,255,255,0.6)",
+                fontSize: "18px", cursor: "pointer", padding: "4px 8px",
+              }}
+            >
+              ✕
+            </button>
+            <h3 style={{ color: "#fff", fontSize: "20px", fontWeight: "800", margin: "0 0 4px" }}>
+              {"Terms & Conditions"}
+            </h3>
+            <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", margin: "0 0 16px" }}>
+              Please read and accept the following
+            </p>
+            <ConsentDocument />
+            <button
+              type="button"
+              onClick={() => setConsentOpen(false)}
+              style={{
+                width: "100%", padding: "10px", borderRadius: "10px",
+                border: "1px solid rgba(255,255,255,0.15)",
+                background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.7)",
+                cursor: "pointer", fontSize: "14px", fontWeight: "600",
+              }}
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

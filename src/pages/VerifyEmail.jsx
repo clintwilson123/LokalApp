@@ -11,6 +11,8 @@ import {
   readPendingEmail,
   clearPendingEmail,
   clearPendingSignup,
+  readVerifiedNotice,
+  clearVerifiedNotice,
 } from "../lib/pendingVerification";
 
 // Supabase throttles resends itself; this mirrors its 60 s floor so the button
@@ -39,6 +41,9 @@ export default function VerifyEmail() {
   });
   const [countdown, setCountdown] = useState(RESEND_COOLDOWN_SECONDS);
   const [verified, setVerified] = useState(false);
+  // Offered only when the confirmation really happened somewhere we cannot
+  // see a session for: honest escape hatch instead of a dead end.
+  const [showSignIn, setShowSignIn] = useState(false);
   // Turnstile handle for the resend action: /resend is captcha-protected once
   // the Dashboard toggle is enabled.
   const captchaRef = useRef(null);
@@ -50,6 +55,26 @@ export default function VerifyEmail() {
     pendingEmail: sessionEmail,
   });
 
+  // Fresh read on every render: the callback in another tab writes this
+  // while this screen may already be mounted. A MATCHING notice drives the
+  // success state — never a session on its own, and never an address that
+  // disagrees with what this screen is showing.
+  const verifiedNotice = readVerifiedNotice();
+  const noticeMatch = Boolean(verifiedNotice) &&
+    (!sessionEmail || verifiedNotice.email.toLowerCase() === sessionEmail.toLowerCase());
+  const noticeDriven = Boolean(noticeMatch) &&
+    (pageState === "already-verified" || (pageState === "form" && !user));
+
+  // A notice arriving with navigation state (e.g. the error fragment from an
+  // expired link) is shown as soon as this screen learns about it.
+  useEffect(() => {
+    if (!navState.notice) return;
+    setMessage({
+      text: navState.notice,
+      type: navState.noticeType === "success" ? "success" : "error",
+    });
+  }, [navState.notice, navState.noticeType]);
+
   // Resend cooldown.
   useEffect(() => {
     if (countdown <= 0) return;
@@ -58,16 +83,28 @@ export default function VerifyEmail() {
   }, [countdown]);
 
   // Supabase Auth confirmed the address (the link landed here, or in another
-  // tab and this one picked it up from storage). Show the success state, then
-  // hand off to the dashboard for this user's role — never back to /login.
+  // tab and this one picked it up from storage).
+  //
+  // With a fresh confirmation notice: show the success state with a Sign In
+  // button and NO dashboard timer — verification never logs anyone in. The
+  // notice is wording only: if a session outlived the confirmation, the
+  // confirmation callback owns its cleanup (proof-based, in the tab the link
+  // opened), and this screen never signs anyone out on a notice's say-so.
+  //
+  // Without a notice this is simply a pre-existing signed-in, verified
+  // visitor: keep the short handoff to their dashboard.
   useEffect(() => {
+    if (noticeDriven) {
+      setVerified(true);
+      return;
+    }
     if (pageState !== "already-verified") return;
     setVerified(true);
     const timer = setTimeout(() => {
       navigate(dashboardPathFor(roleOf(profile, user)), { replace: true });
     }, 1200);
     return () => clearTimeout(timer);
-  }, [pageState, profile, user, navigate]);
+  }, [noticeDriven, pageState, profile, user, navigate]);
 
   const handleResend = async () => {
     if (resending || loading || verified) return;
@@ -123,21 +160,26 @@ export default function VerifyEmail() {
 
   // The confirmation link was opened somewhere else (email clients like to use
   // a new tab). Re-read the session from storage, sync the profile and let the
-  // effect above redirect once the state settles.
+  // effect above take over once the state settles.
   const handleConfirmed = async () => {
     if (loading || resending || verified) return;
     setLoading(true);
+    setShowSignIn(false);
     setMessage({ text: "", type: "" });
 
     try {
       const fresh = await refreshSession();
       if (fresh?.email_confirmed_at) {
-        return; // pageState becomes "already-verified" and the effect navigates
+        return; // pageState becomes "already-verified" and the effect takes over
       }
+      // Honest about what this device can and cannot see: the confirmation
+      // may well have completed somewhere else, where we have no session to
+      // read. Offer the real next step instead of a dead end.
       setMessage({
-        text: "We haven't picked up the confirmation yet. Click the link in your email, then try again.",
+        text: "We can't see the confirmation from this device yet. If you clicked the link in another app or on another device, sign in with your password to continue.",
         type: "error",
       });
+      setShowSignIn(true);
     } catch {
       setMessage({ text: AUTH_MSG.network, type: "error" });
     } finally {
@@ -148,7 +190,9 @@ export default function VerifyEmail() {
   const handleDifferentEmail = async () => {
     clearPendingEmail();
     clearPendingSignup();
+    clearVerifiedNotice();
     setMessage({ text: "", type: "" });
+    setShowSignIn(false);
     try {
       await supabase.auth.signOut();
     } catch {
@@ -232,7 +276,33 @@ export default function VerifyEmail() {
             color: "rgba(255,255,255,0.5)", fontSize: "13px", margin: "8px 0 0",
             transform: verified ? "translateY(0)" : "translateY(12px)",
             opacity: verified ? 1 : 0, transition: "all 0.5s ease 0.75s",
-          }}>Redirecting to your dashboard...</p>
+          }}>
+            {noticeDriven ? "You can now sign in to your account." : "Redirecting to your dashboard..."}
+          </p>
+          {noticeDriven && (
+            <button
+              onClick={() =>
+                navigate("/login", {
+                  replace: true,
+                  state: {
+                    notice: AUTH_MSG.verifiedSuccess,
+                    noticeType: "success",
+                    ...(verifiedNotice?.email ? { email: verifiedNotice.email } : {}),
+                  },
+                })
+              }
+              style={{
+                marginTop: "20px", padding: "12px 32px", borderRadius: "10px",
+                border: "none", cursor: "pointer",
+                background: "linear-gradient(135deg, #4a90e2, #3b82f6)", color: "#fff",
+                fontSize: "15px", fontWeight: "700",
+                transform: verified ? "translateY(0)" : "translateY(12px)",
+                opacity: verified ? 1 : 0, transition: "all 0.5s ease 0.85s",
+              }}
+            >
+              Sign In
+            </button>
+          )}
         </div>
 
         <div style={{ fontSize: "42px", marginBottom: "8px" }}>✉️</div>
@@ -271,6 +341,20 @@ export default function VerifyEmail() {
           }}>
             {message.type === "success" ? "✅ " : "⚠️ "}{message.text}
           </div>
+        )}
+
+        {showSignIn && (
+          <button
+            onClick={() => navigate("/login", { replace: true })}
+            style={{
+              width: "100%", padding: "12px", marginBottom: "12px", borderRadius: "12px",
+              border: "none", cursor: "pointer",
+              background: "linear-gradient(135deg, #4a90e2, #3b82f6)", color: "#fff",
+              fontSize: "15px", fontWeight: "700",
+            }}
+          >
+            Sign In
+          </button>
         )}
 
         <button
