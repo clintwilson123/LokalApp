@@ -1,7 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { postAuthPath } from "../lib/authFlow";
+import { AUTH_MSG, messageForCode } from "../lib/authErrors";
+import { isTurnstileConfigured } from "../lib/turnstile";
+import TurnstileWidget from "../components/TurnstileWidget";
 import { pageWrapper, card, title, subtitle, input, inputWrapper, inputIcon, button, link, linkHighlight, radii } from "../uiStyles";
 
 const bgBlob = {
@@ -22,6 +25,8 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false);
   const [justSignedIn, setJustSignedIn] = useState(false);
   const [userName, setUserName] = useState("");
+  // Turnstile handle: token read at submit time, reset after a CAPTCHA reject.
+  const captchaRef = useRef(null);
 
   // Redirect only once auth AND profile loading have settled, and never while
   // the welcome overlay is showing. One rule for everyone: an authenticated but
@@ -39,9 +44,21 @@ export default function Login() {
       setError("Please enter your email and password.");
       return;
     }
+    // Turnstile gate — before any network call. GoTrue's password grant is
+    // captcha-protected once the Dashboard toggle is enabled, so an empty
+    // token would be refused server-side anyway.
+    if (!isTurnstileConfigured()) {
+      setError(AUTH_MSG.captchaNotConfigured);
+      return;
+    }
+    const captchaToken = captchaRef.current?.getToken() || "";
+    if (!captchaToken) {
+      setError(AUTH_MSG.captchaIncomplete);
+      return;
+    }
     setSubmitting(true);
     try {
-      const result = await signIn(email, password);
+      const result = await signIn(email, password, captchaToken);
       setUserName(
         result?.user?.user_metadata?.full_name ||
         result?.user?.email?.split("@")[0] ||
@@ -60,7 +77,18 @@ export default function Login() {
         navigate(destination, { replace: true });
       }, 1400);
     } catch (err) {
-      if (err.message?.includes("Invalid login credentials")) {
+      // Turnstile tokens are single-use: GoTrue's route middleware verified
+      // this one before the handler ran, so ANY failed request (wrong
+      // password, unconfirmed email, rate limit) has burned it. Reusing it on
+      // the next submit would come back as timeout-or-duplicate, so start
+      // every retry with a fresh challenge. The message below is unaffected.
+      captchaRef.current?.reset();
+      const code = typeof err?.code === "string" ? err.code : "";
+      if (code === "captcha_failed" || code === "CAPTCHA_FAILED") {
+        // Report a rejection as a CAPTCHA problem — never as a
+        // wrong-password or connection error.
+        setError(messageForCode(code, err.message));
+      } else if (err.message?.includes("Invalid login credentials")) {
         setError("Wrong email or password.");
       } else if (err.message?.includes("verify your email") || err.message?.includes("Email not confirmed")) {
         // Supabase itself is refusing the sign-in, so no session exists and
@@ -140,6 +168,8 @@ export default function Login() {
               Forgot password?
             </Link>
           </div>
+
+          <TurnstileWidget ref={captchaRef} />
 
           <button
             style={{ ...button, opacity: submitting ? 0.7 : 1, cursor: submitting ? "not-allowed" : "pointer" }}

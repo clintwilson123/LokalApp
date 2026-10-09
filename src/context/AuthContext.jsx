@@ -196,11 +196,17 @@ export function AuthProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function signUp(email, password, fullName, role, riskLevel = "low") {
+  async function signUp(email, password, fullName, role, riskLevel = "low", captchaToken = "") {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: fullName, role } },
+      options: {
+        data: { full_name: fullName, role },
+        // Single-use Turnstile token. Supabase Auth is the sole verifier:
+        // passing it anywhere else (Edge Functions, the DB) would consume it
+        // and make GoTrue reject the signup as a replay.
+        ...(captchaToken ? { captchaToken } : {}),
+      },
     });
     if (error) throw error;
 
@@ -255,10 +261,13 @@ export function AuthProvider({ children }) {
   }
 
 
-  async function signIn(email, password) {
+  async function signIn(email, password, captchaToken = "") {
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
+      // /token (password grant) is captcha-protected once the Dashboard
+      // toggle is on, so the login screen supplies a token too.
+      options: captchaToken ? { captchaToken } : {},
     });
     if (error) throw error;
 

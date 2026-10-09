@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabaseClient";
@@ -6,13 +6,13 @@ import { pageWrapper, card, title, subtitle, input, inputWrapper, inputIcon, but
 import { sanitizeName, validateGmail, getPasswordStrength, maxLength } from "../lib/sanitize";
 import { AUTH_MSG, messageForCode } from "../lib/authErrors";
 import { writePendingEmail } from "../lib/pendingVerification";
+import { isTurnstileConfigured } from "../lib/turnstile";
+import TurnstileWidget from "../components/TurnstileWidget";
 
 const bgBlob = {
   position: "absolute", borderRadius: "50%", filter: "blur(80px)",
   opacity: 0.15, pointerEvents: "none", zIndex: 1,
 };
-
-const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY || "";
 
 // Extract a safe, user-facing error from a supabase.functions.invoke error
 async function extractEdgeError(error) {
@@ -68,13 +68,20 @@ async function invokeEdge(name, body) {
   return data;
 }
 
-async function verifyCaptcha(email, token) {
-  return invokeEdge("spam-prevention", { email, captchaToken: token });
+// Pre-signup checks only: Gmail format/risk, duplicate aliases and the
+// signup rate limit. CAPTCHA is NOT verified here — the single-use Turnstile
+// token is consumed by Supabase Auth itself (primary enforcement), and
+// verifying it twice would make GoTrue reject it as a replay.
+async function runSpamChecks(email) {
+  return invokeEdge("spam-prevention", { email });
 }
 
 export default function Signup() {
   const navigate = useNavigate();
   const { signUp } = useAuth();
+  // Turnstile handle: getToken() is read at submit time and reset() after a
+  // CAPTCHA rejection so the next attempt renders a fresh challenge.
+  const captchaRef = useRef(null);
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -90,16 +97,6 @@ export default function Signup() {
   // Synchronous submit guard: `loading` is state and will not have re-rendered
   // when two Enter keydowns arrive in the same event cycle.
   const submittingRef = useRef(false);
-
-  // Dynamically load reCAPTCHA script if key is configured
-  useEffect(() => {
-    if (RECAPTCHA_SITE_KEY && !document.querySelector(`script[src*="recaptcha"]`)) {
-      const script = document.createElement("script");
-      script.src = `https://www.google.com/recaptcha/api.js?render=${RECAPTCHA_SITE_KEY}`;
-      script.async = true;
-      document.head.appendChild(script);
-    }
-  }, []);
 
   const strength = getPasswordStrength(password);
 
@@ -138,20 +135,26 @@ export default function Signup() {
       return;
     }
 
+    // Turnstile gate — before ANY network call. Supabase Auth rejects an empty
+    // or stale CAPTCHA token once protection is enabled, so fail here with a
+    // clear message rather than spending a request the server must refuse.
+    if (!isTurnstileConfigured()) {
+      setError(AUTH_MSG.captchaNotConfigured);
+      return;
+    }
+    const captchaToken = captchaRef.current?.getToken() || "";
+    if (!captchaToken) {
+      setError(AUTH_MSG.captchaIncomplete);
+      return;
+    }
+
     submittingRef.current = true;
     setLoading(true);
     try {
-      // Spam prevention — hard gate (also re-validates format/risk server-side)
-      let captchaToken = null;
-      if (RECAPTCHA_SITE_KEY && typeof window !== "undefined" && window.grecaptcha) {
-        try {
-          captchaToken = await window.grecaptcha.execute(RECAPTCHA_SITE_KEY, { action: "signup" });
-        } catch {
-          // Captcha failed — continue without token, server will decide
-        }
-      }
-
-      const spamResult = await verifyCaptcha(email, captchaToken);
+      // Spam checks — hard gate (re-validates format/risk server-side).
+      // CAPTCHA is deliberately NOT checked here: the single-use Turnstile
+      // token is consumed by Supabase Auth in signUp() below.
+      const spamResult = await runSpamChecks(email);
       const riskLevel = spamResult?.risk_level || "low";
 
       // Account creation. Once this returns a user, the account EXISTS — every
@@ -163,7 +166,8 @@ export default function Signup() {
         password,
         maxLength(sanitizeName(fullName), 100),
         "applicant",
-        riskLevel
+        riskLevel,
+        captchaToken
       );
 
       if (!signupResult?.user) {
@@ -187,11 +191,19 @@ export default function Signup() {
         state: { email: accountEmail, accountCreated: true },
       });
     } catch (err) {
+      // Turnstile tokens are single-use: whatever reached the server has
+      // already consumed this one (GoTrue's middleware verifies it before the
+      // handler runs), so every retry must start with a fresh challenge —
+      // reusing the token would come back as timeout-or-duplicate. The error
+      // message below is unaffected: a rejected CAPTCHA still reads as a
+      // CAPTCHA failure, a duplicate address still reads as already registered.
+      captchaRef.current?.reset();
       // Edge Functions classify by err.code; Supabase Auth exposes its own
-      // AuthApiError code (e.g. user_already_exists). Anything else —
-      // PostgREST included — simply has no code and falls through to its
+      // AuthApiError code (e.g. user_already_exists, captcha_failed). Anything
+      // else — PostgREST included — simply has no code and falls through to its
       // message inside messageForCode.
-      setError(messageForCode(typeof err?.code === "string" ? err.code : "", err?.message || ""));
+      const code = typeof err?.code === "string" ? err.code : "";
+      setError(messageForCode(code, err?.message || ""));
     } finally {
       submittingRef.current = false;
       setLoading(false);
@@ -274,6 +286,8 @@ export default function Signup() {
               style={{ width: "16px", height: "16px", cursor: "pointer" }} />
             <span>I agree to the <Link to="/consent" style={{ color: "#93c5fd" }}>Terms, Privacy Policy, and Employer Consent</Link></span>
           </label>
+
+          <TurnstileWidget ref={captchaRef} />
 
           <button
             style={{ ...button, opacity: loading ? 0.7 : 1, cursor: loading ? "not-allowed" : "pointer" }}

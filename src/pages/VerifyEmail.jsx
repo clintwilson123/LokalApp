@@ -1,10 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
 import { pageWrapper, card, title, subtitle } from "../uiStyles";
 import { AUTH_MSG, messageForCode } from "../lib/authErrors";
 import { verifyPageState, dashboardPathFor, roleOf } from "../lib/authFlow";
+import { isTurnstileConfigured } from "../lib/turnstile";
+import TurnstileWidget from "../components/TurnstileWidget";
 import {
   readPendingEmail,
   clearPendingEmail,
@@ -32,6 +34,9 @@ export default function VerifyEmail() {
   const [message, setMessage] = useState({ text: "", type: "" });
   const [countdown, setCountdown] = useState(RESEND_COOLDOWN_SECONDS);
   const [verified, setVerified] = useState(false);
+  // Turnstile handle for the resend action: /resend is captcha-protected once
+  // the Dashboard toggle is enabled.
+  const captchaRef = useRef(null);
 
   const pageState = verifyPageState({
     loading: authLoading,
@@ -62,6 +67,19 @@ export default function VerifyEmail() {
   const handleResend = async () => {
     if (resending || loading || verified) return;
     if (countdown > 0 || !sessionEmail) return;
+
+    // Turnstile gate — before any network call. An empty token would be
+    // refused by GoTrue's /resend route once CAPTCHA protection is enabled.
+    if (!isTurnstileConfigured()) {
+      setMessage({ text: AUTH_MSG.captchaNotConfigured, type: "error" });
+      return;
+    }
+    const captchaToken = captchaRef.current?.getToken() || "";
+    if (!captchaToken) {
+      setMessage({ text: AUTH_MSG.captchaIncomplete, type: "error" });
+      return;
+    }
+
     setResending(true);
     setMessage({ text: "", type: "" });
 
@@ -69,6 +87,7 @@ export default function VerifyEmail() {
       const { error } = await supabase.auth.resend({
         type: "signup",
         email: sessionEmail,
+        options: { captchaToken },
       });
       if (error) {
         const err = new Error(error.message || "");
@@ -83,6 +102,11 @@ export default function VerifyEmail() {
     } catch (err) {
       // The account already exists at this point, so a provider failure is
       // reported with the contextual message — never as an invalid address.
+      //
+      // Turnstile tokens are single-use: /resend's middleware already spent
+      // this one, so ANY failure (CAPTCHA rejection, rate limit, connectivity)
+      // hands the retry a fresh challenge instead of a doomed replay.
+      captchaRef.current?.reset();
       setMessage({
         text: messageForCode(err.code || "", err.message || "", { accountCreated: true }),
         type: "error",
@@ -266,6 +290,7 @@ export default function VerifyEmail() {
         </button>
 
         <div style={{ textAlign: "center", marginBottom: "16px" }}>
+          <TurnstileWidget ref={captchaRef} />
           {countdown > 0 ? (
             <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)" }}>
               Resend link in <strong style={{ color: "#93c5fd" }}>{countdown}s</strong>

@@ -146,7 +146,7 @@ serve(async (req) => {
       return json({ error: "Method not allowed", code: "METHOD_NOT_ALLOWED" }, 405);
     }
 
-    const { email, captchaToken } = await req.json();
+    const { email } = await req.json();
 
     if (!email || typeof email !== "string" || !email.includes("@")) {
       return json({ error: "Please enter a valid Gmail address.", code: "INVALID_FORMAT" }, 400);
@@ -244,31 +244,16 @@ serve(async (req) => {
       riskLevel = "low";
     }
 
-    // --- CAPTCHA VERIFICATION (optional if not configured) ---
-    const recaptchaSecret = Deno.env.get("SUPABASE_FUNCTIONS_RECAPTCHA_SECRET");
-
-    if (captchaToken && recaptchaSecret) {
-      try {
-        const verifyRes = await fetch("https://www.google.com/recaptcha/api/siteverify", {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: `secret=${recaptchaSecret}&response=${captchaToken}`,
-        });
-
-        if (verifyRes.ok) {
-          const verifyData = await verifyRes.json();
-          if (!verifyData.success) {
-            return json({ error: "CAPTCHA verification failed. Please try again.", code: "CAPTCHA_FAILED" }, 403);
-          }
-          if (verifyData.score !== undefined && verifyData.score < 0.5) {
-            return json({ error: "Suspicious activity detected. Please try again later.", code: "SUSPICIOUS" }, 403);
-          }
-        }
-      } catch (captchaErr) {
-        // Log real captcha error; do not block signup on captcha network issues
-        console.error("spam-prevention: captcha verification error:", captchaErr);
-      }
-    }
+    // --- CAPTCHA NOTE ---
+    // There is deliberately no CAPTCHA verification in this function.
+    // CAPTCHA is enforced by Supabase Auth itself (Dashboard -> Authentication
+    // -> Bot and Abuse Protection), which verifies the single-use Turnstile
+    // token passed in options.captchaToken. Verifying that token here as well
+    // would consume it and make GoTrue reject the signup as a replay
+    // ("timeout-or-duplicate"), and trusting a browser-supplied token result
+    // would be meaningless anyway. This function only does the pre-signup
+    // checks that Supabase Auth does not know about: Gmail format/risk,
+    // duplicate aliases and the signup rate limit.
 
     // --- RATE LIMITING ---
     const { data: recentProfiles } = await supabase

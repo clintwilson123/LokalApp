@@ -17,7 +17,16 @@ export const AUTH_MSG = {
     "Registration was blocked because the activity was flagged as suspicious. Please try again later.",
   network: "Could not reach the server. Please check your connection and try again.",
   rateLimited: "Too many signups. Please wait a moment and try again.",
-  captchaFailed: "Something went wrong. Please try again.",
+  // Turnstile / Supabase Auth CAPTCHA messages. Kept distinct from every other
+  // failure so a CAPTCHA problem is never reported as an invalid address or a
+  // connection error.
+  captchaFailed: "The security check failed. Please try again.",
+  captchaIncomplete: "Please complete the security check and try again.",
+  captchaExpired: "The security check expired. Please complete it again.",
+  captchaNotConfigured:
+    "The security check is missing from this build. Please contact the administrator.",
+  captchaLoadFailed:
+    "The security check could not be loaded. Please check your connection and try again.",
   serverError: "Something went wrong. Please try again.",
   weakPassword: "Password must be at least 6 characters.",
   generic: "Something went wrong. Please try again.",
@@ -47,6 +56,9 @@ const CODE_MESSAGES = {
   SUSPICIOUS: AUTH_MSG.suspicious,
   RATE_LIMITED: AUTH_MSG.rateLimited,
   CAPTCHA_FAILED: AUTH_MSG.captchaFailed,
+  // GoTrue's own code when CAPTCHA protection is enabled and the token is
+  // missing, expired or rejected by the provider.
+  captcha_failed: AUTH_MSG.captchaFailed,
   SERVER_ERROR: AUTH_MSG.serverError,
   INVALID_CODE: AUTH_MSG.invalidOtp,
 

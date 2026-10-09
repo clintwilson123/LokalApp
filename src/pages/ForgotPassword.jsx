@@ -1,6 +1,9 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
+import { AUTH_MSG } from "../lib/authErrors";
+import { isTurnstileConfigured } from "../lib/turnstile";
+import TurnstileWidget from "../components/TurnstileWidget";
 import { pageWrapper, card, title, subtitle, input, inputWrapper, inputIcon, button, linkHighlight } from "../uiStyles";
 
 const bgBlob = {
@@ -26,6 +29,12 @@ function describeResetError(err) {
   const msg = String(err?.message || "");
   const code = err?.code || "";
   const status = err?.status;
+
+  // CAPTCHA first: a missing/rejected token must never be reported as an
+  // address or connectivity problem.
+  if (code === "captcha_failed" || code === "CAPTCHA_FAILED") {
+    return AUTH_MSG.captchaFailed;
+  }
 
   // True connectivity failure
   if (
@@ -58,6 +67,8 @@ export default function ForgotPassword() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  // Turnstile handle: token read at submit time, reset after a CAPTCHA reject.
+  const captchaRef = useRef(null);
 
   const handleReset = async () => {
     setError("");
@@ -70,15 +81,33 @@ export default function ForgotPassword() {
       setError("Please enter a valid email address.");
       return;
     }
+    // Turnstile gate — before any network call. /recover is captcha-protected
+    // once the Dashboard toggle is enabled.
+    if (!isTurnstileConfigured()) {
+      setError(AUTH_MSG.captchaNotConfigured);
+      return;
+    }
+    const captchaToken = captchaRef.current?.getToken() || "";
+    if (!captchaToken) {
+      setError(AUTH_MSG.captchaIncomplete);
+      return;
+    }
     setLoading(true);
     try {
       const { error: resetErr } = await supabase.auth.resetPasswordForEmail(target, {
         redirectTo: `${siteUrl}/update-password`,
+        captchaToken,
       });
       if (resetErr) throw resetErr;
       setEmail(target);
       setSent(true);
     } catch (err) {
+      // Turnstile tokens are single-use: /recover's middleware already spent
+      // this one, so any failed attempt (CAPTCHA rejection, rate limit,
+      // connectivity) must hand the retry a fresh challenge. Reusing the token
+      // would come back as timeout-or-duplicate. describeResetError below is
+      // unchanged — a rejected token is still reported as a CAPTCHA problem.
+      captchaRef.current?.reset();
       setError(describeResetError(err));
     } finally {
       setLoading(false);
@@ -144,6 +173,8 @@ export default function ForgotPassword() {
             onKeyDown={handleKeyDown}
           />
         </div>
+
+        <TurnstileWidget ref={captchaRef} />
 
         <button
           style={{ ...button, opacity: loading ? 0.7 : 1, cursor: loading ? "not-allowed" : "pointer" }}
