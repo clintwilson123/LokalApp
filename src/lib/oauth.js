@@ -15,8 +15,13 @@ import { OAUTH_CALLBACK_PATH } from "./authFlow";
  * same rule the password-reset link already uses, so both flows agree on the
  * origin. The result must ALSO be listed in Dashboard -> Authentication ->
  * URL Configuration -> Redirect URLs, or Google refuses the round-trip.
+ *
+ * `intent` is optional and only ever the literal "signup": it rides as a
+ * query parameter so /auth/callback can tell "I started this from the Signup
+ * page, prefill the form" apart from a plain sign-in. The OAuth state and
+ * token exchange never depend on it.
  */
-export function oauthRedirectTo() {
+export function oauthRedirectTo(intent) {
   const isLocalhost =
     import.meta.env.DEV ||
     (typeof window !== "undefined" &&
@@ -29,7 +34,26 @@ export function oauthRedirectTo() {
     base = import.meta.env.VITE_SITE_URL ||
       (typeof window !== "undefined" ? window.location.origin : "");
   }
-  return `${String(base).replace(/\/+$/, "")}${OAUTH_CALLBACK_PATH}`;
+  const path =
+    intent === "signup" ? `${OAUTH_CALLBACK_PATH}?intent=signup` : OAUTH_CALLBACK_PATH;
+  return `${String(base).replace(/\/+$/, "")}${path}`;
+}
+
+/**
+ * Read the optional hand-off intent back off the callback URL.
+ *
+ * Only "signup" is meaningful (the Signup page started this round-trip and
+ * wants the form prefilled). Anything else — including a missing or
+ * hand-edited value — is treated as a plain sign-in, so a crafted link can
+ * never route a signed-in user into the completion form by surprise.
+ */
+export function oauthIntentFromSearch(search) {
+  try {
+    const params = new URLSearchParams(typeof search === "string" ? search : "");
+    return params.get("intent") === "signup" ? "signup" : "";
+  } catch {
+    return "";
+  }
 }
 
 /**

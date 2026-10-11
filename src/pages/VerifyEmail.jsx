@@ -1,12 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
 import { pageWrapper, card, title, subtitle, input, inputWrapper, inputIcon } from "../uiStyles";
-import { AUTH_MSG, messageForCode, messageForVerifyError } from "../lib/authErrors";
+import { AUTH_MSG, messageForVerifyError, messageForResendError } from "../lib/authErrors";
 import { verifyPageState, dashboardPathFor, roleOf } from "../lib/authFlow";
-import { isTurnstileConfigured } from "../lib/turnstile";
-import TurnstileWidget from "../components/TurnstileWidget";
+import { isOtpDeliveryEnabled } from "../lib/otpMode";
 import {
   readPendingEmail,
   clearPendingEmail,
@@ -71,10 +70,17 @@ export default function VerifyEmail() {
 
   const navState = location.state || {};
 
-  // Confirm email is enabled, so a freshly signed-up visitor has no session:
-  // the address comes from navigation state, then from what was persisted
-  // across the reload, and only then from the signed-in user.
-  const sessionEmail = user?.email || readPendingEmail(navState);
+  // Which panel this build shows: the 6-digit CODE form (VITE_OTP_ENABLED on,
+  // the Send Email hook delivers codes) or the safe confirmation-LINK panel.
+  // Read on every render so tests can stub the flag per case.
+  const otpMode = isOtpDeliveryEnabled();
+
+  // The address this screen is waiting on. The remembered pending address
+  // wins over whatever account happens to be signed in on this device: a
+  // leftover session of ANOTHER user must never hijack the code entry (or
+  // send the resend to the wrong mailbox). Only when nothing was remembered
+  // does the signed-in user's own address fill in.
+  const sessionEmail = readPendingEmail(navState) || user?.email || "";
 
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
@@ -86,12 +92,14 @@ export default function VerifyEmail() {
   });
   const [countdown, setCountdown] = useState(RESEND_COOLDOWN_SECONDS);
   const [verified, setVerified] = useState(false);
+  // Link-mode only: "I clicked the confirmation link" asked the SERVER
+  // (getUser) whether the address really is confirmed. Set only on a
+  // confirmed answer — never on the user's say-so.
+  const [linkConfirmed, setLinkConfirmed] = useState(false);
+  const [rechecking, setRechecking] = useState(false);
   // The six digits typed by the user. Client-side input shaping only —
   // correctness is decided by supabase.auth.verifyOtp() on the server.
   const [otp, setOtp] = useState("");
-  // Turnstile handle for the resend action: /resend is captcha-protected once
-  // the Dashboard toggle is enabled.
-  const captchaRef = useRef(null);
 
   const pageState = verifyPageState({
     loading: authLoading,
@@ -109,6 +117,10 @@ export default function VerifyEmail() {
     (!sessionEmail || verifiedNotice.email.toLowerCase() === sessionEmail.toLowerCase());
   const noticeDriven = Boolean(noticeMatch) &&
     (pageState === "already-verified" || (pageState === "form" && !user));
+  // Either the callback wrote a matching notice, or link-mode's recheck
+  // heard "confirmed" from the server. Both show the success overlay with a
+  // Sign In button and NO dashboard timer — verification never logs anyone in.
+  const successDriven = Boolean(noticeDriven) || Boolean(linkConfirmed);
 
   // A notice arriving with navigation state (e.g. the error fragment from an
   // expired link) is shown as soon as this screen learns about it.
@@ -155,18 +167,6 @@ export default function VerifyEmail() {
     if (resending || loading || verified) return;
     if (countdown > 0 || !sessionEmail) return;
 
-    // Turnstile gate — before any network call. An empty token would be
-    // refused by GoTrue's /resend route once CAPTCHA protection is enabled.
-    if (!isTurnstileConfigured()) {
-      setMessage({ text: AUTH_MSG.captchaNotConfigured, type: "error" });
-      return;
-    }
-    const captchaToken = captchaRef.current?.getToken() || "";
-    if (!captchaToken) {
-      setMessage({ text: AUTH_MSG.captchaIncomplete, type: "error" });
-      return;
-    }
-
     setResending(true);
     setMessage({ text: "", type: "" });
 
@@ -174,34 +174,26 @@ export default function VerifyEmail() {
       const { error } = await supabase.auth.resend({
         type: "signup",
         email: sessionEmail,
-        options: { captchaToken },
       });
       if (error) {
         const err = new Error(error.message || "");
         err.code = error.code || "";
+        err.status = error.status || 0;
         throw err;
       }
       setMessage({
-        text: "Verification code sent again. It can take a minute to arrive.",
+        text: otpMode
+          ? "Verification code sent again. It can take a minute to arrive."
+          : AUTH_MSG.verifyLinkResent,
         type: "success",
       });
       setCountdown(RESEND_COOLDOWN_SECONDS);
-      // Turnstile tokens are single-use and /resend already consumed this one.
-      // The widget stays mounted across resends, so a success MUST also hand
-      // the next attempt a fresh challenge — otherwise the 60 s-later resend
-      // would replay the spent token and GoTrue would reject it as
-      // timeout-or-duplicate ("The security check failed").
-      captchaRef.current?.reset();
     } catch (err) {
       // The account already exists at this point, so a provider failure is
-      // reported with the contextual message — never as an invalid address.
-      //
-      // Turnstile tokens are single-use: /resend's middleware already spent
-      // this one, so ANY failure (CAPTCHA rejection, rate limit, connectivity)
-      // hands the retry a fresh challenge instead of a doomed replay.
-      captchaRef.current?.reset();
+      // reported with the contextual message — never as an invalid address,
+      // and never as the raw server text (which can echo internals).
       setMessage({
-        text: messageForCode(err.code || "", err.message || "", { accountCreated: true }),
+        text: messageForResendError(err, { accountCreated: true }),
         type: "error",
       });
     } finally {
@@ -212,6 +204,40 @@ export default function VerifyEmail() {
   const handleOtpChange = (e) => {
     // Shape only: digits, at most six. The server decides correctness.
     setOtp(e.target.value.replace(/\D/g, "").slice(0, OTP_LENGTH));
+  };
+
+  /**
+   * Link mode: "I clicked the confirmation link."
+   *
+   * NOT a self-claim — nothing here marks anything verified. It asks
+   * Supabase Auth (getUser) whether THIS address really is confirmed, and
+   * only a confirmed answer shows the success state. The click itself
+   * changes nothing.
+   */
+  const handleRecheck = async () => {
+    if (rechecking || loading || resending || verified) return;
+    if (!sessionEmail) return;
+    setRechecking(true);
+    setMessage({ text: "", type: "" });
+    try {
+      const { data, error } = await supabase.auth.getUser();
+      if (error) throw error;
+      const fresh = data?.user;
+      const confirmed = Boolean(fresh?.email_confirmed_at);
+      const sameAddress =
+        !fresh?.email || fresh.email.toLowerCase() === sessionEmail.toLowerCase();
+      if (confirmed && sameAddress) {
+        clearPendingEmail();
+        setLinkConfirmed(true);
+        setVerified(true);
+        return;
+      }
+      setMessage({ text: AUTH_MSG.verifyRecheckPending, type: "error" });
+    } catch {
+      setMessage({ text: AUTH_MSG.verifyRecheckFailed, type: "error" });
+    } finally {
+      setRechecking(false);
+    }
   };
 
   const handleVerify = async (event) => {
@@ -419,9 +445,9 @@ export default function VerifyEmail() {
             transform: verified ? "translateY(0)" : "translateY(12px)",
             opacity: verified ? 1 : 0, transition: "all 0.5s ease 0.75s",
           }}>
-            {noticeDriven ? "You can now sign in to your account." : "Redirecting to your dashboard..."}
+            {successDriven ? "You can now sign in to your account." : "Redirecting to your dashboard..."}
           </p>
-          {noticeDriven && (
+          {successDriven && (
             <button
               onClick={() =>
                 navigate("/login", {
@@ -429,7 +455,7 @@ export default function VerifyEmail() {
                   state: {
                     notice: AUTH_MSG.verifiedSuccess,
                     noticeType: "success",
-                    ...(verifiedNotice?.email ? { email: verifiedNotice.email } : {}),
+                    email: verifiedNotice?.email || sessionEmail,
                   },
                 })
               }
@@ -450,8 +476,17 @@ export default function VerifyEmail() {
         <div style={{ fontSize: "42px", marginBottom: "8px" }}>✉️</div>
         <h2 style={title}>Verify Your Email</h2>
         <p style={subtitle}>
-          Enter the 6-digit code we sent to<br />
-          <strong style={{ color: "#93c5fd" }}>{sessionEmail}</strong>
+          {otpMode ? (
+            <>
+              Enter the 6-digit code we sent to<br />
+              <strong style={{ color: "#93c5fd" }}>{sessionEmail}</strong>
+            </>
+          ) : (
+            <>
+              Confirm the email we sent to<br />
+              <strong style={{ color: "#93c5fd" }}>{sessionEmail}</strong>
+            </>
+          )}
         </p>
 
         {navState.accountCreated && (
@@ -469,8 +504,9 @@ export default function VerifyEmail() {
           backgroundColor: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
           color: "rgba(255,255,255,0.7)", textAlign: "center", lineHeight: 1.6,
         }}>
-          Open that email and type the code below to confirm this address.
-          You&apos;ll sign in with your password right after.
+          {otpMode
+            ? "Open that email and type the code below to confirm this address. You\u2019ll sign in with your password right after."
+            : AUTH_MSG.verifyLinkInstructions}
         </div>
 
         {message.text && (
@@ -485,62 +521,94 @@ export default function VerifyEmail() {
           </div>
         )}
 
-        <form onSubmit={handleVerify} noValidate>
-          <div style={inputWrapper}>
-            <span style={inputIcon}>🔢</span>
-            <input
-              style={{ ...input, letterSpacing: "0.5em", textAlign: "center", paddingLeft: "38px" }}
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              maxLength={OTP_LENGTH}
-              placeholder="123456"
-              aria-label="Verification code"
-              value={otp}
-              onChange={handleOtpChange}
-              disabled={loading || resending || verified}
-            />
-          </div>
+        {otpMode ? (
+          <form onSubmit={handleVerify} noValidate>
+            <div style={inputWrapper}>
+              <span style={inputIcon}>🔢</span>
+              <input
+                style={{ ...input, letterSpacing: "0.5em", textAlign: "center", paddingLeft: "38px" }}
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={OTP_LENGTH}
+                placeholder="123456"
+                aria-label="Verification code"
+                value={otp}
+                onChange={handleOtpChange}
+                disabled={loading || resending || verified}
+              />
+            </div>
 
+            <button
+              type="submit"
+              disabled={loading || resending || verified}
+              style={{
+                width: "100%", padding: "12px", marginBottom: "12px", borderRadius: "12px",
+                border: "none", cursor: loading ? "not-allowed" : "pointer",
+                background: "linear-gradient(135deg, #4a90e2, #3b82f6)", color: "#fff",
+                fontSize: "15px", fontWeight: "700", opacity: loading ? 0.7 : 1,
+                display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
+              }}
+            >
+              {loading && (
+                <span style={{
+                  display: "inline-block", width: "16px", height: "16px",
+                  border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff",
+                  borderRadius: "50%", animation: "spin 0.6s linear infinite",
+                }} />
+              )}
+              {loading ? "Verifying..." : "Verify Email"}
+            </button>
+          </form>
+        ) : (
+          /* Link-mode panel: no code box exists here by design — the email
+             carries a confirmation LINK. The button below only asks the
+             SERVER whether the address is confirmed yet; it never marks
+             anything verified on its own. */
           <button
-            type="submit"
-            disabled={loading || resending || verified}
+            type="button"
+            onClick={handleRecheck}
+            disabled={rechecking || resending || verified}
             style={{
               width: "100%", padding: "12px", marginBottom: "12px", borderRadius: "12px",
-              border: "none", cursor: loading ? "not-allowed" : "pointer",
+              border: "none", cursor: rechecking ? "not-allowed" : "pointer",
               background: "linear-gradient(135deg, #4a90e2, #3b82f6)", color: "#fff",
-              fontSize: "15px", fontWeight: "700", opacity: loading ? 0.7 : 1,
+              fontSize: "15px", fontWeight: "700", opacity: rechecking ? 0.7 : 1,
               display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
             }}
           >
-            {loading && (
+            {rechecking && (
               <span style={{
                 display: "inline-block", width: "16px", height: "16px",
                 border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff",
                 borderRadius: "50%", animation: "spin 0.6s linear infinite",
               }} />
             )}
-            {loading ? "Verifying..." : "Verify Email"}
+            {rechecking ? "Checking..." : "I\u2019ve clicked the confirmation link"}
           </button>
-        </form>
+        )}
 
         <div style={{ textAlign: "center", marginBottom: "16px" }}>
-          <TurnstileWidget ref={captchaRef} />
           {countdown > 0 ? (
             <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)" }}>
-              Resend code in <strong style={{ color: "#93c5fd" }}>{countdown}s</strong>
+              {otpMode ? "Resend code" : "Resend email"} in{" "}
+              <strong style={{ color: "#93c5fd" }}>{countdown}s</strong>
             </p>
           ) : (
             <button
               onClick={handleResend}
-              disabled={resending || loading}
+              disabled={resending || loading || rechecking}
               style={{
                 background: "none", border: "none", color: "#93c5fd", cursor: "pointer",
                 fontSize: "13px", fontWeight: "600", textDecoration: "underline",
                 opacity: resending ? 0.6 : 1,
               }}
             >
-              {resending ? "Sending..." : "Resend verification code"}
+              {resending
+                ? "Sending..."
+                : otpMode
+                  ? "Resend verification code"
+                  : "Resend confirmation email"}
             </button>
           )}
         </div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import { messageForOAuthError } from "../lib/authErrors";
 
@@ -52,33 +52,65 @@ const errorStyle = {
   textAlign: "left",
 };
 
+// If the redirect to Google never actually leaves the page (blocked popup
+// handling, an extension swallowing the navigation), the button must not
+// stay disabled forever — the person gets one more honest chance to click.
+const REDIRECT_ABANDON_MS = 8000;
+
 /**
- * "Continue with Google" — the standard OAuth redirect flow.
+ * "Continue with Google" — the standard OAuth REDIRECT flow.
  *
- * This button only STARTS the sign-in: Supabase redirects the browser to
- * Google and back to /auth/callback, where the session, the profile row and
- * the role-based redirect are all handled. Nothing here decides who is signed
- * in, and no secret is ever involved — only the public site origin goes to
+ * Rendered ONLY by the Signup page (Login is password-only). It only STARTS
+ * the sign-in: Supabase redirects the browser to Google's own ACCOUNT CHOOSER
+ * (prompt=select_account, so the active browser session is never silently
+ * reused) and consent screen, then back to /auth/callback, where the session,
+ * the profile row and the role-based redirect are handled. Nothing here
+ * decides who is signed in, no Google password is ever collected here, and no
+ * secret is involved — only the public site origin goes to
  * supabase.auth.signInWithOAuth.
  *
- * A cancelled sign-in is reported on the callback, not here. This screen only
- * sees failures to START the flow: the provider disabled in the Dashboard, a
- * bad redirect URL, or no connectivity.
+ * A full-page redirect (not a popup) is deliberate: the signup-intent hand-off
+ * (/auth/callback?intent=signup -> prefilled completion form) travels via
+ * navigation state and sessionStorage, which are tab-local and would break
+ * inside a popup.
+ *
+ * `intent="signup"` tells the callback to hand the authenticated user back
+ * to /signup (prefilled) instead of the dashboard — see oauth.js.
  */
-export default function GoogleSignInButton() {
+export default function GoogleSignInButton({ intent = "login" }) {
   const { signInWithGoogle } = useAuth();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const busyTimerRef = useRef(null);
+  // `busy` state alone cannot stop a double-click: two clicks in the same
+  // event cycle both see busy === false before React re-renders. The ref
+  // flips synchronously, so exactly one OAuth round-trip ever starts.
+  const busyRef = useRef(false);
+
+  useEffect(
+    () => () => {
+      if (busyTimerRef.current) clearTimeout(busyTimerRef.current);
+    },
+    []
+  );
 
   const handleClick = async () => {
-    if (busy) return;
+    if (busyRef.current) return;
+    busyRef.current = true;
     setError("");
     setBusy(true);
     try {
       // On success the browser navigates away to Google; `busy` stays true
       // so the button cannot be double-clicked into a second redirect.
-      await signInWithGoogle();
+      await signInWithGoogle(intent);
+      // …unless the redirect never happened. Release the button after a
+      // short window instead of leaving it permanently disabled.
+      busyTimerRef.current = setTimeout(() => {
+        busyRef.current = false;
+        setBusy(false);
+      }, REDIRECT_ABANDON_MS);
     } catch (err) {
+      busyRef.current = false;
       setError(messageForOAuthError(err));
       setBusy(false);
     }
@@ -87,7 +119,7 @@ export default function GoogleSignInButton() {
   return (
     <div style={wrapperStyle}>
       {error && (
-        <div style={errorStyle}>
+        <div style={errorStyle} role="alert">
           <span>⚠️</span>
           <span>{error}</span>
         </div>
@@ -95,8 +127,10 @@ export default function GoogleSignInButton() {
 
       <button
         type="button"
+        className="cjlink-google-btn"
         onClick={handleClick}
         disabled={busy}
+        aria-busy={busy}
         aria-label="Continue with Google"
         style={{ ...buttonStyle, ...(busy ? disabledStyle : null) }}
       >
@@ -105,7 +139,7 @@ export default function GoogleSignInButton() {
       </button>
 
       {/* Separates the OAuth button from the email+password form below it. */}
-      <div style={{ ...dividerStyle, marginTop: "16px", marginBottom: "0" }}>
+      <div style={{ ...dividerStyle, marginTop: "16px", marginBottom: "0" }} aria-hidden="true">
         <span style={lineStyle} />
         <span>or</span>
         <span style={lineStyle} />

@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { oauthRedirectTo } from "../lib/oauth";
+import { AUTH_MSG } from "../lib/authErrors";
 import {
   writePendingSignup,
   readPendingSignup,
@@ -200,12 +201,24 @@ export function AuthProvider({ children }) {
 
     try {
       const meta = user.user_metadata || {};
+      // Google already proved the address (or it did not). email_verified is
+      // taken from Supabase Auth's own confirmation state and the provider's
+      // own verified claim — never from a frontend flag. An unverified
+      // provider claim leaves the row unverified, so ProtectedRoute still
+      // routes that user through the verification step like everyone else.
+      const providerVerified = Boolean(
+        user.email_confirmed_at ||
+          meta.email_verified === true ||
+          (user.identities || []).some(
+            (identity) => identity?.identity_data?.email_verified === true
+          )
+      );
       const { error: insertError } = await supabase.from("profiles").insert({
         id: user.id,
         full_name: String(meta.full_name || meta.name || "").slice(0, 100),
         role: "applicant",
         status: "active",
-        email_verified: true,
+        email_verified: providerVerified,
         consent_accepted: false,
         signup_risk_level: "low",
       });
@@ -247,16 +260,12 @@ export function AuthProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function signUp(email, password, fullName, role, riskLevel = "low", captchaToken = "") {
+  async function signUp(email, password, fullName, role, riskLevel = "low") {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: { full_name: fullName, role },
-        // Single-use Turnstile token. Supabase Auth is the sole verifier:
-        // passing it anywhere else (Edge Functions, the DB) would consume it
-        // and make GoTrue reject the signup as a replay.
-        ...(captchaToken ? { captchaToken } : {}),
       },
     });
     if (error) throw error;
@@ -312,13 +321,10 @@ export function AuthProvider({ children }) {
   }
 
 
-  async function signIn(email, password, captchaToken = "") {
+  async function signIn(email, password) {
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
-      // /token (password grant) is captcha-protected once the Dashboard
-      // toggle is on, so the login screen supplies a token too.
-      options: captchaToken ? { captchaToken } : {},
     });
     if (error) throw error;
 
@@ -350,7 +356,7 @@ export function AuthProvider({ children }) {
 
     if (profileData.status === "suspended") {
       await supabase.auth.signOut();
-      throw new Error("Your account has been suspended. Contact the administrator.");
+      throw new Error(AUTH_MSG.suspended);
     }
 
     // An unverified applicant keeps their session — the caller routes them to
@@ -396,12 +402,21 @@ export function AuthProvider({ children }) {
    * where the session is picked up, the profile row is created if missing,
    * and the role-based redirect runs. A disabled provider or a bad redirect
    * URL surfaces as an AuthApiError the calling screen classifies.
+   *
+   * `intent` is "signup" when the Signup page started the round-trip: the
+   * callback then hands the (still authenticated) user back to /signup with
+   * their Google address and name to prefill the completion form — the SAME
+   * Supabase user UUID is kept, and no second account is ever created.
    */
-  async function signInWithGoogle() {
+  async function signInWithGoogle(intent = "") {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: oauthRedirectTo(),
+        redirectTo: oauthRedirectTo(intent === "signup" ? "signup" : undefined),
+        // Force Google's own account chooser instead of silently reusing the
+        // browser's active Google session. Supabase appends this to the
+        // provider authorize URL; Google honours prompt=select_account.
+        queryParams: { prompt: "select_account" },
       },
     });
     if (error) throw error;

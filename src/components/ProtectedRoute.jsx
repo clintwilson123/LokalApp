@@ -1,6 +1,7 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { isEmailVerified } from "../lib/authFlow";
+import { AUTH_MSG } from "../lib/authErrors";
 import { SkeletonLine } from "./Skeleton";
 
 export default function ProtectedRoute({ children, allowedRoles, requireVerification = true }) {
@@ -34,7 +35,17 @@ export default function ProtectedRoute({ children, allowedRoles, requireVerifica
   }
 
   if (profile.status === "suspended") {
-    return <Navigate to="/login" replace />;
+    // Park on /login WITH the reason (Login renders state.notice). The
+    // notice is wording only — it never authenticates or authorizes anyone,
+    // and Login refuses to auto-redirect a suspended session, so this cannot
+    // loop back into this component.
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ notice: AUTH_MSG.suspended, noticeType: "error" }}
+      />
+    );
   }
   if (allowedRoles && !allowedRoles.includes(profile.role)) {
     return <Navigate to="/" replace />;

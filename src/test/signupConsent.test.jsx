@@ -7,30 +7,8 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 // was already typed, and without leaving the form.
 
 const h = vi.hoisted(() => ({
-  token: 'valid-token',
-  reset: vi.fn(),
-  remove: vi.fn(),
-  configured: true,
-  renderError: null,
-  opts: null,
   signUp: vi.fn(),
   invoke: vi.fn(),
-}));
-
-vi.mock('../lib/turnstile', () => ({
-  isTurnstileConfigured: () => h.configured,
-  getTurnstileSiteKey: () => 'test-site-key',
-  renderTurnstile: vi.fn((_, opts) => {
-    h.opts = opts;
-    return h.renderError
-      ? Promise.reject(h.renderError)
-      : Promise.resolve({
-          getToken: () => h.token,
-          reset: h.reset,
-          remove: h.remove,
-        });
-  }),
-  loadTurnstileScript: vi.fn(() => Promise.resolve({})),
 }));
 
 vi.mock('../lib/supabaseClient', () => ({
@@ -63,11 +41,6 @@ function openConsent() {
 }
 
 beforeEach(() => {
-  h.token = 'valid-token';
-  h.configured = true;
-  h.renderError = null;
-  h.opts = null;
-  h.reset.mockClear();
   h.signUp.mockReset();
   h.invoke.mockReset();
   window.localStorage.clear();

@@ -10,10 +10,6 @@ import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 // that will not go through.
 
 const h = vi.hoisted(() => ({
-  token: 'valid-token',
-  reset: vi.fn(),
-  remove: vi.fn(),
-  configured: true,
   resend: vi.fn(),
   verifyOtp: vi.fn(),
   getSession: vi.fn(),
@@ -25,19 +21,6 @@ const h = vi.hoisted(() => ({
     loading: false,
     refreshSession: vi.fn(),
   },
-}));
-
-vi.mock('../lib/turnstile', () => ({
-  isTurnstileConfigured: () => h.configured,
-  getTurnstileSiteKey: () => 'test-site-key',
-  renderTurnstile: vi.fn(() =>
-    Promise.resolve({
-      getToken: () => h.token,
-      reset: h.reset,
-      remove: h.remove,
-    })
-  ),
-  loadTurnstileScript: vi.fn(() => Promise.resolve({})),
 }));
 
 vi.mock('../lib/supabaseClient', () => ({
@@ -103,10 +86,6 @@ const VERIFY_SUCCESS = {
 };
 
 beforeEach(() => {
-  h.configured = true;
-  h.token = 'valid-token';
-  h.reset.mockClear();
-  h.remove.mockClear();
   h.resend.mockReset();
   h.verifyOtp.mockReset();
   h.getSession.mockReset();

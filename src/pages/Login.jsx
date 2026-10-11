@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { postAuthPath } from "../lib/authFlow";
@@ -10,9 +10,6 @@ import {
   readLoginFlash,
   clearLoginFlash,
 } from "../lib/pendingVerification";
-import { isTurnstileConfigured } from "../lib/turnstile";
-import TurnstileWidget from "../components/TurnstileWidget";
-import GoogleSignInButton from "../components/GoogleSignInButton";
 import { pageWrapper, card, title, subtitle, input, inputWrapper, inputIcon, button, link, linkHighlight, radii } from "../uiStyles";
 
 const bgBlob = {
@@ -48,8 +45,6 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false);
   const [justSignedIn, setJustSignedIn] = useState(false);
   const [userName, setUserName] = useState("");
-  // Turnstile handle: token read at submit time, reset after a CAPTCHA reject.
-  const captchaRef = useRef(null);
 
   // Redirect only once auth AND profile loading have settled, and never while
   // the welcome overlay is showing. One rule for everyone: an authenticated but
@@ -65,6 +60,10 @@ export default function Login() {
     if (loading || justSignedIn) return;
     if (successNotice) return;
     if (!user || !profile) return;
+    // A suspended session stays on this screen (with the notice that arrived
+    // via navigation state) instead of bouncing to the dashboard and back —
+    // ProtectedRoute would send it straight here again.
+    if (profile.status === "suspended") return;
     navigate(postAuthPath(profile, user), { replace: true });
   }, [user, profile, loading, justSignedIn, successNotice, navigate]);
 
@@ -74,21 +73,9 @@ export default function Login() {
       setError("Please enter your email and password.");
       return;
     }
-    // Turnstile gate — before any network call. GoTrue's password grant is
-    // captcha-protected once the Dashboard toggle is enabled, so an empty
-    // token would be refused server-side anyway.
-    if (!isTurnstileConfigured()) {
-      setError(AUTH_MSG.captchaNotConfigured);
-      return;
-    }
-    const captchaToken = captchaRef.current?.getToken() || "";
-    if (!captchaToken) {
-      setError(AUTH_MSG.captchaIncomplete);
-      return;
-    }
     setSubmitting(true);
     try {
-      const result = await signIn(email, password, captchaToken);
+      const result = await signIn(email, password);
       // A real password sign-in retires the whole verification handoff: the
       // pending address and the "just confirmed" notice have done their job,
       // and a stale one must never influence a later routing decision.
@@ -112,16 +99,11 @@ export default function Login() {
         navigate(destination, { replace: true });
       }, 1400);
     } catch (err) {
-      // Turnstile tokens are single-use: GoTrue's route middleware verified
-      // this one before the handler ran, so ANY failed request (wrong
-      // password, unconfirmed email, rate limit) has burned it. Reusing it on
-      // the next submit would come back as timeout-or-duplicate, so start
-      // every retry with a fresh challenge. The message below is unaffected.
-      captchaRef.current?.reset();
       const code = typeof err?.code === "string" ? err.code : "";
       if (code === "captcha_failed" || code === "CAPTCHA_FAILED") {
-        // Report a rejection as a CAPTCHA problem — never as a
-        // wrong-password or connection error.
+        // Defensive only: CAPTCHA protection should be off in the Dashboard.
+        // If it is ever re-enabled, a rejection still reads as a CAPTCHA
+        // problem — never as a wrong-password or connection error.
         setError(messageForCode(code, err.message));
       } else if (err.message?.includes("Invalid login credentials")) {
         setError("Wrong email or password.");
@@ -207,10 +189,9 @@ export default function Login() {
             </div>
           )}
 
-          {/* Google sign-in is offered alongside the password form, never
-              instead of it: a cancelled or unconfigured OAuth attempt falls
-              straight back to the form below. */}
-          <GoogleSignInButton />
+          {/* Google sign-in lives ONLY on the Signup page now — Login is
+              password-only. A Google user who already completed sign-up can
+              always reach Login from the Signup page's "Sign in" link. */}
 
           <div style={inputWrapper}>
             <span style={inputIcon}>✉️</span>
@@ -240,8 +221,6 @@ export default function Login() {
               Forgot password?
             </Link>
           </div>
-
-          <TurnstileWidget ref={captchaRef} />
 
           <button
             style={{ ...button, opacity: submitting ? 0.7 : 1, cursor: submitting ? "not-allowed" : "pointer" }}

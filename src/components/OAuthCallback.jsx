@@ -8,7 +8,8 @@ import {
 } from "../lib/authCallback";
 import { postAuthPath } from "../lib/authFlow";
 import { AUTH_MSG } from "../lib/authErrors";
-import { isCancelledOAuth } from "../lib/oauth";
+import { isCancelledOAuth, oauthIntentFromSearch } from "../lib/oauth";
+import { writeGooglePrefill } from "../lib/pendingVerification";
 import { pageWrapper, card, title, subtitle } from "../uiStyles";
 
 // Captured at module scope, before auth-js can consume it: the implicit-grant
@@ -35,6 +36,10 @@ let callbackHandled = false;
  *    unverified, /consent if consent is still outstanding).
  *  * error — the person cancelled on Google's consent screen, or the provider
  *    is misconfigured. Told which, on /login, without touching any session.
+ *  * ?intent=signup — the Signup page started this round-trip. A brand-new
+ *    Google user who still owes consent is handed back to /signup (session
+ *    KEPT, same user UUID) with their Google address and name to prefill the
+ *    completion form. Everyone else takes the normal destination rules.
  *
  * It never decides authentication itself: every redirect is derived from the
  * session + profile AuthContext has already loaded, using the same
@@ -104,10 +109,48 @@ export default function OAuthCallback() {
       return;
     }
 
-    // Same destination rules as every other sign-in path.
+    // A suspended account never reaches a dashboard — or the Signup
+    // completion form. Park on /login with the reason; Login refuses to
+    // auto-redirect suspended sessions, so this cannot loop.
+    if (profile.status === "suspended") {
+      callbackHandled = true;
+      navigate("/login", {
+        replace: true,
+        state: { notice: AUTH_MSG.suspended, noticeType: "error" },
+      });
+      return;
+    }
+
+    // Same destination rules as every other sign-in path — with ONE
+    // exception: a round-trip the Signup page started (?intent=signup) for a
+    // brand-new Google user who still owes consent. The session is KEPT (this
+    // is the same Supabase user, never a second account) and the person lands
+    // on /signup with their Google address and name to review, edit and
+    // accept the consent document. An existing, already-consented profile —
+    // or an admin — takes the normal dashboard path untouched, so an old
+    // profile's name is never pushed back through an edit form.
+    const intent = oauthIntentFromSearch(location.search);
+    if (
+      intent === "signup" &&
+      profile.role !== "admin" &&
+      profile.consent_accepted !== true
+    ) {
+      callbackHandled = true;
+      const meta = user.user_metadata || {};
+      const prefill = {
+        email: String(user.email || "").trim(),
+        name: String(profile.full_name || meta.full_name || meta.name || "")
+          .trim()
+          .slice(0, 100),
+      };
+      writeGooglePrefill(prefill);
+      navigate("/signup", { replace: true, state: { googlePrefill: prefill } });
+      return;
+    }
+
     callbackHandled = true;
     navigate(postAuthPath(profile, user), { replace: true });
-  }, [loading, user, profile, navigate, location.pathname, refreshSession]);
+  }, [loading, user, profile, navigate, location.pathname, location.search, refreshSession]);
 
   return (
     <div style={pageWrapper}>

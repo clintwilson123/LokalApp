@@ -33,22 +33,21 @@ export const AUTH_MSG = {
   // GoTrue refused the password grant because the address was never
   // confirmed. Kept distinct so the user is sent to the verification step,
   // never told their password is wrong or that the server is unreachable.
+  // Wording is mode-neutral on purpose: /login cannot know whether this
+  // build delivers a code or a link, and the verify screen itself says
+  // exactly which to use.
   emailNotConfirmed:
-    "Please confirm your email address first. Check your inbox for the 6-digit verification code.",
+    "Please confirm your email address first. Check your inbox for the verification email from CJLink.",
   suspicious:
     "Registration was blocked because the activity was flagged as suspicious. Please try again later.",
   network: "Could not reach the server. Please check your connection and try again.",
   rateLimited: "Too many signups. Please wait a moment and try again.",
-  // Turnstile / Supabase Auth CAPTCHA messages. Kept distinct from every other
-  // failure so a CAPTCHA problem is never reported as an invalid address or a
-  // connection error.
+  // Defensive only: Cloudflare Turnstile was removed and Supabase Auth's
+  // CAPTCHA protection should be disabled in the Dashboard. The mapping is
+  // kept so that if protection is ever re-enabled, a server rejection still
+  // reads as a CAPTCHA problem — never as an invalid address or a connection
+  // error.
   captchaFailed: "The security check failed. Please try again.",
-  captchaIncomplete: "Please complete the security check and try again.",
-  captchaExpired: "The security check expired. Please complete it again.",
-  captchaNotConfigured:
-    "The security check is missing from this build. Please contact the administrator.",
-  captchaLoadFailed:
-    "The security check could not be loaded. Please check your connection and try again.",
   serverError: "Something went wrong. Please try again.",
   weakPassword: "Password must be at least 6 characters.",
   generic: "Something went wrong. Please try again.",
@@ -61,6 +60,28 @@ export const AUTH_MSG = {
   // The callback confirmed the address. The session it created is released on
   // purpose: verification never signs anyone in, the user does that themselves.
   verifiedSuccess: "Your email has been confirmed. Please sign in to your account.",
+  // Confirmation-LINK panel wording (VITE_OTP_ENABLED off — the safe build).
+  // Used only when Supabase Auth delivers a link instead of a 6-digit code.
+  verifyLinkInstructions:
+    "We sent a confirmation email to your address. Open it and click the button inside to verify.",
+  verifyLinkResent:
+    "Confirmation email sent again. It can take a minute to arrive.",
+  verifyRecheckPending:
+    "This address is not confirmed yet. Open the confirmation email and click the button, then try again.",
+  verifyRecheckFailed:
+    "Could not check your confirmation status right now. Please try again in a moment.",
+  // signUp() threw what looks like an email-delivery failure: with Confirm
+  // email enabled the account may already exist, so the user is never left on
+  // a dead form — they are sent to /verify-email where a resend is available.
+  signupEmailDeliveryFailed:
+    "We couldn't send the verification email right now. If your account was created, you can resend the confirmation on the next screen.",
+  // GoTrue creates the account BEFORE sending the email, so an email-send
+  // rate limit (over_email_send_rate_limit) means the account exists but no
+  // OTP went out. The hand-off to /verify-email (where resend lives) must say
+  // so — a bare "too many signups" error would invite a retry that answers
+  // "already registered" with no way forward.
+  rateLimitedAfterCreate:
+    "Your account was created, but too many verification emails were sent recently. Please wait a few minutes, then resend the code on the next screen.",
   // Google (OAuth) sign-in. Each state gets its own wording so a cancelled
   // attempt, a missing dashboard configuration and a real provider failure are
   // never blurred into one "something went wrong".
@@ -71,6 +92,10 @@ export const AUTH_MSG = {
     "Could not sign in with Google right now. Please try again or sign in with your password.",
   oauthProfileFailed:
     "You signed in with Google, but we could not finish setting up your account. Please sign in with your password.",
+  // Shared wording for a suspended account, wherever the refusal surfaces:
+  // the password sign-in throw, ProtectedRoute's bounce off a protected page,
+  // and the Google callback's hand-off check.
+  suspended: "Your account has been suspended. Contact the administrator.",
 };
 
 // Codes that describe a failure to PRODUCE the verification email. After the
@@ -113,6 +138,10 @@ const CODE_MESSAGES = {
   over_email_send_rate_limit: AUTH_MSG.rateLimited,
   email_address_invalid: AUTH_MSG.invalidFormat,
   email_address_not_authorized: AUTH_MSG.emailProvider,
+  // GoTrue's catch-all when a server-side hook (including the Send Email hook)
+  // fails during signup/resend. Reported as a delivery problem, never as a
+  // problem with the address itself.
+  unexpected_failure: AUTH_MSG.emailProvider,
   // Do not reveal whether an address exists when resending a confirmation.
   user_not_found: AUTH_MSG.emailProvider,
   weak_password: AUTH_MSG.weakPassword,
@@ -130,6 +159,11 @@ const CODE_MESSAGES = {
 // Supabase's own duplicate-account rejection from auth.signUp(). Deliberately
 // does not classify on words such as "gmail", "deliver" or "invalid".
 const EXISTING_REGISTRATION_RE = /already registered|duplicate/i;
+
+// A pass-through server message must contain at least one word (3+ letters).
+// This rejects auth-js's "{}" garbage (see messageForCode) and any other
+// symbol-only string, while every human-readable sentence passes.
+const USABLE_TEXT_RE = /[A-Za-z]{3,}/;
 
 /**
  * Resolve a user-facing message for a server error.
@@ -155,7 +189,11 @@ export function messageForCode(code, fallbackMsg, opts = {}) {
   // existing-registration case.
   if (!errCode && EXISTING_REGISTRATION_RE.test(msg)) return AUTH_MSG.alreadyRegistered;
 
-  if (msg.trim()) return msg;
+  // auth-js renders some infrastructure failures as JSON.stringify of the
+  // bare fetch Response — for a 500 from /signup (e.g. the Send Email hook
+  // failing) that is the literal string "{}". No words, no meaning: never
+  // display it, fall through to the generic message.
+  if (USABLE_TEXT_RE.test(msg)) return msg;
 
   return AUTH_MSG.generic;
 }
@@ -209,6 +247,62 @@ export function messageForVerifyError(err) {
   // and guessing more specifically would risk telling the user something
   // untrue about their account).
   return AUTH_MSG.invalidOtp;
+}
+
+// ---------------------------------------------------------------------------
+// Resend classification (/verify-email -> supabase.auth.resend).
+//
+// Deliberately stricter than messageForCode: raw server text is NEVER passed
+// through, because a resend failure can echo request internals. Known codes
+// map exactly; everything else lands on the account-aware delivery wording.
+// ---------------------------------------------------------------------------
+export function messageForResendError(err, opts = {}) {
+  const code = typeof err?.code === "string" ? err.code : "";
+  const msg = typeof err?.message === "string" ? err.message : "";
+  const status = Number(err?.status) || 0;
+
+  if (code && CODE_MESSAGES[code]) {
+    if (opts.accountCreated && EMAIL_DELIVERY_CODES.includes(code)) {
+      return AUTH_MSG.emailProviderAfterCreate;
+    }
+    return CODE_MESSAGES[code];
+  }
+
+  if (err instanceof TypeError || VERIFY_NETWORK_RE.test(msg)) return AUTH_MSG.network;
+  if (status === 429 || VERIFY_THROTTLE_RE.test(msg)) return AUTH_MSG.rateLimited;
+
+  return opts.accountCreated ? AUTH_MSG.emailProviderAfterCreate : AUTH_MSG.emailProvider;
+}
+
+// ---------------------------------------------------------------------------
+// Did signUp() fail in a way that means "the account may already exist, but
+// its verification email could not be delivered"?
+//
+// With Confirm email enabled GoTrue creates the user BEFORE the Send Email
+// hook runs, so a hook/provider failure surfaces as an error from signUp()
+// while the account is already there. Treating that as a failed signup would
+// strand the user (a retry says "already registered", login says
+// "email_not_confirmed", and the dead form offers no resend). The caller
+// routes these to /verify-email instead, where a resend exists.
+//
+// Only explicit delivery codes and 5xx server errors whose own message
+// mentions the email/confirmation path qualify — a weak password or a
+// rejected CAPTCHA never does.
+// ---------------------------------------------------------------------------
+const SIGNUP_DELIVERY_CODES = new Set([
+  ...EMAIL_DELIVERY_CODES,
+  "unexpected_failure",
+  "email_send_failed",
+  "hook_error",
+]);
+const DELIVERY_FAIL_RE = /email|confirmation|mailer|send/i;
+
+export function isEmailDeliveryFailure(err) {
+  const code = typeof err?.code === "string" ? err.code : "";
+  if (SIGNUP_DELIVERY_CODES.has(code)) return true;
+  const status = Number(err?.status) || 0;
+  const msg = typeof err?.message === "string" ? err.message : "";
+  return status >= 500 && DELIVERY_FAIL_RE.test(msg);
 }
 
 // Words Supabase Auth uses when the Google provider is switched off in the

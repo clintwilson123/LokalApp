@@ -123,6 +123,17 @@ describe('messageForCode', () => {
     expect(messageForCode('', '   ')).toBe(AUTH_MSG.generic);
     expect(messageForCode(undefined, undefined)).toBe(AUTH_MSG.generic);
   });
+
+  it('never displays auth-js "{}" garbage from a 500 response', () => {
+    // When GoTrue returns HTTP 500 (e.g. the Send Email hook is failing),
+    // auth-js never reads the body: it stringifies the bare fetch Response,
+    // whose message is the literal "{}". That must read as the generic
+    // message, never as "{}" — and an explicit code still wins over it.
+    expect(messageForCode('', '{}')).toBe(AUTH_MSG.generic);
+    expect(messageForCode('', '[]')).toBe(AUTH_MSG.generic);
+    expect(messageForCode('', '{}')).not.toMatch(/[{}[\]]/);
+    expect(messageForCode('RATE_LIMITED', '{}')).toBe(AUTH_MSG.rateLimited);
+  });
 });
 
 // ACCOUNT_CREATION_FAILED and ACCOUNT_CREATED_VERIFICATION_PENDING are distinct

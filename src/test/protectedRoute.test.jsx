@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 
 // Protected access must stay fail-closed: an unverified (or profile-less)
 // applicant never reaches a protected page, while admin behaviour is intact.
@@ -14,6 +14,18 @@ vi.mock('../context/AuthContext', () => ({
 }));
 
 import ProtectedRoute from '../components/ProtectedRoute';
+import { AUTH_MSG } from '../lib/authErrors';
+
+function LoginProbe() {
+  const location = useLocation();
+  const state = location.state || {};
+  return (
+    <div>
+      <div>LOGIN_PAGE</div>
+      {state.notice ? <div data-testid="login-notice">{state.notice}</div> : null}
+    </div>
+  );
+}
 
 function renderProtected(requireVerification = true, allowedRoles) {
   return render(
@@ -28,7 +40,7 @@ function renderProtected(requireVerification = true, allowedRoles) {
           }
         />
         <Route path="/verify-email" element={<div>VERIFY_EMAIL_PAGE</div>} />
-        <Route path="/login" element={<div>LOGIN_PAGE</div>} />
+        <Route path="/login" element={<LoginProbe />} />
         <Route path="/consent" element={<div>CONSENT_PAGE</div>} />
         <Route path="/" element={<div>HOME_PAGE</div>} />
       </Routes>
@@ -95,11 +107,13 @@ describe('ProtectedRoute', () => {
     expect(screen.getByText('PROTECTED_CONTENT')).toBeInTheDocument();
   });
 
-  it('blocks suspended accounts', () => {
+  it('blocks suspended accounts and tells them why on /login', () => {
     h.auth = { user: { id: 'u1' }, profile: applicant({ status: 'suspended' }), loading: false };
     renderProtected();
     expect(screen.getByText('LOGIN_PAGE')).toBeInTheDocument();
     expect(screen.queryByText('PROTECTED_CONTENT')).toBeNull();
+    // The notice is wording only — it never authenticates or authorizes.
+    expect(screen.getByTestId('login-notice').textContent).toBe(AUTH_MSG.suspended);
   });
 
   it('sends a consent-less applicant to the consent page', () => {

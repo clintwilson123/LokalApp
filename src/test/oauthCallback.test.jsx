@@ -7,8 +7,8 @@ import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 // authentication itself — every redirect is derived from the session +
 // profile AuthContext already loaded, using the same postAuthPath() rules
 // the password flow uses. What is under test: the role-based destination,
-// the cancelled/failed classifications, and that OAuth metadata can never
-// promote anyone to admin.
+// the cancelled/failed classifications, suspended-account parking, and that
+// OAuth metadata can never promote anyone to admin.
 
 const h = vi.hoisted(() => ({
   auth: { user: null, profile: null, loading: false, refreshSession: null },
@@ -17,6 +17,8 @@ const h = vi.hoisted(() => ({
 vi.mock('../context/AuthContext', () => ({
   useAuth: () => h.auth,
 }));
+
+import { AUTH_MSG } from '../lib/authErrors';
 
 function StateProbe({ name }) {
   const location = useLocation();
@@ -30,9 +32,9 @@ function StateProbe({ name }) {
   );
 }
 
-function tree(Callback) {
+function tree(Callback, initialEntries = ['/auth/callback']) {
   return (
-    <MemoryRouter initialEntries={['/auth/callback']}>
+    <MemoryRouter initialEntries={initialEntries}>
       <Callback />
       <Routes>
         <Route path="/" element={<div>HOME_PAGE</div>} />
@@ -41,6 +43,7 @@ function tree(Callback) {
         <Route path="/admin" element={<StateProbe name="ADMIN_PAGE" />} />
         <Route path="/verify-email" element={<StateProbe name="VERIFY_PAGE" />} />
         <Route path="/consent" element={<StateProbe name="CONSENT_PAGE" />} />
+        <Route path="/signup" element={<StateProbe name="SIGNUP_PAGE" />} />
       </Routes>
     </MemoryRouter>
   );
@@ -117,6 +120,50 @@ describe('OAuthCallback — role-based redirect', () => {
 
     await waitFor(() => expect(h.auth.refreshSession).toHaveBeenCalled());
     expect(screen.queryByText('ADMIN_PAGE')).toBeNull();
+  });
+});
+
+describe('OAuthCallback — suspended accounts', () => {
+  it('a suspended Google user parks on /login with the suspension notice, never a dashboard', async () => {
+    setFragment(OAUTH_FRAGMENT);
+    h.auth.user = googleUser();
+    h.auth.profile = {
+      id: 'g-1',
+      role: 'applicant',
+      email_verified: true,
+      consent_accepted: true,
+      status: 'suspended',
+    };
+
+    const Callback = await loadCallback();
+    render(tree(Callback));
+
+    await screen.findByText('LOGIN_PAGE');
+    expect(screen.queryByText('APPLICANT_PAGE')).toBeNull();
+    expect(screen.getByTestId('notice').textContent).toBe(AUTH_MSG.suspended);
+    expect(screen.getByTestId('notice-type').textContent).toBe('error');
+  });
+
+  it('suspension outranks the Signup completion hand-off (?intent=signup)', async () => {
+    // A round-trip Signup started must not hand a suspended account the
+    // consent/completion form: the session is refused at /login instead.
+    setFragment(OAUTH_FRAGMENT);
+    h.auth.user = googleUser();
+    h.auth.profile = {
+      id: 'g-1',
+      role: 'applicant',
+      email_verified: true,
+      consent_accepted: false,
+      status: 'suspended',
+    };
+
+    const Callback = await loadCallback();
+    render(tree(Callback, ['/auth/callback?intent=signup']));
+
+    await screen.findByText('LOGIN_PAGE');
+    expect(screen.queryByText('SIGNUP_PAGE')).toBeNull();
+    expect(screen.queryByText('CONSENT_PAGE')).toBeNull();
+    expect(screen.getByTestId('notice').textContent).toBe(AUTH_MSG.suspended);
   });
 });
 

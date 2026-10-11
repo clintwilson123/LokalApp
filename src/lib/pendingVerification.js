@@ -224,3 +224,67 @@ export function writeLoginFlash(email) {
   writeTo("session", LOGIN_FLASH_KEY, payload);
   writeTo("local", LOGIN_FLASH_KEY, payload);
 }
+
+// ---------------------------------------------------------------------------
+// Google signup prefill hand-off.
+//
+// The OAuth callback decides that a brand-new Google user still owes a
+// consent agreement, and hands them to /signup with the address and name
+// Google already proved. Navigation state carries that hand-off; this copy
+// exists so a plain reload of /signup (which drops navigation state) still
+// shows the prefill instead of silently degrading to an empty password form
+// that would try to create a SECOND account for the same person.
+//
+// Like every other marker here it is a MESSAGE, never proof of anything: the
+// completion form still writes only the caller's own profiles row, and only
+// after the user explicitly agrees to the consent document.
+// ---------------------------------------------------------------------------
+
+const GOOGLE_PREFILL_KEY = "cjlink:google-prefill";
+
+// Long enough for a slow reader of the consent document, short enough that a
+// stale prefill can never surface hours later on an unrelated visit.
+const GOOGLE_PREFILL_TTL_MS = 30 * 60 * 1000;
+
+export function writeGooglePrefill({ email, name } = {}) {
+  const addr = typeof email === "string" ? email.trim() : "";
+  if (!addr) return;
+  writeTo(
+    "session",
+    GOOGLE_PREFILL_KEY,
+    JSON.stringify({
+      email: addr,
+      name: typeof name === "string" ? name.slice(0, 100) : "",
+      at: Date.now(),
+    })
+  );
+}
+
+/** Fresh { email, name } or null (self-healing: corrupt/expired removed). */
+export function readGooglePrefill() {
+  const raw = readFrom("session", GOOGLE_PREFILL_KEY);
+  if (!raw) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    removeFrom("session", GOOGLE_PREFILL_KEY);
+    return null;
+  }
+  if (!parsed || typeof parsed.email !== "string" || !parsed.email.trim()) {
+    removeFrom("session", GOOGLE_PREFILL_KEY);
+    return null;
+  }
+  if (Date.now() - (Number(parsed.at) || 0) > GOOGLE_PREFILL_TTL_MS) {
+    removeFrom("session", GOOGLE_PREFILL_KEY);
+    return null;
+  }
+  return {
+    email: parsed.email.trim(),
+    name: typeof parsed.name === "string" ? parsed.name : "",
+  };
+}
+
+export function clearGooglePrefill() {
+  removeFrom("session", GOOGLE_PREFILL_KEY);
+}

@@ -100,6 +100,9 @@ describe('signInWithGoogle', () => {
     const [payload] = h.signInWithOAuth.mock.calls[0];
     expect(payload.provider).toBe('google');
     expect(payload.options.redirectTo).toMatch(/\/auth\/callback$/);
+    // Forces Google's account chooser instead of silently reusing the
+    // browser's active Google session.
+    expect(payload.options.queryParams).toEqual({ prompt: 'select_account' });
   });
 
   it('throws the Supabase error so the button can classify it', async () => {
@@ -201,5 +204,49 @@ describe('ensureOAuthProfile (via session handling)', () => {
 
     // The row always says applicant, regardless of what the OAuth metadata claims.
     expect(h.insertCalls[0].role).toBe('applicant');
+  });
+
+  it('marks email_verified TRUE only when Google actually proved the address', async () => {
+    h.getSession = vi.fn().mockResolvedValue({
+      data: { session: { user: googleUser(), access_token: 'x' } },
+    });
+    h.rpc = vi.fn(async (name) =>
+      name === 'get_my_profile'
+        ? { data: { id: 'g-1', role: 'applicant', email_verified: true, consent_accepted: false }, error: null }
+        : { data: null, error: null }
+    );
+
+    await mountAuthProvider();
+    await waitFor(() => expect(h.insertCalls.length).toBeGreaterThan(0));
+
+    // email_confirmed_at is set by Google's verified-address redirect.
+    expect(h.insertCalls[0].email_verified).toBe(true);
+  });
+
+  it('never stamps email_verified true for an UNVERIFIED provider address', async () => {
+    h.getSession = vi.fn().mockResolvedValue({
+      data: {
+        session: {
+          user: googleUser({
+            email_confirmed_at: undefined,
+            user_metadata: { full_name: 'Unverified', email: 'unverified@gmail.com' },
+          }),
+          access_token: 'x',
+        },
+      },
+    });
+    h.rpc = vi.fn(async (name) =>
+      name === 'get_my_profile'
+        ? { data: { id: 'g-1', role: 'applicant', email_verified: false, consent_accepted: false }, error: null }
+        : { data: null, error: null }
+    );
+
+    await mountAuthProvider();
+    await waitFor(() => expect(h.insertCalls.length).toBeGreaterThan(0));
+
+    // No confirmation, no provider flag, no verified identity → the row must
+    // say unverified; the old unconditional `email_verified: true` would have
+    // let an unverified address into verified-only routes.
+    expect(h.insertCalls[0].email_verified).toBe(false);
   });
 });

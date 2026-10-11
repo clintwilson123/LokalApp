@@ -1,13 +1,11 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabaseClient";
 import { pageWrapper, card, title, subtitle, input, inputWrapper, inputIcon, button, linkHighlight } from "../uiStyles";
 import { sanitizeName, validateGmail, getPasswordStrength, maxLength } from "../lib/sanitize";
-import { AUTH_MSG, messageForCode } from "../lib/authErrors";
-import { writePendingEmail } from "../lib/pendingVerification";
-import { isTurnstileConfigured } from "../lib/turnstile";
-import TurnstileWidget from "../components/TurnstileWidget";
+import { AUTH_MSG, messageForCode, isEmailDeliveryFailure } from "../lib/authErrors";
+import { writePendingEmail, readGooglePrefill, clearGooglePrefill } from "../lib/pendingVerification";
 import GoogleSignInButton from "../components/GoogleSignInButton";
 import ConsentDocument from "../components/ConsentDocument";
 
@@ -71,19 +69,17 @@ async function invokeEdge(name, body) {
 }
 
 // Pre-signup checks only: Gmail format/risk, duplicate aliases and the
-// signup rate limit. CAPTCHA is NOT verified here — the single-use Turnstile
-// token is consumed by Supabase Auth itself (primary enforcement), and
-// verifying it twice would make GoTrue reject it as a replay.
+// signup rate limit. CAPTCHA is no longer part of the flow — Supabase Auth's
+// CAPTCHA protection must be disabled in the Dashboard for signup to work.
 async function runSpamChecks(email) {
   return invokeEdge("spam-prevention", { email });
 }
 
 export default function Signup() {
   const navigate = useNavigate();
-  const { signUp } = useAuth();
-  // Turnstile handle: getToken() is read at submit time and reset() after a
-  // CAPTCHA rejection so the next attempt renders a fresh challenge.
-  const captchaRef = useRef(null);
+  const location = useLocation();
+  const navState = location.state || {};
+  const { signUp, user, profile, loading: authLoading, loadProfile } = useAuth();
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -103,6 +99,24 @@ export default function Signup() {
   // checkbox, the form or the route.
   const [consentOpen, setConsentOpen] = useState(false);
 
+  // Google completion hand-off. The OAuth callback keeps the authenticated
+  // Supabase session and hands the SAME user back here (never a second
+  // account) with their Google address and name — navigation state first,
+  // then the sessionStorage copy that survives a reload of this page.
+  const googlePrefill = navState.googlePrefill || readGooglePrefill();
+  // Only a signed-in OAUTH user whose address matches the prefill may enter
+  // the completion form: a crafted navigation state can never walk a
+  // password user (or a stranger's session) into it.
+  const completingGoogle = Boolean(
+    !authLoading &&
+      user &&
+      googlePrefill &&
+      user.app_metadata?.provider !== "email" &&
+      (googlePrefill.email || "").toLowerCase() === (user.email || "").toLowerCase()
+  );
+  const prefillName = completingGoogle ? googlePrefill.name || "" : "";
+  const prefillEmail = completingGoogle ? googlePrefill.email || "" : "";
+
   useEffect(() => {
     if (!consentOpen) return;
     const onKeyDown = (e) => {
@@ -111,6 +125,13 @@ export default function Signup() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [consentOpen]);
+
+  // Prefill once, without ever clobbering something the user already typed.
+  useEffect(() => {
+    if (!completingGoogle) return;
+    setFullName((current) => current || prefillName);
+    setEmail((current) => current || prefillEmail);
+  }, [completingGoogle, prefillName, prefillEmail]);
 
   const strength = getPasswordStrength(password);
 
@@ -147,25 +168,10 @@ export default function Signup() {
       return;
     }
 
-    // Turnstile gate — before ANY network call. Supabase Auth rejects an empty
-    // or stale CAPTCHA token once protection is enabled, so fail here with a
-    // clear message rather than spending a request the server must refuse.
-    if (!isTurnstileConfigured()) {
-      setError(AUTH_MSG.captchaNotConfigured);
-      return;
-    }
-    const captchaToken = captchaRef.current?.getToken() || "";
-    if (!captchaToken) {
-      setError(AUTH_MSG.captchaIncomplete);
-      return;
-    }
-
     submittingRef.current = true;
     setLoading(true);
     try {
       // Spam checks — hard gate (re-validates format/risk server-side).
-      // CAPTCHA is deliberately NOT checked here: the single-use Turnstile
-      // token is consumed by Supabase Auth in signUp() below.
       const spamResult = await runSpamChecks(email);
       const riskLevel = spamResult?.risk_level || "low";
 
@@ -178,8 +184,7 @@ export default function Signup() {
         password,
         maxLength(sanitizeName(fullName), 100),
         "applicant",
-        riskLevel,
-        captchaToken
+        riskLevel
       );
 
       if (!signupResult?.user) {
@@ -203,19 +208,101 @@ export default function Signup() {
         state: { email: accountEmail, accountCreated: true },
       });
     } catch (err) {
-      // Turnstile tokens are single-use: whatever reached the server has
-      // already consumed this one (GoTrue's middleware verifies it before the
-      // handler runs), so every retry must start with a fresh challenge —
-      // reusing the token would come back as timeout-or-duplicate. The error
-      // message below is unaffected: a rejected CAPTCHA still reads as a
-      // CAPTCHA failure, a duplicate address still reads as already registered.
-      captchaRef.current?.reset();
+      const code = typeof err?.code === "string" ? err.code : "";
+      const status = Number(err?.status) || 0;
+      // A Send Email hook / mailer failure — an email-send RATE LIMIT — or a
+      // codeless HTTP 5xx (auth-js never reads the body of 500-range
+      // responses, so a hook failure arrives with NO code) surfaces as an
+      // error from signUp() even though Confirm email created the account
+      // first (GoTrue writes the user, THEN sends). That must never read as
+      // a dead-end "something went wrong" (a retry would say "already
+      // registered" and login would say "confirm your email" with no way
+      // out): remember the address and hand off to /verify-email, where a
+      // resend exists and the real state is shown. The spam-prevention
+      // RATE_LIMITED code is deliberately NOT included — that gate runs
+      // BEFORE signUp(), so no account exists yet and the plain error is
+      // the honest answer.
+      const postCreationFailure =
+        isEmailDeliveryFailure(err) ||
+        code === "over_email_send_rate_limit" ||
+        (!code && status >= 500 && status < 600);
+      if (postCreationFailure) {
+        const attempted = email.trim();
+        writePendingEmail(attempted);
+        navigate("/verify-email", {
+          replace: true,
+          state: {
+            email: attempted,
+            notice:
+              code === "over_email_send_rate_limit"
+                ? AUTH_MSG.rateLimitedAfterCreate
+                : AUTH_MSG.signupEmailDeliveryFailed,
+            noticeType: "error",
+          },
+        });
+        return;
+      }
       // Edge Functions classify by err.code; Supabase Auth exposes its own
       // AuthApiError code (e.g. user_already_exists, captcha_failed). Anything
       // else — PostgREST included — simply has no code and falls through to its
       // message inside messageForCode.
-      const code = typeof err?.code === "string" ? err.code : "";
       setError(messageForCode(code, err?.message || ""));
+    } finally {
+      submittingRef.current = false;
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Google completion submit.
+   *
+   * The account and the profiles row already exist (minted by
+   * AuthContext.ensureOAuthProfile under the SAME Supabase user UUID). This
+   * only records what the user explicitly reviewed here: their chosen full
+   * name and the consent they just ticked. Role, status and email_verified
+   * are never touched — the database guard would refuse anyway.
+   */
+  const handleCompleteGoogle = async () => {
+    if (submittingRef.current) return;
+    setError("");
+
+    const trimmedName = sanitizeName(fullName).trim();
+    if (!trimmedName) {
+      setError("Please enter your full name.");
+      return;
+    }
+    if (!agreed) {
+      setError("You must agree to the terms to continue.");
+      return;
+    }
+
+    submittingRef.current = true;
+    setLoading(true);
+    try {
+      // Never blank an existing name if the field was cleared by accident.
+      const finalName = maxLength(trimmedName, 100) || String(profile?.full_name || "").slice(0, 100);
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({
+          full_name: finalName,
+          consent_accepted: true,
+          consent_accepted_at: new Date().toISOString(),
+        })
+        .eq("id", user.id);
+      if (updateError) throw updateError;
+
+      clearGooglePrefill();
+      try {
+        await loadProfile?.(user.id);
+      } catch {
+        // The row is saved either way — ProtectedRoute re-reads it on the
+        // next auth event if this refresh did not land.
+      }
+      navigate("/find-jobs", { replace: true });
+    } catch (err) {
+      setError(
+        err?.message || "Could not finish setting up your account. Please try again."
+      );
     } finally {
       submittingRef.current = false;
       setLoading(false);
@@ -227,6 +314,153 @@ export default function Signup() {
       handleSignup();
     }
   };
+
+  // ---------------------------------------------------------------------------
+  // Google completion form.
+  //
+  // Shown when the OAuth callback (?intent=signup) handed a brand-new Google
+  // user back here: the account exists under the SAME Supabase UUID, the
+  // session is kept, and only the name the user chooses plus the consent they
+  // explicitly tick are written. No password field, no CAPTCHA, no second
+  // account — and nothing is overwritten that the user did not just review.
+  // ---------------------------------------------------------------------------
+  if (completingGoogle) {
+    return (
+      <div style={pageWrapper}>
+        <div style={{ ...bgBlob, width: "350px", height: "350px", background: "#4a90e2", top: "-5%", right: "-5%" }} />
+        <div style={{ ...bgBlob, width: "250px", height: "250px", background: "#a78bfa", bottom: "-5%", left: "-5%" }} />
+
+        <div style={card}>
+          <div>
+            <div style={{ fontSize: "42px", marginBottom: "8px" }}>🎉</div>
+            <h2 style={title}>Complete Your Account</h2>
+            <p style={subtitle}>You&apos;re signed in with Google — just one step left</p>
+
+            <div style={{
+              padding: "12px", borderRadius: "10px", marginBottom: "16px", fontSize: "13px",
+              backgroundColor: "rgba(74,144,226,0.15)", border: "1px solid rgba(74,144,226,0.3)",
+              color: "#93c5fd", textAlign: "center", lineHeight: 1.6,
+            }}>
+              Signed in as <strong>{prefillEmail}</strong> via Google.
+              Your Google password is never shared with CJLink.
+            </div>
+
+            {error && (
+              <div style={{
+                display: "flex", alignItems: "center", gap: "8px",
+                background: "rgba(239, 68, 68, 0.15)", border: "1px solid rgba(239, 68, 68, 0.3)",
+                color: "#fca5a5", fontSize: "13px", padding: "12px 16px", borderRadius: "10px",
+                marginBottom: "16px", textAlign: "left",
+              }}>
+                <span>⚠️</span><span>{error}</span>
+              </div>
+            )}
+
+            <div style={inputWrapper}>
+              <span style={inputIcon}>👤</span>
+              <input style={input} placeholder="Full Name" value={fullName}
+                onChange={(e) => setFullName(sanitizeName(e.target.value))} onKeyDown={handleKeyDown} maxLength={100} />
+            </div>
+            <div style={inputWrapper}>
+              <span style={inputIcon}>✉️</span>
+              <input style={{ ...input, opacity: 0.7, cursor: "not-allowed" }} placeholder="Email address"
+                type="email" value={email} readOnly disabled aria-readonly="true" title="Your verified Google address" />
+            </div>
+
+            <label style={checkboxLabel}>
+              <input type="checkbox" checked={agreed}
+                onChange={(e) => { setAgreed(e.target.checked); setError(""); }}
+                style={{ width: "16px", height: "16px", cursor: "pointer" }} />
+              <span>I agree to the <Link to="/consent" style={{ color: "#93c5fd" }}>Terms, Privacy Policy, and Employer Consent</Link></span>
+            </label>
+
+            <button
+              type="button"
+              onClick={() => setConsentOpen(true)}
+              style={{
+                display: "block", background: "none", border: "none", padding: 0,
+                margin: "-8px 0 16px", color: "#93c5fd", cursor: "pointer",
+                fontSize: "12px", fontWeight: "600", textDecoration: "underline",
+              }}
+            >
+              View Consent
+            </button>
+
+            <button
+              style={{ ...button, opacity: loading ? 0.7 : 1, cursor: loading ? "not-allowed" : "pointer" }}
+              onClick={handleCompleteGoogle} disabled={loading}
+            >
+              {loading ? (
+                <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                  <span style={{ display: "inline-block", width: "18px", height: "18px", border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.6s linear infinite" }} />
+                  Finishing up...
+                </span>
+              ) : "Complete Sign-Up"}
+            </button>
+          </div>
+        </div>
+
+        {consentOpen && (
+          <div
+            role="presentation"
+            onClick={(e) => { if (e.target === e.currentTarget) setConsentOpen(false); }}
+            style={{
+              position: "fixed", inset: 0, zIndex: 100,
+              background: "rgba(2, 6, 23, 0.75)", backdropFilter: "blur(6px)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              padding: "20px",
+            }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Terms & Conditions"
+              style={{
+                position: "relative", width: "100%", maxWidth: "520px",
+                maxHeight: "80vh", overflowY: "auto",
+                background: "rgba(15, 23, 42, 0.98)",
+                border: "1px solid rgba(255,255,255,0.12)",
+                borderRadius: "18px", padding: "28px 24px 20px",
+                boxShadow: "0 20px 60px rgba(0,0,0,0.5)", textAlign: "center",
+              }}
+            >
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={() => setConsentOpen(false)}
+                style={{
+                  position: "absolute", top: "10px", right: "12px",
+                  background: "none", border: "none", color: "rgba(255,255,255,0.6)",
+                  fontSize: "18px", cursor: "pointer", padding: "4px 8px",
+                }}
+              >
+                ✕
+              </button>
+              <h3 style={{ color: "#fff", fontSize: "20px", fontWeight: "800", margin: "0 0 4px" }}>
+                {"Terms & Conditions"}
+              </h3>
+              <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", margin: "0 0 16px" }}>
+                Please read and accept the following
+              </p>
+              <ConsentDocument />
+              <button
+                type="button"
+                onClick={() => setConsentOpen(false)}
+                style={{
+                  width: "100%", padding: "10px", borderRadius: "10px",
+                  border: "1px solid rgba(255,255,255,0.15)",
+                  background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.7)",
+                  cursor: "pointer", fontSize: "14px", fontWeight: "600",
+                }}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={pageWrapper}>
@@ -254,11 +488,15 @@ export default function Signup() {
             </div>
           )}
 
-          {/* Google sign-up is offered alongside the password form. OAuth
-              never needs the Turnstile widget or the consent checkbox above
-              the fold: consent is still collected on /consent, because a
-              Google profile row starts with consent_accepted = false. */}
-          <GoogleSignInButton />
+          {/* Google sign-up is offered here and ONLY here (Login is
+              password-only) — intent="signup" so the callback hands the user
+              back prefilled instead of straight to the dashboard. Google's
+              own account chooser is forced (prompt=select_account) so the
+              active browser session is never silently reused. OAuth never
+              needs the consent checkbox above the fold: a Google profile row
+              starts with consent_accepted = false and the completion form
+              collects it. */}
+          <GoogleSignInButton intent="signup" />
 
           <div style={inputWrapper}>
             <span style={inputIcon}>👤</span>
@@ -318,8 +556,6 @@ export default function Signup() {
           >
             View Consent
           </button>
-
-          <TurnstileWidget ref={captchaRef} />
 
           <button
             style={{ ...button, opacity: loading ? 0.7 : 1, cursor: loading ? "not-allowed" : "pointer" }}
