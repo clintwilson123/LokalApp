@@ -15,12 +15,14 @@ import ConsentDocument from "./ConsentDocument";
  * dialog on open so keyboard and screen-reader users land in the document
  * rather than behind it.
  *
- * Layout note — this used to be hard to read because it stacked a badge, a
- * title, a subtitle, a pill, six bordered sections, a green box and a button,
- * with two nested scrolling containers. Now there is exactly ONE scroll
- * region (the document) between a fixed header and a fixed footer, the text
- * is set at a readable size with real contrast, and everything is left
- * aligned so the paragraphs can be read like prose instead of centred captions.
+ * Layout note — this used to be hard to read: a badge, title, subtitle and
+ * pill stacked over six bordered sections and a green box, inside two nested
+ * scrolling containers, in 12px text at 60% opacity. Now there is exactly ONE
+ * scroll region between a fixed header and a fixed footer, the terms are set
+ * at 15px/1.75 in a light colour, the plain-language summary leads the
+ * document instead of competing with it, and nothing is underlined with a
+ * rule. Everything is left aligned so the paragraphs read like prose rather
+ * than centred captions.
  */
 export default function ConsentModal({ open, onClose }) {
   const dialogRef = useRef(null);
@@ -68,20 +70,23 @@ export default function ConsentModal({ open, onClose }) {
           </button>
         </div>
 
-        <div style={assurance}>
-          <p style={assuranceTitle}>
-            <CheckGlyph /> What this means for you
-          </p>
-          <ul style={assuranceList}>
-            <li>Your profile and resume are shared only with employers you apply to.</li>
-            <li>We never sell your data, and employers may only use it for hiring.</li>
-            <li>You can correct or delete everything at any time — consent is not permanent.</li>
-          </ul>
-        </div>
-
         {/* The only scrolling container: header and footer stay put, so the
-            document always has the full remaining height to itself. */}
+            document gets every remaining pixel. The plain-language summary sits
+            at its head as an introduction instead of a third fixed block —
+            pinning it above the scroll cost the terms ~120px of height and made
+            the dialog feel stacked. */}
         <div style={scrollArea}>
+          <div style={assurance}>
+            <p style={assuranceTitle}>
+              <CheckGlyph /> What this means for you
+            </p>
+            <ul style={assuranceList}>
+              <li>Your profile and resume are shared only with employers you apply to.</li>
+              <li>We never sell your data, and employers may only use it for hiring.</li>
+              <li>You can correct or delete everything at any time — consent is not permanent.</li>
+            </ul>
+          </div>
+
           <ConsentDocument />
         </div>
 
@@ -119,8 +124,10 @@ const backdrop = {
   background: "rgba(2, 6, 23, 0.78)", backdropFilter: "blur(6px)",
   display: "flex", alignItems: "center", justifyContent: "center", padding: "20px",
 };
-// Flex column with a fixed height ceiling: the header, the reassurance block
-// and the Done button are pinned, and only the document scrolls between them.
+// Flex column with a fixed height ceiling: only the header and the Done button
+// are pinned, and everything else — the plain-language summary and the terms —
+// shares the one scrolling region between them. That split is the whole
+// readability fix: the terms were losing ~120px of height to fixed chrome.
 const panel = {
   position: "relative", width: "100%", maxWidth: "600px",
   maxHeight: "88vh", overflow: "hidden", outline: "none",
@@ -157,14 +164,15 @@ const assurance = {
   borderRadius: "12px", padding: "12px 14px", marginBottom: "14px",
   background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.2)",
 };
+// Sentence case, not shouting: an all-caps, letter-spaced label is measurably
+// slower to read and adds to the very clutter this screen is trying to shed.
 const assuranceTitle = {
-  display: "flex", alignItems: "center", gap: "6px", margin: "0 0 6px",
-  color: "#86efac", fontSize: "12px", fontWeight: "700", textTransform: "uppercase",
-  letterSpacing: "0.4px",
+  display: "flex", alignItems: "center", gap: "8px", margin: "0 0 8px",
+  color: "#86efac", fontSize: "14px", fontWeight: "700",
 };
 const assuranceList = {
-  margin: "0", paddingLeft: "16px",
-  color: "rgba(255,255,255,0.72)", fontSize: "13px", lineHeight: "1.65",
+  margin: "0", paddingLeft: "18px",
+  color: "rgba(255,255,255,0.78)", fontSize: "14px", lineHeight: "1.7",
 };
 // flex:1 + minHeight:0 is what actually gives this box its share of the
 // height instead of letting it push the Done button off the panel.

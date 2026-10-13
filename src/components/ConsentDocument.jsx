@@ -1,13 +1,8 @@
-// The consent wording, shared verbatim by /consent and the agreement dialog on
-// Signup. One source so the text can never drift between the two — what the
-// user reads before ticking the checkbox on Signup IS the document they accept
-// on /consent.
-//
-// It is ONE document under ONE name: the CJLink Consent Agreement. There is no
-// separate "Terms & Conditions" to accept anywhere in the app, so a person is
-// never asked twice, under two titles, for the same agreement. There is also no
-// second button that opens it: the agreement link in the checkbox label is the
-// only opener on Signup.
+// The wording of the CJLink Consent Agreement, shown in full by the agreement
+// dialog on Signup — the checkbox, the dialog and this text are the whole of
+// it. There is no /consent page any more and no "Terms & Conditions" elsewhere
+// in the app, so a person is never asked twice, under two titles, for the same
+// agreement. The agreement link in the checkbox label is the only opener.
 //
 // The hiring policy that ApplyJob used to demand separately ("I agree to provide
 // accurate information… consent to reviewing my profile, resume and application
@@ -16,10 +11,12 @@
 // sections, so it stays in ONE place — accepting this agreement at sign-up IS
 // accepting the hiring policy. Do not re-add a second acknowledgment prompt.
 //
-// Set for reading, not for looking: 14px at 1.7 line-height on a light-on-dark
-// colour that clears contrast, generous spacing between sections, and no
-// divider under the final section. An earlier version was 12px at 60% white,
-// which is what made the dialog feel dense and tiring.
+// Set for reading, not for looking. The first version was 12px at 60% white
+// with a rule under every section: dense, low-contrast, and read as a wall of
+// terms nobody wants to open. Now it is 15px at 1.75 line-height in a light
+// colour that clears contrast, with real air between sections and NO dividing
+// rules — the numbered chips and headings carry the structure, so the eye
+// scans six short sections instead of fighting a table.
 
 export default function ConsentDocument() {
   return (
@@ -78,8 +75,7 @@ export default function ConsentDocument() {
         </p>
       </section>
 
-      {/* No divider on the last section — a trailing rule reads as a cut-off. */}
-      <section style={{ ...section, paddingBottom: "0", marginBottom: "0", borderBottom: "none" }}>
+      <section style={{ ...section, marginBottom: 0 }}>
         <h3 style={policyTitle}>
           <span style={number}>6</span> Consent and Withdrawal
         </h3>
@@ -93,28 +89,28 @@ export default function ConsentDocument() {
   );
 }
 
+// No borders: spacing and the numbered chips do the separating. A rule under
+// every paragraph turns six short sections into a grid, which is exactly the
+// "wall of terms" feeling this screen is trying to avoid.
 const section = {
-  paddingBottom: "16px",
-  marginBottom: "16px",
-  borderBottom: "1px solid rgba(255,255,255,0.08)",
+  marginBottom: "22px",
 };
 const policyBox = {
-  backgroundColor: "transparent", borderRadius: "12px", padding: "0",
-  marginBottom: "0", border: "none", textAlign: "left",
+  margin: 0,
 };
 const policyTitle = {
-  color: "#93c5fd", fontSize: "15px", fontWeight: "700", margin: "0 0 8px",
-  display: "flex", alignItems: "center", gap: "8px",
+  color: "#93c5fd", fontSize: "16px", fontWeight: "700", margin: "0 0 8px",
+  display: "flex", alignItems: "center", gap: "10px", lineHeight: "1.4",
 };
 // Numbered so a person can tell at a glance how much there is to read — a wall
 // of undifferentiated paragraphs reads as "long and unskippable" and gets
 // less careful attention, not more.
 const number = {
   display: "inline-flex", alignItems: "center", justifyContent: "center",
-  width: "20px", height: "20px", flexShrink: 0, borderRadius: "6px",
+  width: "24px", height: "24px", flexShrink: 0, borderRadius: "7px",
   background: "rgba(74,144,226,0.2)", border: "1px solid rgba(74,144,226,0.35)",
-  color: "#93c5fd", fontSize: "11px", fontWeight: "700",
+  color: "#93c5fd", fontSize: "12px", fontWeight: "700",
 };
 const policyText = {
-  color: "rgba(255,255,255,0.78)", fontSize: "14px", lineHeight: "1.7", margin: "0",
+  color: "rgba(255,255,255,0.85)", fontSize: "15px", lineHeight: "1.75", margin: "0",
 };

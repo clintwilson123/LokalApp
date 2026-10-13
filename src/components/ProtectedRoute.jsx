@@ -58,9 +58,26 @@ export default function ProtectedRoute({ children, allowedRoles, requireVerifica
     return <Navigate to="/verify-email" replace />;
   }
 
-  // Consent check (skip for admin)
+  // Consent check (skip for admin). The standalone /consent page no longer
+  // exists: the agreement has exactly one home — the checkbox on sign-up, with
+  // the full document readable in place from the dialog beside it — so there
+  // is no second page to send anyone to.
+  //
+  // A profile still showing consent as unaccepted has never seen it, and the
+  // only surface left that can collect it is the Google completion form. So
+  // they are parked on /login WITH the reason, exactly like a suspended
+  // account: the session is kept, and Login refuses to auto-redirect a profile
+  // that still owes consent — otherwise it would bounce straight back into this
+  // guard. "Continue with Google" then carries them through the callback to
+  // the completion form that collects the tick.
   if (profile.role !== "admin" && !profile.consent_accepted) {
-    return <Navigate to="/consent" replace />;
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ notice: AUTH_MSG.consentRequired, noticeType: "error" }}
+      />
+    );
   }
 
   return children;

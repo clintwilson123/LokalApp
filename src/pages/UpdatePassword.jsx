@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
+import { AUTH_MSG } from "../lib/authErrors";
 import { pageWrapper, card, title, subtitle, input, inputWrapper, inputIcon, button } from "../uiStyles";
 
 const bgBlob = {
@@ -83,7 +84,27 @@ export default function UpdatePassword() {
       setError(err.message);
     } else {
       setDone(true);
-      setTimeout(() => navigate("/login", { replace: true }), 2500);
+      // A recovery link leaves a LIVE session behind. Simply navigating to
+      // /login would bounce it straight to the dashboard — Login auto-redirects
+      // any authenticated session — so the person would never be asked for the
+      // password they just created. End the session, then carry a success
+      // notice: noticeType "success" is the exact flag Login uses to hold off
+      // its auto-redirect, which guarantees the sign-in form is what waits.
+      //
+      // Never awaited into the navigation decision: a sign-out that fails must
+      // not swallow the success message. The notice alone is enough to hold
+      // Login in place.
+      try {
+        await supabase.auth.signOut({ scope: "local" });
+      } catch {
+        /* best effort — the redirect does not depend on it */
+      }
+      setTimeout(() => {
+        navigate("/login", {
+          replace: true,
+          state: { notice: AUTH_MSG.passwordUpdated, noticeType: "success" },
+        });
+      }, 2500);
     }
     setLoading(false);
   };
@@ -109,7 +130,7 @@ export default function UpdatePassword() {
         <div style={card}>
           <div style={{ fontSize: "56px", marginBottom: "8px" }}>✅</div>
           <h2 style={title}>Password Updated!</h2>
-          <p style={subtitle}>Redirecting to login...</p>
+          <p style={subtitle}>Taking you to sign in…</p>
         </div>
       </div>
     );

@@ -96,6 +96,18 @@ export const AUTH_MSG = {
   // the password sign-in throw, ProtectedRoute's bounce off a protected page,
   // and the Google callback's hand-off check.
   suspended: "Your account has been suspended. Contact the administrator.",
+  // The reset link leaves a LIVE session behind. Password recovery must end on
+  // the sign-in form, not the dashboard, so /update-password releases that
+  // session and lands here with noticeType "success" — which is also the flag
+  // that stops Login auto-redirecting it onward.
+  passwordUpdated:
+    "Your password has been updated. Please sign in with your new password.",
+  // A profile that still shows consent as not accepted has never seen the
+  // agreement. There is no standalone consent page any more — the checkbox on
+  // sign-up and the readable CJLink Consent Agreement are the whole of it — so
+  // the only surface that can still collect it is the Google completion form.
+  consentRequired:
+    "You haven't accepted the CJLink Consent Agreement yet. Use Continue with Google to review and accept it.",
 };
 
 // Codes that describe a failure to PRODUCE the verification email. After the

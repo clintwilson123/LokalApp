@@ -13,13 +13,12 @@ import ForgotPassword from "./pages/ForgotPassword";
 import UpdatePassword from "./pages/UpdatePassword";
 import About from "./pages/About";
 import VerifyEmail from "./pages/VerifyEmail";
-import Consent from "./pages/Consent";
 import SetPassword from "./pages/SetPassword";
 import AdminDashboard from "./pages/AdminDashboard";
 import ApplicantDashboard from "./pages/ApplicantDashboard";
 
 
-const publicPaths = ["/", "/login", "/signup", "/forgot-password", "/update-password", "/set-password", "/about", "/verify-email", "/consent", "/auth/callback"];
+const publicPaths = ["/", "/login", "/signup", "/forgot-password", "/update-password", "/set-password", "/about", "/verify-email", "/auth/callback"];
 
 function AppContent() {
   const location = useLocation();
@@ -38,11 +37,12 @@ function AppContent() {
         <Route path="/update-password" element={<UpdatePassword />} />
         <Route path="/about" element={<About />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
-        <Route path="/consent" element={<Consent />} />
-        {/* Google account with no CJLink password yet — the OAuth callback
-            lands here instead of a dashboard. Not wrapped in ProtectedRoute:
-            it guards itself (session + OAuth provider) so a bounced user never
-            plays ping-pong with a redirect that assumes a consented profile. */}
+        {/* There is no /consent page. The agreement has exactly one home: the
+            checkbox on sign-up, with the full CJLink Consent Agreement readable
+            in place from the dialog beside it. ProtectedRoute no longer points
+            here — an un-consented profile is signed out and returned to /login,
+            where Continue with Google carries it to the completion form that
+            collects consent. */}
         <Route path="/set-password" element={<SetPassword />} />
         {/* Google (OAuth) redirect target — owned by OAuthCallback, never by
             the confirmation-link hand-off in AuthCallbackHandler. */}

@@ -180,8 +180,9 @@ export function AuthProvider({ children }) {
    *     would rewrite that to "applicant" anyway, so an admin row has to be
    *     restored by hand instead of being silently demoted;
    *   * consent_accepted starts FALSE: recording consent we never collected
-   *     would falsify the consent log, so ProtectedRoute sends this user to
-   *     /consent, which writes the real answer;
+   *     would falsify the consent log, so ProtectedRoute parks this user on
+   *     /login with the reason, and Continue with Google carries them to the
+   *     sign-up completion form, which writes the real answer;
    *   * email_verified mirrors auth.users.email_confirmed_at only.
    *
    * Returns the readable row, or null when nothing was created.
@@ -269,7 +270,7 @@ export function AuthProvider({ children }) {
    *   * A brand-new Google user is ALWAYS "applicant". OAuth metadata can
    *     never mint an admin (profiles_security_guard rewrites it anyway).
    *   * consent_accepted starts false: a Google signup never saw the consent
-   *     checkbox, so the existing /consent screen still has to collect it.
+   *     checkbox, so the sign-up completion form still has to collect it.
    *
    * Returns true when a profile row is readable afterwards.
    */

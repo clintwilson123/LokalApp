@@ -69,6 +69,12 @@ export default function Login() {
     // via navigation state) instead of bouncing to the dashboard and back —
     // ProtectedRoute would send it straight here again.
     if (profile.status === "suspended") return;
+    // Same rule for an applicant that still owes consent: ProtectedRoute parks
+    // it here with the reason, and shipping it onward on the next line would
+    // send it straight back — a two-screen loop with no progress. "Continue
+    // with Google" is the way forward; the callback hands it to the completion
+    // form that collects the tick.
+    if (profile.role !== "admin" && !profile.consent_accepted) return;
     navigate(postAuthPath(profile, user), { replace: true });
   }, [user, profile, loading, justSignedIn, successNotice, navigate]);
 

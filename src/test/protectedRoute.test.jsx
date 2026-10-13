@@ -41,7 +41,6 @@ function renderProtected(requireVerification = true, allowedRoles) {
         />
         <Route path="/verify-email" element={<div>VERIFY_EMAIL_PAGE</div>} />
         <Route path="/login" element={<LoginProbe />} />
-        <Route path="/consent" element={<div>CONSENT_PAGE</div>} />
         <Route path="/" element={<div>HOME_PAGE</div>} />
       </Routes>
     </MemoryRouter>
@@ -116,15 +115,21 @@ describe('ProtectedRoute', () => {
     expect(screen.getByTestId('login-notice').textContent).toBe(AUTH_MSG.suspended);
   });
 
-  it('sends a consent-less applicant to the consent page', () => {
+  it('parks a consent-less applicant on /login with the reason — there is no consent page', () => {
+    // The standalone /consent page is gone: the agreement is read and ticked
+    // on sign-up, and the full document is readable in place from the dialog
+    // beside that checkbox. So an un-consented profile has no dedicated screen
+    // to be sent to — it is told why on /login, where "Continue with Google"
+    // carries it to the completion form that collects the tick.
     h.auth = {
       user: { id: 'u1', email_confirmed_at: '2026-01-01T00:00:00Z' },
       profile: applicant({ consent_accepted: false }),
       loading: false,
     };
     renderProtected();
-    expect(screen.getByText('CONSENT_PAGE')).toBeInTheDocument();
+    expect(screen.getByText('LOGIN_PAGE')).toBeInTheDocument();
     expect(screen.queryByText('PROTECTED_CONTENT')).toBeNull();
+    expect(screen.getByTestId('login-notice').textContent).toBe(AUTH_MSG.consentRequired);
   });
 
   it('blocks the wrong role', () => {

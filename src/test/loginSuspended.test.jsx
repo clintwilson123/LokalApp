@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 // The /login auto-redirect must never bounce a SUSPENDED session into a
@@ -104,5 +104,58 @@ describe('Login — suspended sessions never loop', () => {
 
     expect(screen.getByText('Welcome Back')).toBeInTheDocument();
     expect(screen.queryByText('APPLICANT_PAGE')).toBeNull();
+  });
+});
+
+// ProtectedRoute parks an applicant that still owes consent here with a
+// reason. Without a matching guard in Login that would be pointless: the very
+// next effect would ship the live session to /find-jobs, ProtectedRoute would
+// send it straight back, and the two screens would trade the user forever
+// with no chance to act. This is the same rule the suspension case follows.
+describe('Login — an applicant that still owes consent stays put', () => {
+  const consentArrival = [
+    {
+      pathname: '/login',
+      state: { notice: AUTH_MSG.consentRequired, noticeType: 'error' },
+    },
+  ];
+
+  it('does NOT auto-redirect a live session whose profile has not accepted the agreement', async () => {
+    h.auth.user = { id: 'u1', email_confirmed_at: '2026-01-01T00:00:00Z' };
+    h.auth.profile = {
+      id: 'u1',
+      role: 'applicant',
+      status: 'active',
+      email_verified: true,
+      consent_accepted: false,
+    };
+
+    renderLogin(consentArrival);
+
+    // The reason is shown...
+    expect(screen.getByText(AUTH_MSG.consentRequired)).toBeInTheDocument();
+    // ...and the session is held here rather than bounced onward.
+    await act(async () => {});
+    expect(screen.getByText('Welcome Back')).toBeInTheDocument();
+    expect(screen.queryByText('APPLICANT_PAGE')).toBeNull();
+    expect(screen.queryByText('ADMIN_PAGE')).toBeNull();
+    // The way forward is on this very screen.
+    expect(
+      screen.getByRole('button', { name: /continue with google/i })
+    ).toBeInTheDocument();
+  });
+
+  it('an ADMIN who owes consent is still let through — the check skips admins', async () => {
+    h.auth.user = { id: 'a1', email_confirmed_at: '2026-01-01T00:00:00Z' };
+    h.auth.profile = {
+      id: 'a1',
+      role: 'admin',
+      status: 'active',
+      consent_accepted: false,
+    };
+
+    renderLogin();
+
+    await waitFor(() => expect(screen.getByText('ADMIN_PAGE')).toBeInTheDocument());
   });
 });
