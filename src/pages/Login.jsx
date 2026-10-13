@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import GoogleSignInButton from "../components/GoogleSignInButton";
 import { postAuthPath } from "../lib/authFlow";
 import { AUTH_MSG, messageForCode } from "../lib/authErrors";
 import {
@@ -189,9 +190,17 @@ export default function Login() {
             </div>
           )}
 
-          {/* Google sign-in lives ONLY on the Signup page now — Login is
-              password-only. A Google user who already completed sign-up can
-              always reach Login from the Signup page's "Sign in" link. */}
+          {/* Sign-in with Google sits ABOVE the password form, the standard
+              placement people expect. A Google user who already has a CJLink
+              account is sent onward by /auth/callback exactly like a password
+              sign-in: admin only when the DATABASE profile says admin,
+              otherwise /find-jobs. One who does NOT — no completed account
+              yet — is never dropped into the dashboard: the callback hands
+              them to the /signup completion form (same session, same UUID,
+              Google address and name prefilled) to finish signing up first.
+              Google's own password is collected on Google's screen, never
+              here. */}
+          <GoogleSignInButton />
 
           <div style={inputWrapper}>
             <span style={inputIcon}>✉️</span>

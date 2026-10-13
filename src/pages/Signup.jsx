@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabaseClient";
-import { pageWrapper, card, title, subtitle, input, inputWrapper, inputIcon, button, linkHighlight } from "../uiStyles";
+import { pageWrapper, card, title, subtitle, input, inputWrapper, inputIcon, button, linkHighlight, colors, radii } from "../uiStyles";
 import { sanitizeName, validateGmail, getPasswordStrength, maxLength } from "../lib/sanitize";
 import { AUTH_MSG, messageForCode, isEmailDeliveryFailure } from "../lib/authErrors";
 import { writePendingEmail, readGooglePrefill, clearGooglePrefill } from "../lib/pendingVerification";
@@ -258,9 +258,15 @@ export default function Signup() {
    *
    * The account and the profiles row already exist (minted by
    * AuthContext.ensureOAuthProfile under the SAME Supabase user UUID). This
-   * only records what the user explicitly reviewed here: their chosen full
-   * name and the consent they just ticked. Role, status and email_verified
-   * are never touched — the database guard would refuse anyway.
+   * records only what the user explicitly reviewed here: the password they
+   * chose so they can sign in manually later, their chosen full name, and the
+   * consent they just ticked. Role, status and email_verified are never
+   * touched — the database guard would refuse anyway.
+   *
+   * Order matters: the password is written FIRST. Supabase Auth stores a hash
+   * for this same user (no second account, no change of sign-in provider), so
+   * once it lands the person is guaranteed a working email + password login —
+   * if it fails, nothing has been recorded and they simply retry.
    */
   const handleCompleteGoogle = async () => {
     if (submittingRef.current) return;
@@ -275,10 +281,24 @@ export default function Signup() {
       setError("You must agree to the terms to continue.");
       return;
     }
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
 
     submittingRef.current = true;
     setLoading(true);
     try {
+      // 1) The password this person will type next time. GoTrue accepts it for
+      //    the OAuth user directly — there is no confirmation round-trip and
+      //    no provider switch; the Google identity stays linked.
+      const { error: passwordError } = await supabase.auth.updateUser({ password });
+      if (passwordError) throw passwordError;
+
       // Never blank an existing name if the field was cleared by accident.
       const finalName = maxLength(trimmedName, 100) || String(profile?.full_name || "").slice(0, 100);
       const { error: updateError } = await supabase
@@ -300,8 +320,12 @@ export default function Signup() {
       }
       navigate("/find-jobs", { replace: true });
     } catch (err) {
+      const code = typeof err?.code === "string" ? err.code : "";
       setError(
-        err?.message || "Could not finish setting up your account. Please try again."
+        messageForCode(
+          code,
+          err?.message || "Could not finish setting up your account. Please try again."
+        )
       );
     } finally {
       submittingRef.current = false;
@@ -311,17 +335,22 @@ export default function Signup() {
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !loading) {
-      handleSignup();
+      // Enter must submit whichever form is actually on screen — the password
+      // signup form, or the Google completion form above it.
+      if (completingGoogle) handleCompleteGoogle();
+      else handleSignup();
     }
   };
 
   // ---------------------------------------------------------------------------
   // Google completion form.
   //
-  // Shown when the OAuth callback (?intent=signup) handed a brand-new Google
-  // user back here: the account exists under the SAME Supabase UUID, the
-  // session is kept, and only the name the user chooses plus the consent they
-  // explicitly tick are written. No password field, no CAPTCHA, no second
+  // Shown when the OAuth callback handed a Google user back here because
+  // their profile still owes consent — a brand-new account started from
+  // /signup or /login alike: the account exists under the SAME Supabase UUID
+  // and the session is kept. Written here: the password they choose (so a
+  // later sign-in can be manual, email + password, without Google), the name
+  // they choose, and the consent they explicitly tick. No CAPTCHA, no second
   // account — and nothing is overwritten that the user did not just review.
   // ---------------------------------------------------------------------------
   if (completingGoogle) {
@@ -342,7 +371,9 @@ export default function Signup() {
               color: "#93c5fd", textAlign: "center", lineHeight: 1.6,
             }}>
               Signed in as <strong>{prefillEmail}</strong> via Google.
-              Your Google password is never shared with CJLink.
+              Your Google password stays with Google and is never shared with
+              CJLink — set your own CJLink password below so you can also sign
+              in with just your email and password.
             </div>
 
             {error && (
@@ -367,6 +398,37 @@ export default function Signup() {
                 type="email" value={email} readOnly disabled aria-readonly="true" title="Your verified Google address" />
             </div>
 
+            {/* The password that makes a MANUAL sign-in possible later: it is
+                stored (hashed) on this same account, so /login accepts email +
+                password from now on — Google itself is never asked for it. */}
+            <div style={inputWrapper}>
+              <span style={inputIcon}>🔑</span>
+              <input style={input} type="password" placeholder="Password (min. 6 characters)" value={password}
+                onChange={(e) => setPassword(e.target.value)} onKeyDown={handleKeyDown} />
+            </div>
+
+            {password && (
+              <div style={{ marginBottom: "12px" }}>
+                <div style={{ display: "flex", gap: "4px", marginBottom: "4px" }}>
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <div key={i} style={{
+                      flex: 1, height: "4px", borderRadius: "2px",
+                      backgroundColor: i <= strength.score ? strength.color : "rgba(255,255,255,0.1)",
+                    }} />
+                  ))}
+                </div>
+                <span style={{ fontSize: "11px", color: strength.color, fontWeight: "600" }}>
+                  {strength.label}
+                </span>
+              </div>
+            )}
+
+            <div style={inputWrapper}>
+              <span style={inputIcon}>🔒</span>
+              <input style={input} type="password" placeholder="Confirm password" value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)} onKeyDown={handleKeyDown} />
+            </div>
+
             <label style={checkboxLabel}>
               <input type="checkbox" checked={agreed}
                 onChange={(e) => { setAgreed(e.target.checked); setError(""); }}
@@ -378,11 +440,36 @@ export default function Signup() {
               type="button"
               onClick={() => setConsentOpen(true)}
               style={{
-                display: "block", background: "none", border: "none", padding: 0,
-                margin: "-8px 0 16px", color: "#93c5fd", cursor: "pointer",
-                fontSize: "12px", fontWeight: "600", textDecoration: "underline",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "8px 16px",
+                marginTop: "4px",
+                marginBottom: "16px",
+                borderRadius: radii.sm,
+                border: `1px solid ${colors.primary}`,
+                background: "transparent",
+                color: colors.primary,
+                cursor: "pointer",
+                fontSize: "13px",
+                fontWeight: "600",
+                transition: "all 0.2s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = colors.primary;
+                e.currentTarget.style.color = "#fff";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "transparent";
+                e.currentTarget.style.color = colors.primary;
               }}
             >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+              </svg>
               View Consent
             </button>
 
@@ -470,7 +557,14 @@ export default function Signup() {
 
       <div style={card}>
         <div>
-          <div style={{ fontSize: "42px", marginBottom: "8px" }}>🚀</div>
+          <div style={{ fontSize: "42px", marginBottom: "8px", display: "flex", justifyContent: "center" }}>
+            <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#4a90e2" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <line x1="19" y1="8" x2="19" y2="14" />
+              <line x1="22" y1="11" x2="16" y2="11" />
+            </svg>
+          </div>
           <h2 style={title}>Create Account</h2>
           <p style={subtitle}>Join CJLink and start your journey</p>
 
@@ -488,15 +582,16 @@ export default function Signup() {
             </div>
           )}
 
-          {/* Google sign-up is offered here and ONLY here (Login is
-              password-only) — intent="signup" so the callback hands the user
-              back prefilled instead of straight to the dashboard. Google's
+          {/* Google sign-up is offered here exactly as on Login: whichever
+              page starts the round-trip, /auth/callback hands an applicant
+              who still owes consent back prefilled instead of to a
+              dashboard. Google's
               own account chooser is forced (prompt=select_account) so the
               active browser session is never silently reused. OAuth never
               needs the consent checkbox above the fold: a Google profile row
               starts with consent_accepted = false and the completion form
               collects it. */}
-          <GoogleSignInButton intent="signup" />
+          <GoogleSignInButton />
 
           <div style={inputWrapper}>
             <span style={inputIcon}>👤</span>
@@ -549,16 +644,55 @@ export default function Signup() {
             type="button"
             onClick={() => setConsentOpen(true)}
             style={{
-              display: "block", background: "none", border: "none", padding: 0,
-              margin: "-8px 0 16px", color: "#93c5fd", cursor: "pointer",
-              fontSize: "12px", fontWeight: "600", textDecoration: "underline",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "8px 16px",
+              marginTop: "4px",
+              marginBottom: "16px",
+              borderRadius: radii.sm,
+              border: `1px solid ${colors.primary}`,
+              background: "transparent",
+              color: colors.primary,
+              cursor: "pointer",
+              fontSize: "13px",
+              fontWeight: "600",
+              transition: "all 0.2s ease",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = colors.primary;
+              e.currentTarget.style.color = "#fff";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.color = colors.primary;
             }}
           >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="16" y1="13" x2="8" y2="13" />
+              <line x1="16" y1="17" x2="8" y2="17" />
+            </svg>
             View Consent
           </button>
 
           <button
-            style={{ ...button, opacity: loading ? 0.7 : 1, cursor: loading ? "not-allowed" : "pointer" }}
+            style={{
+              ...button,
+              letterSpacing: "0.4px",
+              opacity: loading ? 0.7 : 1,
+              cursor: loading ? "not-allowed" : "pointer",
+            }}
+            onMouseEnter={(e) => {
+              if (loading) return;
+              e.currentTarget.style.transform = "translateY(-1px)";
+              e.currentTarget.style.boxShadow = "0 6px 22px rgba(26, 115, 232, 0.4)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "translateY(0)";
+              e.currentTarget.style.boxShadow = "0 4px 16px rgba(26, 115, 232, 0.3)";
+            }}
             onClick={handleSignup} disabled={loading}
           >
             {loading ? (

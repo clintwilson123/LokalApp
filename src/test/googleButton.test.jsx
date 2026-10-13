@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
-// "Continue with Google" is rendered ONLY by the Signup page now — Login is
-// password-only. Under test: the button is absent from Login entirely, and on
-// Signup its label, logo, loading state, error surface and double-click guard
-// cannot drift apart. The Signup page passes intent="signup" so the callback
-// can prefill.
+// "Continue with Google" is rendered by BOTH auth pages with the SAME label;
+// neither page decides where the user lands — /auth/callback does, and it
+// sends an applicant who has never completed sign-up to the completion form.
+// Under test: the label, logo, loading state, error surface and double-click
+// guard cannot drift apart between Login and Signup.
 
 const h = vi.hoisted(() => ({
   signInWithGoogle: vi.fn(),
@@ -70,19 +70,58 @@ beforeEach(() => {
   window.sessionStorage.clear();
 });
 
-describe('Continue with Google — Login (removed)', () => {
-  it('Login no longer renders the Google button — the form is password-only', async () => {
+describe('Continue with Google — Login', () => {
+  it('renders the SAME button above an untouched password form', async () => {
     renderLogin();
     await act(async () => {});
 
-    expect(
-      screen.queryByRole('button', { name: /continue with google/i })
-    ).toBeNull();
-    // The password form is untouched.
+    const button = screen.getByRole('button', { name: /continue with google/i });
+    expect(button).toBeEnabled();
+    expect(button).toHaveTextContent('Continue with Google');
+    // The password form is untouched, and the shared "or" divider separates them.
+    expect(screen.getByText('or')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Email address')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Password')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
     expect(screen.getByText('Welcome Back')).toBeInTheDocument();
+  });
+
+  it('starts the OAuth round-trip with no page-specific flags to parse', async () => {
+    renderLogin();
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /continue with google/i }));
+    });
+    expect(h.signInWithGoogle).toHaveBeenCalledTimes(1);
+    expect(h.signInWithGoogle).toHaveBeenCalledWith();
+  });
+
+  it('a double-click cannot start a second OAuth round-trip from Login either', async () => {
+    renderLogin();
+    await act(async () => {});
+
+    const button = screen.getByRole('button', { name: /continue with google/i });
+    await act(async () => {
+      fireEvent.click(button);
+      fireEvent.click(button);
+    });
+    expect(h.signInWithGoogle).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a failed start clearly and re-enables the button', async () => {
+    h.signInWithGoogle.mockRejectedValue(
+      Object.assign(new Error('OAuth provider is not enabled'), { code: 'provider_not_enabled' })
+    );
+    renderLogin();
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /continue with google/i }));
+    });
+
+    expect(await screen.findByText(AUTH_MSG.oauthNotConfigured)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /continue with google/i })).toBeEnabled();
   });
 });
 
@@ -96,7 +135,7 @@ describe('Continue with Google — Signup', () => {
     expect(button).toHaveTextContent('Continue with Google');
   });
 
-  it('starts a SIGNUP-intent OAuth round-trip so the callback can prefill the form', async () => {
+  it('starts the SAME OAuth round-trip as Login — the callback decides the destination', async () => {
     renderSignup();
     await act(async () => {});
 
@@ -104,7 +143,7 @@ describe('Continue with Google — Signup', () => {
       fireEvent.click(screen.getByRole('button', { name: /continue with google/i }));
     });
     expect(h.signInWithGoogle).toHaveBeenCalledTimes(1);
-    expect(h.signInWithGoogle).toHaveBeenCalledWith('signup');
+    expect(h.signInWithGoogle).toHaveBeenCalledWith();
   });
 
   it('a double-click cannot start a second OAuth round-trip from Signup either', async () => {

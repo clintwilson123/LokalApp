@@ -91,7 +91,14 @@ export function AuthProvider({ children }) {
 
         if (retry < 2) await new Promise((r) => setTimeout(r, 600));
       }
-      setProfile(null);
+
+      // Nothing readable after every retry: the row may never have been
+      // written (deferred signup whose sessionStorage marker was lost or
+      // expired). Heal the account once so a confirmed user is not bounced
+      // back to "/" forever, then read back the row that was created.
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      const recovered = authUser ? await recoverMissingProfile(authUser) : null;
+      setProfile(recovered || null);
       setLoading(false);
     } catch {
       setProfile(null);
@@ -153,6 +160,79 @@ export function AuthProvider({ children }) {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Heal a confirmed account whose profiles row is missing.
+   *
+   * The row is normally written by signUp() (session present) or by
+   * ensureProfile() when the deferred-signup marker is still in this tab's
+   * sessionStorage. If the confirmation happened in another tab/browser, or
+   * the 2-hour marker expired, no row is ever created — and sign-in used to
+   * fail forever with "Unable to load your profile right now", because
+   * signIn() only ever READ the row.
+   *
+   * Recovery is deliberately conservative:
+   *   * only for a user Supabase Auth has already confirmed (or an OAuth
+   *     provider, which proved the address itself);
+   *   * never for an account whose metadata says admin — profiles_security_guard
+   *     would rewrite that to "applicant" anyway, so an admin row has to be
+   *     restored by hand instead of being silently demoted;
+   *   * consent_accepted starts FALSE: recording consent we never collected
+   *     would falsify the consent log, so ProtectedRoute sends this user to
+   *     /consent, which writes the real answer;
+   *   * email_verified mirrors auth.users.email_confirmed_at only.
+   *
+   * Returns the readable row, or null when nothing was created.
+   * Never throws: it is called from auth-state handlers.
+   */
+  async function recoverMissingProfile(authUser) {
+    if (!authUser?.id) return null;
+
+    const provider = authUser.app_metadata?.provider;
+    const confirmed = provider !== "email" || Boolean(authUser.email_confirmed_at);
+    if (!confirmed) return null;
+    if (String(authUser.user_metadata?.role || "").toLowerCase() === "admin") {
+      return null;
+    }
+
+    try {
+      const meta = authUser.user_metadata || {};
+      const { data: row, error: insertError } = await supabase
+        .from("profiles")
+        .insert({
+          id: authUser.id,
+          full_name: String(meta.full_name || meta.name || "").slice(0, 100),
+          role: "applicant",
+          status: "active",
+          email_verified: Boolean(authUser.email_confirmed_at),
+          consent_accepted: false,
+          signup_risk_level: "low",
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        // 23505 = another tab created it first; anything else means we could
+        // not heal this account, so leave it to the caller's normal error path.
+        if (insertError.code !== "23505") return null;
+        const { data: existing } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", authUser.id)
+          .single();
+        return existing || null;
+      }
+
+      await supabase.from("notifications").insert({
+        user_id: authUser.id,
+        message: "Welcome to CJLink! Your profile was restored.",
+        type: "info",
+      });
+      return row || null;
+    } catch {
+      return null;
     }
   }
 
@@ -329,11 +409,12 @@ export function AuthProvider({ children }) {
     if (error) throw error;
 
     // Check suspension and email verification BEFORE setting session
-    const { data: profileData, error: profileErr } = await supabase
+    const { data: recoveredRow, error: profileErr } = await supabase
       .from("profiles")
       .select("status, role, email_verified")
       .eq("id", data.user.id)
       .single();
+    let profileData = recoveredRow;
 
     // Surface a missing/unavailable profiles table instead of silently
     // falling back to role "applicant", which would hide admin accounts.
@@ -344,14 +425,21 @@ export function AuthProvider({ children }) {
 
     // Never invent a role. If there is no readable profile row we cannot say
     // who this user is, so refuse instead of defaulting to "applicant".
-    // PGRST116 = .single() found no row (the account is unusable) -> sign out;
-    // anything else is a transient read failure -> keep the session, but still
-    // refuse to hand back a guessed role.
+    // PGRST116 = .single() found no row. First try to heal the account (a
+    // confirmed signup whose row was never written — see recoverMissingProfile);
+    // if that does not produce a readable row, sign out — an unusable account
+    // must not keep a session. Anything else is a transient read failure ->
+    // keep the session, but still refuse to hand back a guessed role.
     if (!profileData) {
       if (profileErr?.code === "PGRST116") {
-        await supabase.auth.signOut();
+        profileData = await recoverMissingProfile(data.user);
       }
-      throw new Error("Unable to load your profile right now. Please try again later.");
+      if (!profileData) {
+        if (profileErr?.code === "PGRST116") {
+          await supabase.auth.signOut();
+        }
+        throw new Error("Unable to load your profile right now. Please try again later.");
+      }
     }
 
     if (profileData.status === "suspended") {
@@ -403,16 +491,18 @@ export function AuthProvider({ children }) {
    * and the role-based redirect runs. A disabled provider or a bad redirect
    * URL surfaces as an AuthApiError the calling screen classifies.
    *
-   * `intent` is "signup" when the Signup page started the round-trip: the
-   * callback then hands the (still authenticated) user back to /signup with
-   * their Google address and name to prefill the completion form — the SAME
-   * Supabase user UUID is kept, and no second account is ever created.
+   * The callback decides everything by itself: an applicant whose profile has
+   * never completed sign-up (consent still outstanding) is handed back to
+   * /signup with their Google address and name to prefill the completion
+   * form — the SAME Supabase user UUID is kept, and no second account is ever
+   * created. Whichever page started the round-trip, no uncompleted account
+   * ever reaches a dashboard.
    */
-  async function signInWithGoogle(intent = "") {
+  async function signInWithGoogle() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: oauthRedirectTo(intent === "signup" ? "signup" : undefined),
+        redirectTo: oauthRedirectTo(),
         // Force Google's own account chooser instead of silently reusing the
         // browser's active Google session. Supabase appends this to the
         // provider authorize URL; Google honours prompt=select_account.

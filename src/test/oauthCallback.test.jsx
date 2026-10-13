@@ -85,10 +85,25 @@ beforeEach(() => {
 });
 
 describe('OAuthCallback — role-based redirect', () => {
-  it('sends a NEW Google applicant to /find-jobs once the profile is readable', async () => {
+  it('never sends an applicant who still owes consent to a dashboard — hands them to /signup first', async () => {
+    // Whatever started the round-trip (here: /login's "Continue with Google",
+    // so NO intent parameter at all), a profile with consent_accepted !== true
+    // is an account that never finished sign-up: same session, same UUID, but
+    // the completion form comes before any application route.
     setFragment(OAUTH_FRAGMENT);
     h.auth.user = googleUser();
     h.auth.profile = { id: 'g-1', role: 'applicant', email_verified: true, consent_accepted: false };
+
+    const Callback = await loadCallback();
+    render(tree(Callback));
+    await screen.findByText('SIGNUP_PAGE');
+    expect(screen.queryByText('APPLICANT_PAGE')).toBeNull();
+  });
+
+  it('sends an applicant who already completed sign-up to /find-jobs once the profile is readable', async () => {
+    setFragment(OAUTH_FRAGMENT);
+    h.auth.user = googleUser();
+    h.auth.profile = { id: 'g-1', role: 'applicant', email_verified: true, consent_accepted: true };
 
     const Callback = await loadCallback();
     render(tree(Callback));
@@ -144,9 +159,9 @@ describe('OAuthCallback — suspended accounts', () => {
     expect(screen.getByTestId('notice-type').textContent).toBe('error');
   });
 
-  it('suspension outranks the Signup completion hand-off (?intent=signup)', async () => {
-    // A round-trip Signup started must not hand a suspended account the
-    // consent/completion form: the session is refused at /login instead.
+  it('suspension outranks the Signup completion hand-off', async () => {
+    // A round-trip that ends at the completion form must not hand a suspended
+    // account the consent/signup form: the session is refused at /login instead.
     setFragment(OAUTH_FRAGMENT);
     h.auth.user = googleUser();
     h.auth.profile = {
@@ -158,7 +173,7 @@ describe('OAuthCallback — suspended accounts', () => {
     };
 
     const Callback = await loadCallback();
-    render(tree(Callback, ['/auth/callback?intent=signup']));
+    render(tree(Callback, ['/auth/callback']));
 
     await screen.findByText('LOGIN_PAGE');
     expect(screen.queryByText('SIGNUP_PAGE')).toBeNull();
@@ -213,7 +228,7 @@ describe('OAuthCallback — ordinary visits and loading', () => {
   it('StrictMode double-mount navigates exactly once (module-scope once-guard)', async () => {
     setFragment(OAUTH_FRAGMENT);
     h.auth.user = googleUser();
-    h.auth.profile = { id: 'g-1', role: 'applicant', email_verified: true };
+    h.auth.profile = { id: 'g-1', role: 'applicant', email_verified: true, consent_accepted: true };
 
     const Callback = await loadCallback();
     render(

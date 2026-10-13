@@ -60,24 +60,22 @@ const REDIRECT_ABANDON_MS = 8000;
 /**
  * "Continue with Google" — the standard OAuth REDIRECT flow.
  *
- * Rendered ONLY by the Signup page (Login is password-only). It only STARTS
+ * Rendered by BOTH auth pages with the same label. It only STARTS
  * the sign-in: Supabase redirects the browser to Google's own ACCOUNT CHOOSER
  * (prompt=select_account, so the active browser session is never silently
  * reused) and consent screen, then back to /auth/callback, where the session,
- * the profile row and the role-based redirect are handled. Nothing here
+ * the profile row and the routing are handled. Whoever started the
+ * round-trip, the callback never sends an applicant who has not completed
+ * sign-up anywhere but the /signup completion form. Nothing here
  * decides who is signed in, no Google password is ever collected here, and no
  * secret is involved — only the public site origin goes to
  * supabase.auth.signInWithOAuth.
  *
- * A full-page redirect (not a popup) is deliberate: the signup-intent hand-off
- * (/auth/callback?intent=signup -> prefilled completion form) travels via
- * navigation state and sessionStorage, which are tab-local and would break
- * inside a popup.
- *
- * `intent="signup"` tells the callback to hand the authenticated user back
- * to /signup (prefilled) instead of the dashboard — see oauth.js.
+ * A full-page redirect (not a popup) is deliberate: the completion-form
+ * hand-off (the prefilled address and name) travels via navigation state and
+ * sessionStorage, which are tab-local and would break inside a popup.
  */
-export default function GoogleSignInButton({ intent = "login" }) {
+export default function GoogleSignInButton() {
   const { signInWithGoogle } = useAuth();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -102,7 +100,7 @@ export default function GoogleSignInButton({ intent = "login" }) {
     try {
       // On success the browser navigates away to Google; `busy` stays true
       // so the button cannot be double-clicked into a second redirect.
-      await signInWithGoogle(intent);
+      await signInWithGoogle();
       // …unless the redirect never happened. Release the button after a
       // short window instead of leaving it permanently disabled.
       busyTimerRef.current = setTimeout(() => {
