@@ -109,13 +109,22 @@ describe('Signup — View Consent modal', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('keeps the /consent link as an explicit way to reach the full page', async () => {
+  it('opens the agreement IN PLACE from the checkbox text — never navigates to a second tick-box', async () => {
+    // This used to be a <Link to="/consent">, which threw the user out to a
+    // separate page that asked them to tick a SECOND, duplicate box under the
+    // name "Terms & Conditions". It now opens the same dialog inline.
     renderSignup();
     await act(async () => {});
 
-    expect(
-      screen.getByRole('link', { name: /terms, privacy policy, and employer consent/i })
-    ).toBeInTheDocument();
+    const opener = screen.getByRole('button', { name: /cjlink consent agreement/i });
+    await act(async () => {
+      fireEvent.click(opener);
+    });
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.queryByText('CONSENT_PAGE')).toBeNull();
+    // Reading still never ticks the checkbox for them.
+    expect(screen.getByRole('checkbox')).not.toBeChecked();
   });
 
   it('still refuses signup without the checkbox after the modal was used', async () => {
@@ -141,7 +150,7 @@ describe('Signup — View Consent modal', () => {
       fireEvent.click(screen.getByRole('button', { name: /create account/i }));
     });
 
-    expect(screen.getByText('You must agree to the terms to create an account.')).toBeInTheDocument();
+    expect(screen.getByText('You must accept the CJLink Consent Agreement to create an account.')).toBeInTheDocument();
     expect(h.signUp).not.toHaveBeenCalled();
   });
 });

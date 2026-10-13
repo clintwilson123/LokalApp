@@ -406,7 +406,7 @@ describe('Signup — Google completion form', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /complete sign-up/i }));
     });
-    expect(screen.getByText(/must agree to the terms/i)).toBeInTheDocument();
+    expect(screen.getByText(/must accept the cjlink consent agreement/i)).toBeInTheDocument();
   });
 
   it('does not enter completion mode for a signed-out or password user', async () => {

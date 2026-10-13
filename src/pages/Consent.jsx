@@ -14,7 +14,7 @@ export default function Consent() {
 
   const handleAccept = async () => {
     if (!agreed) {
-      setError("You must agree to the terms to continue.");
+      setError("You must accept the CJLink Consent Agreement to continue.");
       return;
     }
     setLoading(true);
@@ -43,9 +43,15 @@ export default function Consent() {
       <div style={{ ...blobStyle, width: "250px", height: "250px", background: "#a78bfa", bottom: "-5%", left: "-5%" }} />
 
       <div style={{ ...card, maxWidth: "520px", maxHeight: "85vh", overflowY: "auto" }}>
-        <div style={{ fontSize: "42px", marginBottom: "8px" }}>📋</div>
-        <h2 style={title}>Terms & Conditions</h2>
-        <p style={subtitle}>Please read and accept the following</p>
+        <div style={badge}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#86efac"
+            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            <polyline points="9 12 11 14 15 10" />
+          </svg>
+        </div>
+        <h2 style={title}>CJLink Consent Agreement</h2>
+        <p style={subtitle}>Everything you are agreeing to, in plain language</p>
 
         <ConsentDocument />
 
@@ -65,7 +71,7 @@ export default function Consent() {
             onChange={(e) => { setAgreed(e.target.checked); setError(""); }}
             style={{ width: "18px", height: "18px", cursor: "pointer" }}
           />
-          <span>I have read and agree to the Terms, Privacy Policy, and Employer Consent Agreement</span>
+          <span>I have read and agree to the CJLink Consent Agreement</span>
         </label>
 
         <button
@@ -83,6 +89,13 @@ export default function Consent() {
 const blobStyle = {
   position: "absolute", borderRadius: "50%", filter: "blur(80px)",
   opacity: 0.15, pointerEvents: "none", zIndex: 1,
+};
+// Same shield mark as the "View Consent" dialog, so the two surfaces read as
+// one agreement rather than two different documents.
+const badge = {
+  display: "inline-flex", alignItems: "center", justifyContent: "center",
+  width: "44px", height: "44px", borderRadius: "14px", marginBottom: "12px",
+  background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.3)",
 };
 const checkboxLabel = {
   display: "flex", alignItems: "flex-start", gap: "10px", fontSize: "13px",

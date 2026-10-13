@@ -7,7 +7,7 @@ import { sanitizeName, validateGmail, getPasswordStrength, maxLength } from "../
 import { AUTH_MSG, messageForCode, isEmailDeliveryFailure } from "../lib/authErrors";
 import { writePendingEmail, readGooglePrefill, clearGooglePrefill } from "../lib/pendingVerification";
 import GoogleSignInButton from "../components/GoogleSignInButton";
-import ConsentDocument from "../components/ConsentDocument";
+import ConsentModal from "../components/ConsentModal";
 
 const bgBlob = {
   position: "absolute", borderRadius: "50%", filter: "blur(80px)",
@@ -117,14 +117,8 @@ export default function Signup() {
   const prefillName = completingGoogle ? googlePrefill.name || "" : "";
   const prefillEmail = completingGoogle ? googlePrefill.email || "" : "";
 
-  useEffect(() => {
-    if (!consentOpen) return;
-    const onKeyDown = (e) => {
-      if (e.key === "Escape") setConsentOpen(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [consentOpen]);
+  // Escape / focus handling for the consent dialog lives in ConsentModal
+  // itself, so both Signup forms get it without a second copy here.
 
   // Prefill once, without ever clobbering something the user already typed.
   useEffect(() => {
@@ -164,7 +158,7 @@ export default function Signup() {
       return;
     }
     if (!agreed) {
-      setError("You must agree to the terms to create an account.");
+      setError("You must accept the CJLink Consent Agreement to create an account.");
       return;
     }
 
@@ -278,7 +272,7 @@ export default function Signup() {
       return;
     }
     if (!agreed) {
-      setError("You must agree to the terms to continue.");
+      setError("You must accept the CJLink Consent Agreement to continue.");
       return;
     }
     if (password.length < 6) {
@@ -433,7 +427,13 @@ export default function Signup() {
               <input type="checkbox" checked={agreed}
                 onChange={(e) => { setAgreed(e.target.checked); setError(""); }}
                 style={{ width: "16px", height: "16px", cursor: "pointer" }} />
-              <span>I agree to the <Link to="/consent" style={{ color: "#93c5fd" }}>Terms, Privacy Policy, and Employer Consent</Link></span>
+              <span>I have read and agree to the{" "}
+                <button type="button"
+                  onClick={(e) => { e.preventDefault(); setConsentOpen(true); }}
+                  style={consentLinkBtn}>
+                  CJLink Consent Agreement
+                </button>
+              </span>
             </label>
 
             <button
@@ -487,64 +487,7 @@ export default function Signup() {
           </div>
         </div>
 
-        {consentOpen && (
-          <div
-            role="presentation"
-            onClick={(e) => { if (e.target === e.currentTarget) setConsentOpen(false); }}
-            style={{
-              position: "fixed", inset: 0, zIndex: 100,
-              background: "rgba(2, 6, 23, 0.75)", backdropFilter: "blur(6px)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              padding: "20px",
-            }}
-          >
-            <div
-              role="dialog"
-              aria-modal="true"
-              aria-label="Terms & Conditions"
-              style={{
-                position: "relative", width: "100%", maxWidth: "520px",
-                maxHeight: "80vh", overflowY: "auto",
-                background: "rgba(15, 23, 42, 0.98)",
-                border: "1px solid rgba(255,255,255,0.12)",
-                borderRadius: "18px", padding: "28px 24px 20px",
-                boxShadow: "0 20px 60px rgba(0,0,0,0.5)", textAlign: "center",
-              }}
-            >
-              <button
-                type="button"
-                aria-label="Close"
-                onClick={() => setConsentOpen(false)}
-                style={{
-                  position: "absolute", top: "10px", right: "12px",
-                  background: "none", border: "none", color: "rgba(255,255,255,0.6)",
-                  fontSize: "18px", cursor: "pointer", padding: "4px 8px",
-                }}
-              >
-                ✕
-              </button>
-              <h3 style={{ color: "#fff", fontSize: "20px", fontWeight: "800", margin: "0 0 4px" }}>
-                {"Terms & Conditions"}
-              </h3>
-              <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", margin: "0 0 16px" }}>
-                Please read and accept the following
-              </p>
-              <ConsentDocument />
-              <button
-                type="button"
-                onClick={() => setConsentOpen(false)}
-                style={{
-                  width: "100%", padding: "10px", borderRadius: "10px",
-                  border: "1px solid rgba(255,255,255,0.15)",
-                  background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.7)",
-                  cursor: "pointer", fontSize: "14px", fontWeight: "600",
-                }}
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        )}
+        <ConsentModal open={consentOpen} onClose={() => setConsentOpen(false)} />
       </div>
     );
   }
@@ -635,7 +578,13 @@ export default function Signup() {
             <input type="checkbox" checked={agreed}
               onChange={(e) => { setAgreed(e.target.checked); setError(""); }}
               style={{ width: "16px", height: "16px", cursor: "pointer" }} />
-            <span>I agree to the <Link to="/consent" style={{ color: "#93c5fd" }}>Terms, Privacy Policy, and Employer Consent</Link></span>
+            <span>I have read and agree to the{" "}
+              <button type="button"
+                onClick={(e) => { e.preventDefault(); setConsentOpen(true); }}
+                style={consentLinkBtn}>
+                CJLink Consent Agreement
+              </button>
+            </span>
           </label>
 
           {/* Outside the label on purpose: reading the document must never
@@ -709,64 +658,7 @@ export default function Signup() {
         </div>
       </div>
 
-      {consentOpen && (
-        <div
-          role="presentation"
-          onClick={(e) => { if (e.target === e.currentTarget) setConsentOpen(false); }}
-          style={{
-            position: "fixed", inset: 0, zIndex: 100,
-            background: "rgba(2, 6, 23, 0.75)", backdropFilter: "blur(6px)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            padding: "20px",
-          }}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Terms & Conditions"
-            style={{
-              position: "relative", width: "100%", maxWidth: "520px",
-              maxHeight: "80vh", overflowY: "auto",
-              background: "rgba(15, 23, 42, 0.98)",
-              border: "1px solid rgba(255,255,255,0.12)",
-              borderRadius: "18px", padding: "28px 24px 20px",
-              boxShadow: "0 20px 60px rgba(0,0,0,0.5)", textAlign: "center",
-            }}
-          >
-            <button
-              type="button"
-              aria-label="Close"
-              onClick={() => setConsentOpen(false)}
-              style={{
-                position: "absolute", top: "10px", right: "12px",
-                background: "none", border: "none", color: "rgba(255,255,255,0.6)",
-                fontSize: "18px", cursor: "pointer", padding: "4px 8px",
-              }}
-            >
-              ✕
-            </button>
-            <h3 style={{ color: "#fff", fontSize: "20px", fontWeight: "800", margin: "0 0 4px" }}>
-              {"Terms & Conditions"}
-            </h3>
-            <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", margin: "0 0 16px" }}>
-              Please read and accept the following
-            </p>
-            <ConsentDocument />
-            <button
-              type="button"
-              onClick={() => setConsentOpen(false)}
-              style={{
-                width: "100%", padding: "10px", borderRadius: "10px",
-                border: "1px solid rgba(255,255,255,0.15)",
-                background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.7)",
-                cursor: "pointer", fontSize: "14px", fontWeight: "600",
-              }}
-            >
-              Done
-            </button>
-          </div>
-        </div>
-      )}
+      <ConsentModal open={consentOpen} onClose={() => setConsentOpen(false)} />
     </div>
   );
 }
@@ -774,4 +666,12 @@ export default function Signup() {
 const checkboxLabel = {
   display: "flex", alignItems: "flex-start", gap: "8px", fontSize: "12px",
   color: "rgba(255,255,255,0.6)", cursor: "pointer", marginBottom: "16px", textAlign: "left",
+};
+// The agreement name reads as a link because it opens the document — but it
+// must NOT navigate away (that used to send people to a second page with a
+// second, duplicate tick-box). preventDefault stops the wrapping <label>
+// from ticking the checkbox when it is clicked.
+const consentLinkBtn = {
+  background: "none", border: "none", padding: 0, font: "inherit",
+  color: "#93c5fd", cursor: "pointer", textDecoration: "underline",
 };
