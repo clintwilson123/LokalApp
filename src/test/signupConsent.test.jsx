@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
-// "View Consent" on Signup: reading the document must show the exact wording
-// the /consent page shows, without ticking the checkbox, without losing what
-// was already typed, and without leaving the form.
+// The CJLink Consent Agreement on Signup: reading the document must show the
+// exact wording the /consent page shows, without ticking the checkbox, without
+// losing what was already typed, and without leaving the form.
 
 const h = vi.hoisted(() => ({
   signUp: vi.fn(),
@@ -36,8 +36,10 @@ function renderSignup() {
   );
 }
 
+// The link inside the checkbox label is the ONLY opener — the duplicate
+// "View Consent" button that sat underneath it was removed.
 function openConsent() {
-  fireEvent.click(screen.getByRole('button', { name: /view consent/i }));
+  fireEvent.click(screen.getByRole('button', { name: /cjlink consent agreement/i }));
 }
 
 beforeEach(() => {
@@ -47,7 +49,24 @@ beforeEach(() => {
   window.sessionStorage.clear();
 });
 
-describe('Signup — View Consent modal', () => {
+describe('Signup — CJLink Consent Agreement dialog', () => {
+  it('has exactly ONE way to open it — no separate "View Consent" button', async () => {
+    // Two buttons did the identical thing: the agreement link inside the
+    // checkbox label, and a "View Consent" button right below it. The second
+    // one is gone; this locks that in.
+    renderSignup();
+    await act(async () => {});
+
+    const opener = screen.getByRole('button', { name: /cjlink consent agreement/i });
+    expect(opener).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /view consent/i })).toBeNull();
+
+    await act(async () => { fireEvent.click(opener); });
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    // And there is still no second opener inside the dialog itself.
+    expect(screen.getAllByRole('button', { name: /cjlink consent agreement/i })).toHaveLength(1);
+  });
+
   it('shows the consent document with the exact wording from /consent', async () => {
     renderSignup();
     await act(async () => {});

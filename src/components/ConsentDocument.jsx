@@ -1,11 +1,13 @@
-// The consent wording, shared verbatim by /consent and the "View Consent"
-// modal on Signup. One source so the text can never drift between the two —
-// what the user reads before ticking the checkbox on Signup IS the document
-// they accept on /consent.
+// The consent wording, shared verbatim by /consent and the agreement dialog on
+// Signup. One source so the text can never drift between the two — what the
+// user reads before ticking the checkbox on Signup IS the document they accept
+// on /consent.
 //
 // It is ONE document under ONE name: the CJLink Consent Agreement. There is no
 // separate "Terms & Conditions" to accept anywhere in the app, so a person is
-// never asked twice, under two titles, for the same agreement.
+// never asked twice, under two titles, for the same agreement. There is also no
+// second button that opens it: the agreement link in the checkbox label is the
+// only opener on Signup.
 //
 // The hiring policy that ApplyJob used to demand separately ("I agree to provide
 // accurate information… consent to reviewing my profile, resume and application
@@ -13,6 +15,11 @@
 // is folded into sections 1 and 3 here. Its content was a restatement of these
 // sections, so it stays in ONE place — accepting this agreement at sign-up IS
 // accepting the hiring policy. Do not re-add a second acknowledgment prompt.
+//
+// Set for reading, not for looking: 14px at 1.7 line-height on a light-on-dark
+// colour that clears contrast, generous spacing between sections, and no
+// divider under the final section. An earlier version was 12px at 60% white,
+// which is what made the dialog feel dense and tiring.
 
 export default function ConsentDocument() {
   return (
@@ -71,7 +78,8 @@ export default function ConsentDocument() {
         </p>
       </section>
 
-      <section style={section}>
+      {/* No divider on the last section — a trailing rule reads as a cut-off. */}
+      <section style={{ ...section, paddingBottom: "0", marginBottom: "0", borderBottom: "none" }}>
         <h3 style={policyTitle}>
           <span style={number}>6</span> Consent and Withdrawal
         </h3>
@@ -86,16 +94,16 @@ export default function ConsentDocument() {
 }
 
 const section = {
-  paddingBottom: "10px",
-  marginBottom: "10px",
-  borderBottom: "1px solid rgba(255,255,255,0.06)",
+  paddingBottom: "16px",
+  marginBottom: "16px",
+  borderBottom: "1px solid rgba(255,255,255,0.08)",
 };
 const policyBox = {
-  backgroundColor: "rgba(255,255,255,0.04)", borderRadius: "12px", padding: "16px",
-  marginBottom: "16px", border: "1px solid rgba(255,255,255,0.08)", textAlign: "left",
+  backgroundColor: "transparent", borderRadius: "12px", padding: "0",
+  marginBottom: "0", border: "none", textAlign: "left",
 };
 const policyTitle = {
-  color: "#93c5fd", fontSize: "14px", fontWeight: "700", margin: "0 0 6px",
+  color: "#93c5fd", fontSize: "15px", fontWeight: "700", margin: "0 0 8px",
   display: "flex", alignItems: "center", gap: "8px",
 };
 // Numbered so a person can tell at a glance how much there is to read — a wall
@@ -108,5 +116,5 @@ const number = {
   color: "#93c5fd", fontSize: "11px", fontWeight: "700",
 };
 const policyText = {
-  color: "rgba(255,255,255,0.6)", fontSize: "12px", lineHeight: "1.6", margin: "0",
+  color: "rgba(255,255,255,0.78)", fontSize: "14px", lineHeight: "1.7", margin: "0",
 };

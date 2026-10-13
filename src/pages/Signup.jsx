@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabaseClient";
-import { pageWrapper, card, title, subtitle, input, inputWrapper, inputIcon, button, linkHighlight, colors, radii } from "../uiStyles";
+import { pageWrapper, card, title, subtitle, input, inputWrapper, inputIcon, button, linkHighlight } from "../uiStyles";
 import { sanitizeName, validateGmail, getPasswordStrength, maxLength } from "../lib/sanitize";
 import { AUTH_MSG, messageForCode, isEmailDeliveryFailure } from "../lib/authErrors";
 import { writePendingEmail, readGooglePrefill, clearGooglePrefill } from "../lib/pendingVerification";
@@ -436,43 +436,9 @@ export default function Signup() {
               </span>
             </label>
 
-            <button
-              type="button"
-              onClick={() => setConsentOpen(true)}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                padding: "8px 16px",
-                marginTop: "4px",
-                marginBottom: "16px",
-                borderRadius: radii.sm,
-                border: `1px solid ${colors.primary}`,
-                background: "transparent",
-                color: colors.primary,
-                cursor: "pointer",
-                fontSize: "13px",
-                fontWeight: "600",
-                transition: "all 0.2s ease",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = colors.primary;
-                e.currentTarget.style.color = "#fff";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "transparent";
-                e.currentTarget.style.color = colors.primary;
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-                <line x1="16" y1="13" x2="8" y2="13" />
-                <line x1="16" y1="17" x2="8" y2="17" />
-              </svg>
-              View Consent
-            </button>
-
+            {/* ONE way to read the agreement: the "CJLink Consent Agreement"
+                link in the label above. A separate "View Consent" button sat
+                right underneath it doing exactly the same thing. */}
             <button
               style={{ ...button, opacity: loading ? 0.7 : 1, cursor: loading ? "not-allowed" : "pointer" }}
               onClick={handleCompleteGoogle} disabled={loading}
@@ -587,44 +553,11 @@ export default function Signup() {
             </span>
           </label>
 
-          {/* Outside the label on purpose: reading the document must never
-              tick the checkbox or navigate away from the form. */}
-          <button
-            type="button"
-            onClick={() => setConsentOpen(true)}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "6px",
-              padding: "8px 16px",
-              marginTop: "4px",
-              marginBottom: "16px",
-              borderRadius: radii.sm,
-              border: `1px solid ${colors.primary}`,
-              background: "transparent",
-              color: colors.primary,
-              cursor: "pointer",
-              fontSize: "13px",
-              fontWeight: "600",
-              transition: "all 0.2s ease",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = colors.primary;
-              e.currentTarget.style.color = "#fff";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "transparent";
-              e.currentTarget.style.color = colors.primary;
-            }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-              <line x1="16" y1="13" x2="8" y2="13" />
-              <line x1="16" y1="17" x2="8" y2="17" />
-            </svg>
-            View Consent
-          </button>
+          {/* ONE way to read the agreement: the "CJLink Consent Agreement" link
+              in the label above. A separate "View Consent" button used to sit
+              right underneath it doing exactly the same thing. The link calls
+              preventDefault so opening the document never ticks the checkbox,
+              never navigates away and never loses what was typed. */}
 
           <button
             style={{
