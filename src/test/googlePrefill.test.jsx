@@ -101,6 +101,7 @@ async function renderCallback({ search = '?code=abc' } = {}) {
         <Route path="/find-jobs" element={<div>APPLICANT_PAGE</div>} />
         <Route path="/employer-dashboard" element={<div>EMPLOYER_PAGE</div>} />
         <Route path="/admin" element={<div>ADMIN_PAGE</div>} />
+        <Route path="/set-password" element={<div>SET_PASSWORD_PAGE</div>} />
         <Route path="/login" element={<div>LOGIN_PAGE</div>} />
         <Route path="/verify-email" element={<div>VERIFY_PAGE</div>} />
         <Route path="/" element={<div>HOME_PAGE</div>} />
@@ -218,7 +219,7 @@ describe('OAuth callback — routing to the completion form', () => {
       id: 'u-2',
       email: 'admin@gmail.com',
       app_metadata: { provider: 'google' },
-      user_metadata: { full_name: 'Admin', email: 'admin@gmail.com' },
+      user_metadata: { full_name: 'Admin', email: 'admin@gmail.com', cjlink_password_set: true },
     };
     h.auth.profile = {
       id: 'u-2',
@@ -250,11 +251,15 @@ describe('OAuth callback — routing to the completion form', () => {
     h.auth.user = {
       id: 'u-3',
       email: 'applicant@gmail.com',
-      // Verified address + consented profile → the normal destination
-      // rules: the completion form has nothing to collect.
+      // Verified address + consented profile + a password already chosen →
+      // the normal destination rules: neither form has anything to collect.
       email_confirmed_at: '2026-01-01T00:00:00Z',
       app_metadata: { provider: 'google' },
-      user_metadata: { full_name: 'Applicant', email: 'applicant@gmail.com' },
+      user_metadata: {
+        full_name: 'Applicant',
+        email: 'applicant@gmail.com',
+        cjlink_password_set: true,
+      },
     };
     h.auth.profile = {
       id: 'u-3',
@@ -268,6 +273,47 @@ describe('OAuth callback — routing to the completion form', () => {
     await act(async () => {});
 
     expect(screen.getByText('APPLICANT_PAGE')).toBeInTheDocument();
+    expect(window.sessionStorage.getItem('cjlink:google-prefill')).toBeNull();
+  });
+
+  it('sends a consented Google account that never chose a password to /set-password', async () => {
+    // The reported bug: "Continue with Google creates the user, then email +
+    // password says Wrong email or password." Consent is already accepted, so
+    // the completion form is out of sight — and without this branch the account
+    // would reach a dashboard with NO password and no way to ever get one.
+    h.exchangeCodeForSession.mockResolvedValue({ error: null });
+    h.getUserAsync.mockResolvedValue({
+      data: {
+        user: {
+          id: 'u-4',
+          email: 'nopass@gmail.com',
+          app_metadata: { provider: 'google' },
+        },
+      },
+      error: null,
+    });
+    h.auth.user = {
+      id: 'u-4',
+      email: 'nopass@gmail.com',
+      email_confirmed_at: '2026-01-01T00:00:00Z',
+      app_metadata: { provider: 'google' },
+      user_metadata: { full_name: 'No Pass', email: 'nopass@gmail.com' },
+    };
+    h.auth.profile = {
+      id: 'u-4',
+      role: 'applicant',
+      consent_accepted: true,
+      email: 'nopass@gmail.com',
+      full_name: 'No Pass',
+    };
+
+    await renderCallback({ search: '?code=abc' });
+    await act(async () => {});
+
+    expect(screen.getByText('SET_PASSWORD_PAGE')).toBeInTheDocument();
+    // Consent is settled — nobody is asked to tick the same agreement again.
+    expect(screen.queryByText('SIGNUP_PAGE')).toBeNull();
+    expect(screen.queryByText('APPLICANT_PAGE')).toBeNull();
     expect(window.sessionStorage.getItem('cjlink:google-prefill')).toBeNull();
   });
 });
@@ -366,7 +412,12 @@ describe('Signup — Google completion form', () => {
 
     // One call, on the existing session's user — no sign-up, no new account.
     expect(h.updateUser).toHaveBeenCalledTimes(1);
-    expect(h.updateUser).toHaveBeenCalledWith({ password: 'hunter2hunter' });
+    expect(h.updateUser).toHaveBeenCalledWith({
+      password: 'hunter2hunter',
+      // The same write records that a password now exists, so the OAuth
+      // callback never sends this account to /set-password for one it has.
+      data: expect.objectContaining({ cjlink_password_set: true }),
+    });
     expect(await screen.findByText('APPLICANT_PAGE')).toBeInTheDocument();
   });
 

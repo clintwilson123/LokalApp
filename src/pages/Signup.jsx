@@ -289,8 +289,14 @@ export default function Signup() {
     try {
       // 1) The password this person will type next time. GoTrue accepts it for
       //    the OAuth user directly — there is no confirmation round-trip and
-      //    no provider switch; the Google identity stays linked.
-      const { error: passwordError } = await supabase.auth.updateUser({ password });
+      //    no provider switch; the Google identity stays linked. The same call
+      //    records cjlink_password_set so the OAuth callback never sends this
+      //    account back to /set-password later for a password it already has.
+      const meta = user.user_metadata || {};
+      const { error: passwordError } = await supabase.auth.updateUser({
+        password,
+        data: { ...meta, cjlink_password_set: true },
+      });
       if (passwordError) throw passwordError;
 
       // Never blank an existing name if the field was cleared by accident.

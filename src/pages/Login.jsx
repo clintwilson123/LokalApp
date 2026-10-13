@@ -43,6 +43,10 @@ export default function Login() {
   const [email, setEmail] = useState(navState.email || flash?.email || "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  // Set only for "Wrong email or password": the single most likely cause is a
+  // Google account typing its GOOGLE password, which CJLink can never know.
+  // The error alone gives no way to discover that, so the fix is spelled out.
+  const [googleHint, setGoogleHint] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [justSignedIn, setJustSignedIn] = useState(false);
   const [userName, setUserName] = useState("");
@@ -70,6 +74,7 @@ export default function Login() {
 
   const handleLogin = async () => {
     setError("");
+    setGoogleHint(false);
     if (!email || !password) {
       setError("Please enter your email and password.");
       return;
@@ -108,6 +113,7 @@ export default function Login() {
         setError(messageForCode(code, err.message));
       } else if (err.message?.includes("Invalid login credentials")) {
         setError("Wrong email or password.");
+        setGoogleHint(true);
       } else if (
         code === "email_not_confirmed" ||
         err.message?.includes("verify your email") ||
@@ -187,6 +193,30 @@ export default function Login() {
             }}>
               <span>⚠️</span>
               <span>{error}</span>
+            </div>
+          )}
+
+          {/* Shown ONLY for the invalid-credentials case. Without this the
+              screen is a dead end: a Google account has just typed the one
+              password CJLink is structurally incapable of checking, and
+              nothing on the page says so. */}
+          {error && googleHint && (
+            <div style={{
+              background: "rgba(74,144,226,0.12)",
+              border: "1px solid rgba(74,144,226,0.3)",
+              color: "#93c5fd",
+              fontSize: "13px",
+              padding: "12px 16px",
+              borderRadius: "10px",
+              marginBottom: "16px",
+              textAlign: "left",
+              lineHeight: 1.6,
+            }}>
+              <strong>Signed up with Google?</strong> Your Google password stays
+              with Google and is never shared with CJLink, so it will never work
+              here. Use <strong>Continue with Google</strong> instead — the first
+              time, CJLink asks you to choose a password of your own, and that is
+              the one this form accepts.
             </div>
           )}
 

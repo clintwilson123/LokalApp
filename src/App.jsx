@@ -14,11 +14,12 @@ import UpdatePassword from "./pages/UpdatePassword";
 import About from "./pages/About";
 import VerifyEmail from "./pages/VerifyEmail";
 import Consent from "./pages/Consent";
+import SetPassword from "./pages/SetPassword";
 import AdminDashboard from "./pages/AdminDashboard";
 import ApplicantDashboard from "./pages/ApplicantDashboard";
 
 
-const publicPaths = ["/", "/login", "/signup", "/forgot-password", "/update-password", "/about", "/verify-email", "/consent", "/auth/callback"];
+const publicPaths = ["/", "/login", "/signup", "/forgot-password", "/update-password", "/set-password", "/about", "/verify-email", "/consent", "/auth/callback"];
 
 function AppContent() {
   const location = useLocation();
@@ -38,6 +39,11 @@ function AppContent() {
         <Route path="/about" element={<About />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/consent" element={<Consent />} />
+        {/* Google account with no CJLink password yet — the OAuth callback
+            lands here instead of a dashboard. Not wrapped in ProtectedRoute:
+            it guards itself (session + OAuth provider) so a bounced user never
+            plays ping-pong with a redirect that assumes a consented profile. */}
+        <Route path="/set-password" element={<SetPassword />} />
         {/* Google (OAuth) redirect target — owned by OAuthCallback, never by
             the confirmation-link hand-off in AuthCallbackHandler. */}
         <Route path="/auth/callback" element={<OAuthCallback />} />

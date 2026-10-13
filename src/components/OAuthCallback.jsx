@@ -144,6 +144,22 @@ export default function OAuthCallback() {
       return;
     }
 
+    // Consent is settled, but this Google account has never chosen a CJLink
+    // password — so email + password on /login could only ever answer "Wrong
+    // email or password", because Google never sends its password here and
+    // there is nothing to check against. Land on the one screen that fixes it,
+    // from /login or /signup alike, instead of a dashboard the person cannot
+    // re-enter with a password. The completion form writes the same flag, so
+    // anyone who already finished it is asked exactly once, ever.
+    if (
+      user.app_metadata?.provider !== "email" &&
+      user.user_metadata?.cjlink_password_set !== true
+    ) {
+      callbackHandled = true;
+      navigate("/set-password", { replace: true });
+      return;
+    }
+
     callbackHandled = true;
     navigate(postAuthPath(profile, user), { replace: true });
   }, [loading, user, profile, navigate, location.pathname, location.search, refreshSession]);

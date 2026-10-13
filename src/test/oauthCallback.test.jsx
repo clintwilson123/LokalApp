@@ -43,6 +43,7 @@ function tree(Callback, initialEntries = ['/auth/callback']) {
         <Route path="/admin" element={<StateProbe name="ADMIN_PAGE" />} />
         <Route path="/verify-email" element={<StateProbe name="VERIFY_PAGE" />} />
         <Route path="/consent" element={<StateProbe name="CONSENT_PAGE" />} />
+        <Route path="/set-password" element={<StateProbe name="SET_PASSWORD_PAGE" />} />
         <Route path="/signup" element={<StateProbe name="SIGNUP_PAGE" />} />
       </Routes>
     </MemoryRouter>
@@ -66,6 +67,21 @@ function googleUser(overrides = {}) {
     user_metadata: { full_name: 'Google User' },
     ...overrides,
   };
+}
+
+// A Google account that has ALREADY chosen a CJLink password — the flag that
+// the signup completion form and /set-password both write on success. Routing
+// tests that are about role or consent rather than passwords start from this,
+// because an account without the flag is deliberately sent to /set-password.
+function settledGoogleUser(overrides = {}) {
+  return googleUser({
+    ...overrides,
+    user_metadata: {
+      full_name: 'Google User',
+      cjlink_password_set: true,
+      ...(overrides.user_metadata || {}),
+    },
+  });
 }
 
 function setFragment(fragment) {
@@ -102,7 +118,7 @@ describe('OAuthCallback — role-based redirect', () => {
 
   it('sends an applicant who already completed sign-up to /find-jobs once the profile is readable', async () => {
     setFragment(OAUTH_FRAGMENT);
-    h.auth.user = googleUser();
+    h.auth.user = settledGoogleUser();
     h.auth.profile = { id: 'g-1', role: 'applicant', email_verified: true, consent_accepted: true };
 
     const Callback = await loadCallback();
@@ -110,9 +126,38 @@ describe('OAuthCallback — role-based redirect', () => {
     await screen.findByText('APPLICANT_PAGE');
   });
 
-  it('sends an EXISTING admin to /admin — the database role is the only one honoured', async () => {
+  it('sends a consented Google account with NO CJLink password to /set-password, never a dashboard', async () => {
+    // The case behind "Continue with Google signs me in, but email + password
+    // says Wrong email or password": the profile is fully consented, so the
+    // completion form is out of sight, and the account never chose a password.
+    // Google does not share its password, so nothing would ever work — this
+    // lands on the screen that fixes it instead.
     setFragment(OAUTH_FRAGMENT);
     h.auth.user = googleUser();
+    h.auth.profile = { id: 'g-1', role: 'applicant', email_verified: true, consent_accepted: true };
+
+    const Callback = await loadCallback();
+    render(tree(Callback));
+    await screen.findByText('SET_PASSWORD_PAGE');
+    expect(screen.queryByText('APPLICANT_PAGE')).toBeNull();
+    // Consent is NOT asked again — it was already accepted once.
+    expect(screen.queryByText('SIGNUP_PAGE')).toBeNull();
+  });
+
+  it('a Google ADMIN with no password is asked too — the role never skips it', async () => {
+    setFragment(OAUTH_FRAGMENT);
+    h.auth.user = googleUser();
+    h.auth.profile = { id: 'g-1', role: 'admin', email_verified: true };
+
+    const Callback = await loadCallback();
+    render(tree(Callback));
+    await screen.findByText('SET_PASSWORD_PAGE');
+    expect(screen.queryByText('ADMIN_PAGE')).toBeNull();
+  });
+
+  it('sends an EXISTING admin to /admin — the database role is the only one honoured', async () => {
+    setFragment(OAUTH_FRAGMENT);
+    h.auth.user = settledGoogleUser();
     h.auth.profile = { id: 'g-1', role: 'admin', email_verified: true };
 
     const Callback = await loadCallback();
@@ -227,7 +272,7 @@ describe('OAuthCallback — ordinary visits and loading', () => {
 
   it('StrictMode double-mount navigates exactly once (module-scope once-guard)', async () => {
     setFragment(OAUTH_FRAGMENT);
-    h.auth.user = googleUser();
+    h.auth.user = settledGoogleUser();
     h.auth.profile = { id: 'g-1', role: 'applicant', email_verified: true, consent_accepted: true };
 
     const Callback = await loadCallback();
