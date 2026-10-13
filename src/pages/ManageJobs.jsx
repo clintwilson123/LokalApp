@@ -3,6 +3,8 @@ import { supabase } from "../lib/supabaseClient";
 import { colors, radii, dashTable, dashTh, dashTd, dashRow, dashGrid } from "../uiStyles";
 import { SkeletonTable } from "../components/Skeleton";
 import { aiSkillMatch } from "../lib/aiSkillMatch";
+import SkillPicker from "../components/SkillPicker";
+import { loadSkillCatalog } from "../lib/skillCatalog";
 
 export default function ManageJobs() {
   const [jobs, setJobs] = useState([]);
@@ -18,15 +20,26 @@ export default function ManageJobs() {
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeProgress, setAnalyzeProgress] = useState({ current: 0, total: 0, name: "" });
 
+  // The shared skills catalog. Requirements are picked from it rather than
+  // typed free-hand, because applicants build their own skill list from what
+  // jobs require — so an admin's typo used to become a permanent option for
+  // every applicant, and "Good communication" scored 0% against a profile
+  // that listed "Communication Skills".
+  const [skillCatalog, setSkillCatalog] = useState(null);
+
   const [form, setForm] = useState({
     title: "",
     company: "CJTECH Computer Trading",
     location: "Sangi, Toledo City",
     salary: "",
     description: "",
-    requirements: "",
+    // Already an array — the picker writes one, so the old split(",") on
+    // save is gone.
+    requirements: [],
     icon: "💼",
     max_applicants: 0,
+    // New jobs publish immediately, matching the pre-status behaviour.
+    status: "published",
   });
 
   const [showInterviewModal, setShowInterviewModal] = useState(false);
@@ -81,43 +94,105 @@ export default function ManageJobs() {
     fetchJobs();
   }, []);
 
-  function resetForm() {
-    setForm({
+  useEffect(() => {
+    let cancelled = false;
+    loadSkillCatalog().then((catalog) => {
+      if (!cancelled) setSkillCatalog(catalog);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Admin escape hatch: a skill the catalog does not have yet can still be
+  // used, rather than holding a posting hostage to a missing entry. It is
+  // written to the catalog too, so the next applicant can pick it.
+  async function handleCreateCustomSkill(name) {
+    if (!name || form.requirements.includes(name)) return;
+    setForm((f) => ({ ...f, requirements: [...f.requirements, name] }));
+    const { error } = await supabase
+      .from("skills")
+      .insert({ name, category: "General", aliases: [] });
+    // 23505 is a unique violation — someone already added it. Not worth
+    // shouting about; the skill is on the posting either way.
+    if (error && error.code !== "23505") {
+      setMessage(`"${name}" was added to this job but could not be saved to the skill list: ${error.message}`);
+    }
+  }
+
+  // Closing replaces deleting. applications.job_id is ON DELETE CASCADE, so
+  // deleting a job erased every application, score and interview against it —
+  // and there was no way to take a posting down without doing that. A closed
+  // job stops being advertised and keeps its history.
+  async function handleToggleStatus(job) {
+    const closing = job.status !== "closed";
+    const { error } = await supabase
+      .from("jobs")
+      .update({ status: closing ? "closed" : "published" })
+      .eq("id", job.id);
+    if (error) {
+      setMessage(`Could not ${closing ? "close" : "reopen"} "${job.title}": ${error.message}`);
+    } else {
+      setMessage(`"${job.title}" ${closing ? "closed" : "reopened"}.`);
+      fetchJobs();
+    }
+  }
+
+  // Extracted so openEdit can spread it — adding a field later cannot leave
+  // the two out of step.
+  function emptyForm() {
+    return {
       title: "",
       company: "CJTECH Computer Trading",
       location: "Sangi, Toledo City",
       salary: "",
       description: "",
-      requirements: "",
+      requirements: [],
       icon: "💼",
       max_applicants: 0,
-    });
+      status: "published",
+    };
+  }
+
+  function resetForm() {
+    setForm(emptyForm());
     setEditing(null);
     setShowForm(false);
   }
 
   function openEdit(job) {
     setForm({
+      ...emptyForm(),
       title: job.title || "",
       company: job.company || "CJTECH Computer Trading",
       location: job.location || "Sangi, Toledo City",
       salary: job.salary || "",
       description: job.description || "",
-      requirements: job.requirements?.join(", ") || "",
+      // Already an array, straight from the picker.
+      requirements: (job.requirements || []).filter(Boolean),
       icon: job.icon || "💼",
       max_applicants: job.max_applicants || 0,
+      // A row created before the status migration simply has no column.
+      status: job.status || "published",
     });
     setEditing(job.id);
     setShowForm(true);
   }
 
   async function handleSave() {
+    if (!form.title.trim()) {
+      setMessage("A job title is required.");
+      return;
+    }
+
     setSaving(true);
     setMessage("");
 
     const payload = {
       ...form,
-      requirements: form.requirements.split(",").map((s) => s.trim()).filter(Boolean),
+      title: form.title.trim(),
+      // Array as stored. The old `split(",")` is gone — the picker hands back
+      // one entry per skill, so a requirement can no longer be broken apart
+      // mid-phrase by a comma inside it.
+      requirements: [...new Set(form.requirements.map((s) => s.trim()).filter(Boolean))],
     };
 
     if (editing) {
@@ -132,17 +207,6 @@ export default function ManageJobs() {
     resetForm();
     fetchJobs();
     setSaving(false);
-  }
-
-  async function handleDelete(jobId, title) {
-    if (!window.confirm(`Delete "${title}"? This cannot be undone.`)) return;
-    const { error } = await supabase.from("jobs").delete().eq("id", jobId);
-    if (error) {
-      setMessage("Delete failed: " + error.message);
-    } else {
-      setMessage(`"${title}" deleted.`);
-      fetchJobs();
-    }
   }
 
   function viewApplicants(job) {
@@ -183,7 +247,7 @@ export default function ManageJobs() {
   }
 
   const msg = (text) => {
-    const ok = text.includes("success") || text.includes("updated") || text.includes("deleted") || text.includes("created");
+    const ok = text.includes("success") || text.includes("updated") || text.includes("deleted") || text.includes("created") || text.includes("closed") || text.includes("reopened");
     return {
       padding: "10px", borderRadius: "8px", marginBottom: "16px", fontSize: "13px", fontWeight: "600",
       backgroundColor: ok ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
@@ -501,14 +565,38 @@ export default function ManageJobs() {
                 <textarea style={{ ...input, minHeight: "80px", resize: "vertical" }} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
               </div>
               <div style={fieldGroup}>
-                <label style={label}>Requirements (comma-separated)</label>
-                <textarea style={{ ...input, minHeight: "60px", resize: "vertical" }} value={form.requirements} onChange={(e) => setForm({ ...form, requirements: e.target.value })} placeholder="e.g. High school graduate, Good communication, Basic math" />
+                <label style={label}>Requirements & Skills</label>
+                <SkillPicker
+                  selected={form.requirements}
+                  onChange={(next) => setForm({ ...form, requirements: next })}
+                  options={skillCatalog?.options || []}
+                  grouped={skillCatalog?.grouped || null}
+                  allowCustom
+                  onCreateCustom={handleCreateCustomSkill}
+                  placeholder="Pick the skills this job needs..."
+                  emptyMessage="Type a skill name to add the first one."
+                />
+                <p style={fieldHint}>
+                  Applicants choose from this same list, so prefer it over inventing a wording —
+                  it is what every match score is calculated against.
+                </p>
               </div>
-              <div style={fieldGroup}>
-                <label style={label}>Maximum Applicants (0 = unlimited)</label>
-                <input style={input} type="number" min="0" value={form.max_applicants}
-                  onChange={(e) => setForm({ ...form, max_applicants: parseInt(e.target.value) || 0 })}
-                  placeholder="0 for unlimited" />
+              <div style={fieldRow}>
+                <div style={fieldHalf}>
+                  <label style={label}>Maximum Applicants (0 = unlimited)</label>
+                  <input style={input} type="number" min="0" value={form.max_applicants}
+                    onChange={(e) => setForm({ ...form, max_applicants: parseInt(e.target.value) || 0 })}
+                    placeholder="0 for unlimited" />
+                </div>
+                <div style={fieldHalf}>
+                  <label style={label}>Visibility</label>
+                  <select style={selectInput} value={form.status}
+                    onChange={(e) => setForm({ ...form, status: e.target.value })}>
+                    <option value="published">Published — visible to applicants</option>
+                    <option value="draft">Draft — hidden from applicants</option>
+                    <option value="closed">Closed — hidden, history kept</option>
+                  </select>
+                </div>
               </div>
             </div>
             <div style={formFooter}>
@@ -527,6 +615,7 @@ export default function ManageJobs() {
             <tr style={dashRow}>
               <th style={dashTh}>Icon</th>
               <th style={dashTh}>Title</th>
+              <th style={dashTh}>Status</th>
               <th style={dashTh}>Company</th>
               <th style={dashTh}>Location</th>
               <th style={dashTh}>Salary</th>
@@ -537,13 +626,13 @@ export default function ManageJobs() {
           <tbody>
             {jobs.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ textAlign: "center", padding: "30px", color: "rgba(255,255,255,0.5)" }}>
+                <td colSpan={8} style={{ textAlign: "center", padding: "30px", color: "rgba(255,255,255,0.5)" }}>
                   No jobs yet. Click "+ New Job" to create one.
                 </td>
               </tr>
             ) : (
               jobs.map((job) => (
-                <JobRow key={job.id} job={job} onEdit={openEdit} onDelete={handleDelete} onViewApplicants={viewApplicants} />
+                <JobRow key={job.id} job={job} onEdit={openEdit} onToggleStatus={handleToggleStatus} onViewApplicants={viewApplicants} />
               ))
             )}
           </tbody>
@@ -553,7 +642,7 @@ export default function ManageJobs() {
   );
 }
 
-function JobRow({ job, onEdit, onDelete, onViewApplicants }) {
+function JobRow({ job, onEdit, onToggleStatus, onViewApplicants }) {
   const [appCount, setAppCount] = useState(null);
 
   useEffect(() => {
@@ -568,11 +657,15 @@ function JobRow({ job, onEdit, onDelete, onViewApplicants }) {
   const maxApps = job.max_applicants || 0;
   const filled = appCount ?? 0;
   const isFull = maxApps > 0 && filled >= maxApps;
+  // A row from before the status migration has no column at all; treat that
+  // as published, which is what it has always behaved as.
+  const status = job.status || "published";
 
   return (
-    <tr style={dashRow}>
+    <tr style={{ ...dashRow, opacity: status === "draft" ? 0.6 : 1 }}>
       <td style={dashTd}><span style={{ fontSize: "20px" }}>{job.icon || "💼"}</span></td>
       <td style={{ ...dashTd, fontWeight: "600" }}>{job.title}</td>
+      <td style={dashTd}><span style={statusChip(status)}>{status}</span></td>
       <td style={dashTd}>{job.company}</td>
       <td style={dashTd}>{job.location}</td>
       <td style={{ ...dashTd, fontSize: "12px" }}>{job.salary || "—"}</td>
@@ -587,10 +680,14 @@ function JobRow({ job, onEdit, onDelete, onViewApplicants }) {
         ) : (filled ?? "—")}
       </td>
       <td style={dashTd}>
-        <div style={{ display: "flex", gap: "6px" }}>
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
           <button style={viewBtn} onClick={() => onViewApplicants(job)}>Applicants</button>
           <button style={editBtn} onClick={() => onEdit(job)}>Edit</button>
-          <button style={delBtn} onClick={() => onDelete(job.id, job.title)}>Delete</button>
+          {/* Replaces the old Delete. Closing keeps every application and
+              interview against the job; deleting cascaded them away. */}
+          <button style={toggleStatusBtn} onClick={() => onToggleStatus(job)}>
+            {status === "closed" ? "Reopen" : "Close"}
+          </button>
         </div>
       </td>
     </tr>
@@ -626,12 +723,30 @@ const fieldHalf = { marginBottom: "14px" };
 const fieldGroup = { marginBottom: "14px" };
 const label = { display: "block", fontSize: "12px", color: "rgba(255,255,255,0.5)", marginBottom: "4px", fontWeight: "500" };
 const input = { width: "100%", padding: "10px 12px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.15)", fontSize: "14px", outline: "none", boxSizing: "border-box", backgroundColor: "rgba(255,255,255,0.06)", color: "#fff", fontFamily: "inherit" };
+// colorScheme so the native option list renders on the same dark surface
+// instead of the browser's default white-on-white.
+const selectInput = { ...input, colorScheme: "dark", cursor: "pointer" };
+const fieldHint = { margin: "6px 0 0", fontSize: "11px", color: "rgba(255,255,255,0.4)", lineHeight: "1.5" };
 const cancelBtn = { padding: "10px 20px", backgroundColor: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "8px", cursor: "pointer", fontWeight: "600", fontSize: "13px" };
 const saveBtn = { padding: "10px 20px", background: "linear-gradient(135deg, #4a90e2, #1a73e8)", color: "#fff", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "700", fontSize: "13px", boxShadow: "0 4px 16px rgba(26,115,232,0.3)" };
 
 const tableStyle = { width: "100%", borderCollapse: "collapse", minWidth: "700px" };
 const editBtn = { padding: "4px 10px", fontSize: "11px", border: "none", borderRadius: "6px", backgroundColor: "rgba(74,144,226,0.2)", color: "#93c5fd", cursor: "pointer", fontWeight: "600" };
-const delBtn = { padding: "4px 10px", fontSize: "11px", border: "none", borderRadius: "6px", backgroundColor: "rgba(239,68,68,0.2)", color: "#fca5a5", cursor: "pointer", fontWeight: "600" };
+// Closing a job is reversible, so it gets the same soft treatment as any
+// other toggle rather than the red of the delete it replaced.
+const toggleStatusBtn = { padding: "4px 10px", fontSize: "11px", border: "none", borderRadius: "6px", backgroundColor: "rgba(251,191,36,0.2)", color: "#fbbf24", cursor: "pointer", fontWeight: "600" };
+const statusChip = (status) => ({
+  display: "inline-block", fontSize: "11px", fontWeight: "700", padding: "3px 9px",
+  borderRadius: "20px", textTransform: "capitalize", whiteSpace: "nowrap",
+  backgroundColor:
+    status === "published" ? "rgba(34,197,94,0.2)"
+    : status === "draft" ? "rgba(255,255,255,0.08)"
+    : "rgba(239,68,68,0.18)",
+  color:
+    status === "published" ? "#86efac"
+    : status === "draft" ? "rgba(255,255,255,0.6)"
+    : "#fca5a5",
+});
 const viewBtn = { padding: "4px 10px", fontSize: "11px", border: "none", borderRadius: "6px", backgroundColor: "rgba(34,197,94,0.2)", color: "#86efac", cursor: "pointer", fontWeight: "600" };
 const resumeViewBtn = { display: "inline-flex", alignItems: "center", gap: "6px", padding: "8px 14px", fontSize: "13px", fontWeight: "600", border: "none", borderRadius: "8px", backgroundColor: "rgba(74,144,226,0.2)", color: "#93c5fd", cursor: "pointer", textDecoration: "none" };
 

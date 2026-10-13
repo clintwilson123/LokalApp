@@ -5,6 +5,7 @@ import { colors, radii } from "../uiStyles";
 import { SkeletonGrid } from "../components/Skeleton";
 import { useAuth } from "../context/AuthContext";
 import { computeSkillMatch } from "../lib/skillMatch";
+import { loadSkillCatalog } from "../lib/skillCatalog";
 
 export default function FindJobs() {
   const navigate = useNavigate();
@@ -14,9 +15,34 @@ export default function FindJobs() {
   const [search, setSearch] = useState("");
   const [jobSlots, setJobSlots] = useState(null);
   const [slotsError, setSlotsError] = useState("");
+  // Lets computeSkillMatch recognise that "NodeJS" and "Node.js" are one
+  // skill. Null until it arrives, and matching works without it.
+  const [aliasIndex, setAliasIndex] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadSkillCatalog().then((c) => {
+      if (!cancelled) setAliasIndex(c.aliasIndex);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   const fetchJobs = useCallback(async () => {
-    const { data } = await supabase.from("jobs").select("*").order("created_at", { ascending: false });
+    // Published only — a closed job keeps its application history but stops
+    // being advertised.
+    let { data } = await supabase
+      .from("jobs")
+      .select("*")
+      .eq("status", "published")
+      .order("created_at", { ascending: false });
+
+    if (!data) {
+      // The `status` column arrives in its own migration. If this build runs
+      // ahead of it, the filter errors and `data` is null — retrying without
+      // it keeps the job board from going empty over a sequencing gap.
+      ({ data } = await supabase.from("jobs").select("*").order("created_at", { ascending: false }));
+    }
+
     if (data) {
       setJobs(data);
       // Single source of truth for slot counts. Direct COUNT on
@@ -42,9 +68,17 @@ export default function FindJobs() {
     fetchJobs();
   }, [fetchJobs]);
 
-  const filtered = jobs.filter(j =>
-    !search || j.title.toLowerCase().includes(search.toLowerCase()) || j.description?.toLowerCase().includes(search.toLowerCase())
-  );
+  // Search title, description AND requirements. Before this, a job was
+  // invisible to someone searching for one of its requirements — typing
+  // "Excel" never surfaced the Sales Assistant post that asks for it.
+  const needle = search.trim().toLowerCase();
+  const filtered = jobs.filter((j) => {
+    if (!needle) return true;
+    return [j.title, j.description, (j.requirements || []).join(" ")]
+      .join(" ")
+      .toLowerCase()
+      .includes(needle);
+  });
 
   if (loading) {
     return <div style={{ padding: "5px" }}><SkeletonGrid cards={4} /></div>;
@@ -56,7 +90,7 @@ export default function FindJobs() {
         <span style={searchIcon}>🔍</span>
         <input
           style={searchInput}
-          placeholder="Search job title or description..."
+          placeholder="Search title, description or skill..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -132,7 +166,7 @@ export default function FindJobs() {
                 {profile?.skills && job.requirements?.length > 0 && (
                   <div style={{ marginTop: "auto" }}>
                     {(() => {
-                      const match = computeSkillMatch(profile.skills, job.requirements);
+                      const match = computeSkillMatch(profile.skills, job.requirements, aliasIndex);
                       const color = match.score >= 70 ? colors.success : match.score >= 40 ? colors.warning : colors.danger;
                       return (
                         <span style={{

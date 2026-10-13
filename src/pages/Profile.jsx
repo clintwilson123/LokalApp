@@ -3,12 +3,13 @@ import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
 import { colors, radii } from "../uiStyles";
 import { sanitizeName, sanitizePhone, sanitizeLocation, sanitizeBio, maxLength } from "../lib/sanitize";
+import SkillPicker from "../components/SkillPicker";
+import { loadSkillCatalog } from "../lib/skillCatalog";
 
 export default function Profile() {
   const { user, profile, loadProfile } = useAuth();
   const avatarInputRef = useRef(null);
   const resumeInputRef = useRef(null);
-  const skillDropdownRef = useRef(null);
   const [avatarUrl, setAvatarUrl] = useState(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadingResume, setUploadingResume] = useState(false);
@@ -22,11 +23,10 @@ export default function Profile() {
     bio: "",
   });
   const [selectedSkills, setSelectedSkills] = useState([]);
-  const [availableSkills, setAvailableSkills] = useState([]);
-  const [showSkillDropdown, setShowSkillDropdown] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
-  const skillSearchRef = useRef(null);
-  const skillTriggerRef = useRef(null);
+  // The shared `skills` catalog, grouped by category. Previously this was the
+  // union of every string an admin had ever typed into a job's requirements,
+  // which meant a typo became a permanent option for every applicant.
+  const [skillCatalog, setSkillCatalog] = useState(null);
   const [resumeLink, setResumeLink] = useState("");
   const [resumeFileName, setResumeFileName] = useState("");
 
@@ -52,48 +52,15 @@ export default function Profile() {
     }
   }, [profile]);
 
+  // One load, memoized in skillCatalog.js and shared with the job form on
+  // ManageJobs and with matching itself.
   useEffect(() => {
-    supabase
-      .from("jobs")
-      .select("requirements")
-      .then(({ data }) => {
-        const all = new Set();
-        if (data) {
-          data.forEach((job) => {
-            (job.requirements || []).forEach((r) => all.add(r));
-          });
-        }
-        setAvailableSkills([...all].sort());
-      });
+    let cancelled = false;
+    loadSkillCatalog().then((catalog) => {
+      if (!cancelled) setSkillCatalog(catalog);
+    });
+    return () => { cancelled = true; };
   }, []);
-
-  useEffect(() => {
-    function handleClick(e) {
-      if (skillDropdownRef.current && !skillDropdownRef.current.contains(e.target)) {
-        setShowSkillDropdown(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
-
-  function toggleSkill(skill) {
-    setSelectedSkills((prev) =>
-      prev.includes(skill) ? prev.filter((s) => s !== skill) : [...prev, skill]
-    );
-  }
-
-  function removeSkill(skill) {
-    setSelectedSkills((prev) => prev.filter((s) => s !== skill));
-  }
-
-  function clearAllSkills() {
-    setSelectedSkills([]);
-  }
-
-  const filteredSkills = availableSkills.filter(
-    (s) => s.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   async function handleAvatarUpload(e) {
     const file = e.target.files[0];
@@ -274,75 +241,14 @@ export default function Profile() {
             <h4 style={sectionTitle}>Skills & Resume</h4>
             <div style={fieldGroup}>
               <label style={label}>Skills</label>
-              <div ref={skillDropdownRef} style={{ position: "relative" }}>
-                <div ref={skillTriggerRef} style={skillInput} onClick={() => setShowSkillDropdown(!showSkillDropdown)}>
-                  {selectedSkills.length === 0 ? (
-                    <span style={{ color: "rgba(255,255,255,0.3)", fontSize: "14px" }}>
-                      Select your skills...
-                    </span>
-                  ) : (
-                    <>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", flex: 1 }}>
-                        {selectedSkills.slice(0, 3).map((s) => (
-                          <span key={s} style={skillTag}>
-                            {s}
-                            <span style={skillRemove} onClick={(e) => { e.stopPropagation(); removeSkill(s); }}>✕</span>
-                          </span>
-                        ))}
-                        {selectedSkills.length > 3 && (
-                          <span style={{ ...skillTag, backgroundColor: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.5)" }}>
-                            +{selectedSkills.length - 3}
-                          </span>
-                        )}
-                      </div>
-                      <span style={skillCountBadge}>{selectedSkills.length}</span>
-                    </>
-                  )}
-                  <span style={{ marginLeft: "4px", color: "rgba(255,255,255,0.3)", fontSize: "12px" }}>▼</span>
-                </div>
-                {showSkillDropdown && (
-                  <div style={skillDropdown}>
-                    {availableSkills.length === 0 ? (
-                      <div style={{ padding: "10px", color: "rgba(255,255,255,0.4)", fontSize: "13px" }}>
-                        No skills available from jobs yet.
-                      </div>
-                    ) : (
-                      <>
-                        <div style={skillSearchWrap}>
-                          <span style={skillSearchIcon}>🔍</span>
-                          <input style={skillSearchInput} placeholder="Search skills..." value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            ref={skillSearchRef} />
-                          {searchTerm && (
-                            <button style={skillSearchClear} onClick={() => setSearchTerm("")}>✕</button>
-                          )}
-                        </div>
-                        <div style={skillDropdownHeader}>
-                          <span style={{ fontSize: "12px", color: "rgba(255,255,255,0.4)" }}>
-                            {selectedSkills.length} selected
-                          </span>
-                          {selectedSkills.length > 0 && (
-                            <button style={skillClearBtn} onClick={clearAllSkills}>Clear All</button>
-                          )}
-                        </div>
-                        {filteredSkills.length === 0 ? (
-                          <div style={{ padding: "10px", color: "rgba(255,255,255,0.4)", fontSize: "13px" }}>
-                            No skills match "{searchTerm}"
-                          </div>
-                        ) : (
-                          filteredSkills.map((skill) => (
-                            <label key={skill} style={skillOption}>
-                              <input type="checkbox" checked={selectedSkills.includes(skill)}
-                                onChange={() => toggleSkill(skill)} style={{ accentColor: "#4a90e2" }} />
-                              <span>{skill}</span>
-                            </label>
-                          ))
-                        )}
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
+              <SkillPicker
+                selected={selectedSkills}
+                onChange={setSelectedSkills}
+                options={skillCatalog?.options || []}
+                grouped={skillCatalog?.grouped || null}
+                placeholder="Select your skills..."
+                emptyMessage="No skills available yet."
+              />
             </div>
             <div style={fieldGroup}>
               <label style={label}>Resume</label>
@@ -432,65 +338,6 @@ const editBadge = {
   padding: "3px", fontSize: "10px", color: "#fff", lineHeight: "1",
 };
 
-const skillInput = {
-  display: "flex", alignItems: "center", flexWrap: "wrap", gap: "4px",
-  minHeight: "44px", padding: "8px 12px", borderRadius: radii.sm,
-  border: "1px solid rgba(255,255,255,0.15)",
-  backgroundColor: "rgba(255,255,255,0.06)", color: "#fff",
-  fontSize: "14px", cursor: "pointer", boxSizing: "border-box",
-};
-const skillTag = {
-  display: "inline-flex", alignItems: "center", gap: "4px",
-  fontSize: "12px", padding: "3px 8px", borderRadius: "6px",
-  backgroundColor: "rgba(74,144,226,0.2)", color: "#93c5fd", fontWeight: "500",
-};
-const skillRemove = {
-  cursor: "pointer", fontSize: "10px", marginLeft: "2px", opacity: 0.7,
-  lineHeight: "1",
-};
-const skillDropdown = {
-  position: "absolute", top: "100%", left: 0, right: 0, zIndex: 100,
-  marginTop: "4px", borderRadius: radii.sm,
-  backgroundColor: "rgba(15,23,42,0.98)", border: "1px solid rgba(255,255,255,0.15)",
-  maxHeight: "190px", overflow: "auto", boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
-};
-const skillOption = {
-  display: "flex", alignItems: "center", gap: "8px",
-  padding: "8px 14px", cursor: "pointer", fontSize: "13px", color: "rgba(255,255,255,0.85)",
-  borderBottom: "1px solid rgba(255,255,255,0.04)",
-};
-const skillCountBadge = {
-  marginLeft: "auto", fontSize: "11px", fontWeight: "700", padding: "2px 8px",
-  borderRadius: "10px", backgroundColor: "rgba(74,144,226,0.3)", color: "#93c5fd",
-};
-const skillSearchWrap = {
-  position: "relative", top: 0, zIndex: 1,
-  backgroundColor: "rgba(15,23,42,0.98)", padding: "8px",
-  borderBottom: "1px solid rgba(255,255,255,0.08)",
-};
-const skillSearchIcon = {
-  position: "absolute", left: "16px", top: "50%", transform: "translateY(-50%)",
-  fontSize: "13px", opacity: 0.4, pointerEvents: "none",
-};
-const skillSearchInput = {
-  width: "100%", padding: "8px 12px 8px 32px", borderRadius: "6px",
-  border: "1px solid rgba(255,255,255,0.12)", fontSize: "13px", outline: "none",
-  boxSizing: "border-box", backgroundColor: "rgba(255,255,255,0.06)", color: "#fff",
-  fontFamily: "'Inter', sans-serif",
-};
-const skillSearchClear = {
-  position: "absolute", right: "16px", top: "50%", transform: "translateY(-50%)",
-  background: "none", border: "none", color: "rgba(255,255,255,0.4)", cursor: "pointer",
-  fontSize: "12px", padding: "2px",
-};
-const skillDropdownHeader = {
-  display: "flex", alignItems: "center", justifyContent: "space-between",
-  padding: "8px 14px", borderBottom: "1px solid rgba(255,255,255,0.06)",
-};
-const skillClearBtn = {
-  background: "none", border: "none", color: "#fca5a5", cursor: "pointer",
-  fontSize: "12px", fontWeight: "600", padding: "2px 6px",
-};
 const resumeUploadBtn = {
   padding: "10px 16px", borderRadius: radii.sm,
   border: "1px solid rgba(255,255,255,0.15)",

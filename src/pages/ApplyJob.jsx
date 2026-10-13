@@ -55,6 +55,13 @@ export default function ApplyJob() {
   }, [fetchJob, checkIfApplied]);
 
   async function handleApply() {
+    // Re-checked here rather than trusting the button's disabled state, which
+    // a stale render can disagree with. The button is the affordance; this is
+    // the rule.
+    if (!job || (job.status && job.status !== "published")) {
+      setMessage("This job is no longer accepting applications.");
+      return;
+    }
     setApplying(true);
     setMessage("");
 
@@ -134,6 +141,14 @@ export default function ApplyJob() {
       </div>
     );
   }
+
+  // A closed or draft job stops taking applications but keeps every
+  // application already made against it. FindJobs filters these out, so this
+  // only matters for a stale tab or a shared link — but that is exactly the
+  // case where someone would otherwise still be able to apply.
+  const notOpen = Boolean(job.status) && job.status !== "published";
+  const full = job.max_applicants > 0 && applicantCount >= job.max_applicants;
+  const blocked = notOpen || full;
 
   return (
     <div style={{ height: "100%", overflowY: "auto", textAlign: "left" }}>
@@ -230,18 +245,18 @@ export default function ApplyJob() {
                     <button
                       style={{
                         width: "100%", padding: "12px", fontSize: "14px",
-                        background: (job.max_applicants > 0 && applicantCount >= job.max_applicants)
-                          ? "rgba(255,255,255,0.1)" : "linear-gradient(135deg, #4a90e2, #1a73e8)",
+                        background: blocked ? "rgba(255,255,255,0.1)" : "linear-gradient(135deg, #4a90e2, #1a73e8)",
                         color: "#fff", border: "none", borderRadius: "10px", fontWeight: "700",
-                        cursor: (job.max_applicants > 0 && applicantCount >= job.max_applicants) ? "not-allowed" : "pointer",
-                        boxShadow: (job.max_applicants > 0 && applicantCount >= job.max_applicants) ? "none" : "0 4px 16px rgba(26,115,232,0.3)",
-                        opacity: (job.max_applicants > 0 && applicantCount >= job.max_applicants) ? 0.5 : 1,
+                        cursor: blocked ? "not-allowed" : "pointer",
+                        boxShadow: blocked ? "none" : "0 4px 16px rgba(26,115,232,0.3)",
+                        opacity: blocked ? 0.5 : 1,
                       }}
                       onClick={handleApply}
-                      disabled={applying || (job.max_applicants > 0 && applicantCount >= job.max_applicants)}
+                      disabled={applying || blocked}
                     >
                       {applying ? "Submitting..."
-                        : (job.max_applicants > 0 && applicantCount >= job.max_applicants) ? "Position Filled"
+                        : notOpen ? "No Longer Accepting Applications"
+                        : full ? "Position Filled"
                         : "Apply Now"}
                     </button>
                   ) : (

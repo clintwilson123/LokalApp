@@ -1,4 +1,5 @@
 import { computeSkillMatch } from "./skillMatch";
+import { loadSkillCatalog } from "./skillCatalog";
 import { callEdgeFunction } from "./supabaseClient";
 
 export async function aiSkillMatch(applicantSkills, jobRequirements, jobTitle) {
@@ -6,7 +7,10 @@ export async function aiSkillMatch(applicantSkills, jobRequirements, jobTitle) {
     return { matched: 0, total: 0, score: 0, basicScore: 0, matchedItems: [], missingItems: [], explanation: "" };
   }
 
-  const basic = computeSkillMatch(applicantSkills, jobRequirements);
+  // Memoized, so this is a lookup after the first call. Resolves aliases so
+  // "NodeJS" and "Node.js" score as the same skill.
+  const { aliasIndex } = await loadSkillCatalog();
+  const basic = computeSkillMatch(applicantSkills, jobRequirements, aliasIndex);
 
   try {
     const result = await callEdgeFunction("gemini-match", {
@@ -16,7 +20,9 @@ export async function aiSkillMatch(applicantSkills, jobRequirements, jobTitle) {
     });
 
     const matched = result.matchedItems?.length || 0;
-    const total = jobRequirements.length;
+    // From the basic pass, not from jobRequirements.length — computeSkillMatch
+    // drops empty strings, and the two would otherwise disagree.
+    const total = basic.total;
 
     return {
       matched,

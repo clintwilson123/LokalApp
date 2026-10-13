@@ -60,6 +60,14 @@ Return ONLY valid JSON (no markdown, no code blocks):
     const data = await res.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
+    // `match()` with no capture group returns only the full match at [0].
+    // This read [1], which is undefined for a pattern with no group — so
+    // JSON.parse threw, the catch below returned 500, callEdgeFunction threw,
+    // and aiSkillMatch's catch silently fell back to computeSkillMatch. The
+    // AI ranking had never once produced a result.
+    //
+    // The regex is greedy, so it spans first "{" to last "}" and excludes any
+    // markdown fences around it.
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       return new Response(
@@ -68,7 +76,7 @@ Return ONLY valid JSON (no markdown, no code blocks):
       );
     }
 
-    const result = JSON.parse(jsonMatch[1]);
+    const result = JSON.parse(jsonMatch[0]);
     return new Response(
       JSON.stringify(result),
       { status: 200, headers: { "Content-Type": "application/json" } }
