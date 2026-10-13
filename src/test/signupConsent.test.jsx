@@ -64,8 +64,34 @@ describe('Signup — View Consent modal', () => {
       screen.getByText(/We do not sell your data to third parties\./)
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/By using CJLink, you agree to provide accurate information/)
+      screen.getByText(/By using CJLink, you agree to provide accurate and truthful information/)
     ).toBeInTheDocument();
+  });
+
+  it('carries the hiring policy, so nobody is ever asked about it a second time', async () => {
+    // ApplyJob used to demand its own "Hiring Policy Acknowledgment" on top of
+    // this. Its text was a restatement of these same sections, so it lives here
+    // now — accepting THIS agreement at sign-up is accepting the hiring policy.
+    renderSignup();
+    await act(async () => {});
+    openConsent();
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeInTheDocument();
+    // Unique hiring-policy wording, now folded into section 1.
+    expect(
+      screen.getByText(/truthful information in your profile and/)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/false or misleading information may result in disqualification/i)
+    ).toBeInTheDocument();
+    // §1 and §3 both carry it, so match every occurrence rather than one.
+    expect(
+      screen.getAllByText(/solely for hiring purposes/)
+    ).toHaveLength(2);
+    // The standalone prompt must not exist anywhere in the app.
+    expect(screen.queryByText(/hiring policy acknowledgment/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /acknowledge/i })).toBeNull();
   });
 
   it('closes without navigating and without touching the checkbox or typed values', async () => {

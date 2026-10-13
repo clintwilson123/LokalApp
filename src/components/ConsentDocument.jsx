@@ -6,6 +6,13 @@
 // It is ONE document under ONE name: the CJLink Consent Agreement. There is no
 // separate "Terms & Conditions" to accept anywhere in the app, so a person is
 // never asked twice, under two titles, for the same agreement.
+//
+// The hiring policy that ApplyJob used to demand separately ("I agree to provide
+// accurate information… consent to reviewing my profile, resume and application
+// details… solely for hiring purposes… not shared with unauthorized parties")
+// is folded into sections 1 and 3 here. Its content was a restatement of these
+// sections, so it stays in ONE place — accepting this agreement at sign-up IS
+// accepting the hiring policy. Do not re-add a second acknowledgment prompt.
 
 export default function ConsentDocument() {
   return (
@@ -15,8 +22,10 @@ export default function ConsentDocument() {
           <span style={number}>1</span> Platform Terms
         </h3>
         <p style={policyText}>
-          By using CJLink, you agree to provide accurate information in your profile and applications.
-          You understand that employers may review your profile, resume, and application details.
+          By using CJLink, you agree to provide accurate and truthful information in your profile and
+          applications. Providing false or misleading information may result in disqualification from
+          a job, or removal from CJLink. You understand that employers may review your profile,
+          resume, and application details solely for hiring purposes.
         </p>
       </section>
 
