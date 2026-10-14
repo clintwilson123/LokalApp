@@ -1,7 +1,7 @@
 import React from "react";
-import { NavLink, useLocation, Navigate } from "react-router-dom";
+import { NavLink, useLocation, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { colors, dashStatCard, dashStatNum, dashStatLabel } from "../uiStyles";
+import { colors, statusBadge, statusLabel } from "../uiStyles";
 
 import { supabase } from "../lib/supabaseClient";
 import ManageJobs from "./ManageJobs";
@@ -103,76 +103,279 @@ export default function AdminDashboard() {
   );
 }
 
+/**
+ * The order a candidate actually moves through, left to right.
+ *
+ * Six isolated counts said how much of everything existed and never what was
+ * happening to it — "Applications: 12" next to "Hired: 1" tells you nothing
+ * unless you can see the shape between them.
+ */
+const PIPELINE = [
+  { key: "pending",             label: "Pending review", color: "#fbbf24" },
+  { key: "reviewed",            label: "Reviewed",       color: "#93c5fd" },
+  { key: "interview_scheduled", label: "Interview set",  color: "#c084fc" },
+  { key: "accepted",            label: "Accepted",       color: "#4ade80" },
+  { key: "hired",               label: "Hired",          color: "#22c55e" },
+];
+
+const STAT_META = [
+  { key: "jobs",         label: "Jobs",         icon: "💼", accent: "#60a5fa", to: "/admin/jobs" },
+  { key: "applicants",   label: "Applicants",   icon: "👤", accent: "#2dd4bf", to: "/admin/applicants" },
+  { key: "applications", label: "Applications", icon: "📋", accent: "#818cf8", to: "/admin/applicants" },
+  { key: "interviews",   label: "Interviews",   icon: "📅", accent: "#c084fc", to: "/admin/applicants" },
+  { key: "hired",        label: "Hired",        icon: "✅", accent: "#4ade80", to: "/admin/applicants" },
+];
+
+/** "3 minutes ago", "5h ago", "2d ago", then a plain date past a week. */
+const relativeTime = (iso) => {
+  if (!iso) return "";
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+};
+
 function AdminDashboardHome() {
-  const [stats, setStats] = React.useState({ jobs: 0, applicants: 0, applications: 0, pending: 0, interviews: 0, hired: 0 });
+  const navigate = useNavigate();
+  const { profile } = useAuth();
+
+  const [stats, setStats] = React.useState({
+    jobs: 0, applicants: 0, applications: 0, interviews: 0, pending: 0, rejected: 0, hired: 0,
+  });
+  const [pipeline, setPipeline] = React.useState({});
+  const [topJobs, setTopJobs] = React.useState([]);
+  const [recent, setRecent] = React.useState([]);
+  const [loaded, setLoaded] = React.useState(false);
 
   React.useEffect(() => {
-    async function fetchStats() {
-      const [jobsRes, appsRes, profilesRes, pendingRes, interviewsRes, hiredRes] = await Promise.all([
-        supabase.from("jobs").select("*", { count: "exact", head: true }),
-        supabase.from("applications").select("*", { count: "exact", head: true }),
-        supabase.from("profiles").select("*", { count: "exact", head: true }).eq("role", "applicant"),
-        supabase.from("applications").select("*", { count: "exact", head: true }).eq("status", "pending"),
-        supabase.from("interviews").select("*", { count: "exact", head: true }),
-        supabase.from("applications").select("*", { count: "exact", head: true }).eq("status", "hired"),
+    let cancelled = false;
+
+    async function fetchOverview() {
+      const [appsRes, jobsRes, applicantsRes, interviewsRes, recentRes] = await Promise.all([
+        // One pass over every application's status instead of six separate
+        // head counts. It costs a single short column per row — trivial at
+        // this portal's scale — and yields the total AND the whole pipeline
+        // from one round trip.
+        supabase.from("applications").select("status"),
+        // applications(count) is a PostgREST aggregate, so the per-job
+        // numbers come back with the jobs rather than as N extra queries.
+        supabase.from("jobs").select("id, title, status, applications(count)", { count: "exact" }),
+        supabase.from("profiles").select("id", { count: "exact", head: true }).eq("role", "applicant"),
+        supabase.from("interviews").select("id", { count: "exact", head: true }),
+        supabase
+          .from("applications")
+          .select("id, status, created_at, profiles(full_name), jobs(title, icon)")
+          .order("created_at", { ascending: false })
+          .limit(5),
       ]);
+      if (cancelled) return;
+
+      const rows = appsRes.data || [];
+      const byStatus = rows.reduce((acc, row) => {
+        acc[row.status] = (acc[row.status] || 0) + 1;
+        return acc;
+      }, {});
+
+      setPipeline(byStatus);
       setStats({
         jobs: jobsRes.count || 0,
-        applications: appsRes.count || 0,
-        applicants: profilesRes.count || 0,
-        pending: pendingRes.count || 0,
+        applicants: applicantsRes.count || 0,
+        applications: rows.length,
         interviews: interviewsRes.count || 0,
-        hired: hiredRes.count || 0,
+        pending: byStatus.pending || 0,
+        rejected: byStatus.rejected || 0,
+        hired: byStatus.hired || 0,
       });
+      setTopJobs(
+        (jobsRes.data || [])
+          .map((job) => ({
+            id: job.id,
+            title: job.title,
+            status: job.status,
+            count: job.applications?.[0]?.count || 0,
+          }))
+          .sort((a, b) => b.count - a.count || a.title.localeCompare(b.title))
+          .slice(0, 5)
+      );
+      setRecent(recentRes.data || []);
+      setLoaded(true);
     }
-    fetchStats();
+
+    fetchOverview();
+    return () => { cancelled = true; };
   }, []);
+
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const firstName = (profile?.full_name || "Admin").split(" ")[0];
+
+  const pipelineMax = Math.max(stats.applications, 1);
+  const jobMax = Math.max(...topJobs.map((j) => j.count), 1);
+
+  // The one number that is a to-do rather than a fact, so it leads.
+  const waiting = stats.pending;
 
   return (
     <div>
-      <h2 style={{ fontSize: "20px", color: "#fff", fontWeight: "800", margin: "0 0 20px" }}>Dashboard Overview</h2>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
-        <div style={dashStatCard}>
-          <span style={{ fontSize: "32px" }}>💼</span>
-          <div>
-            <h3 style={dashStatNum}>{stats.jobs}</h3>
-            <p style={dashStatLabel}>Total Jobs</p>
-          </div>
+      <div style={overviewHead}>
+        <div style={{ minWidth: 0 }}>
+          <h2 style={overviewTitle}>{greeting}, {firstName}</h2>
+          <p style={overviewSub}>
+            {!loaded
+              ? "Loading overview…"
+              : stats.applications === 0
+                ? "No applications yet — this fills in as they arrive."
+                : `Here's where CJTECH's hiring stands right now.`}
+          </p>
         </div>
-        <div style={dashStatCard}>
-          <span style={{ fontSize: "32px" }}>👤</span>
-          <div>
-            <h3 style={dashStatNum}>{stats.applicants}</h3>
-            <p style={dashStatLabel}>Applicants</p>
+        <button onClick={() => navigate("/admin/jobs")} style={primaryBtn}>+ Post a job</button>
+      </div>
+
+      {/* The only card on this page that is a to-do rather than a fact. */}
+      <div style={{
+        ...attentionCard,
+        borderColor: waiting > 0 ? "rgba(251,191,36,0.35)" : "rgba(74,222,128,0.3)",
+        background: waiting > 0
+          ? "linear-gradient(120deg, rgba(217,119,6,0.20), rgba(217,119,6,0.05))"
+          : "linear-gradient(120deg, rgba(34,197,94,0.18), rgba(34,197,94,0.05))",
+      }}>
+        <span style={{ ...attentionIcon, background: waiting > 0 ? "rgba(251,191,36,0.18)" : "rgba(74,222,128,0.18)" }}>
+          {waiting > 0 ? "⏳" : "🎉"}
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ ...attentionKicker, color: waiting > 0 ? "#fcd34d" : "#86efac" }}>
+            {waiting > 0 ? "Needs your attention" : "All caught up"}
           </div>
+          <div style={attentionLine}>
+            {waiting > 0 ? (
+              <><strong>{waiting}</strong> application{waiting === 1 ? "" : "s"} waiting to be reviewed</>
+            ) : (
+              <>Nothing is waiting for review.</>
+            )}
+          </div>
+          {stats.rejected > 0 && (
+            <div style={attentionNote}>{stats.rejected} not selected</div>
+          )}
         </div>
-        <div style={dashStatCard}>
-          <span style={{ fontSize: "32px" }}>📋</span>
-          <div>
-            <h3 style={dashStatNum}>{stats.applications}</h3>
-            <p style={dashStatLabel}>Applications</p>
-          </div>
+        <button onClick={() => navigate("/admin/applicants")} style={attentionBtn}>
+          {waiting > 0 ? "Review now" : "View applicants"} →
+        </button>
+      </div>
+
+      {/* Every card is a link. A number you cannot act on is trivia. */}
+      <div style={statRow}>
+        {STAT_META.map((s) => (
+          <button
+            key={s.key}
+            onClick={() => navigate(s.to)}
+            style={{ ...statCard, borderColor: `${s.accent}33` }}
+          >
+            <span style={{ ...statTile, background: `${s.accent}1f`, color: s.accent }}>{s.icon}</span>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={statNum}>{stats[s.key]}</div>
+              <div style={statLabel}>{s.label}</div>
+            </div>
+            <span style={{ ...statArrow, color: s.accent }}>→</span>
+          </button>
+        ))}
+      </div>
+
+      <div style={panel}>
+        <div style={panelHead}>
+          <h3 style={panelTitle}>Hiring pipeline</h3>
+          <span style={panelMeta}>
+            {stats.applications} application{stats.applications === 1 ? "" : "s"} in total
+          </span>
         </div>
-        <div style={dashStatCard}>
-          <span style={{ fontSize: "32px" }}>⏳</span>
-          <div>
-            <h3 style={dashStatNum}>{stats.pending}</h3>
-            <p style={dashStatLabel}>Pending Review</p>
+        {!loaded ? (
+          <p style={emptyText}>Loading…</p>
+        ) : stats.applications === 0 ? (
+          <p style={emptyText}>Nothing to chart yet.</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "13px" }}>
+            {PIPELINE.map((step) => {
+              const n = pipeline[step.key] || 0;
+              const pct = Math.round((n / pipelineMax) * 100);
+              return (
+                <div key={step.key} style={pipeRow}>
+                  <span style={{ ...pipeLabel, color: step.color }}>{step.label}</span>
+                  <div style={pipeTrack}>
+                    <div style={{
+                      ...pipeFill,
+                      width: `${n === 0 ? 0 : Math.max(pct, 3)}%`,
+                      background: `linear-gradient(90deg, ${step.color}, ${step.color}66)`,
+                    }} />
+                  </div>
+                  <span style={pipeValue}>{n}</span>
+                </div>
+              );
+            })}
           </div>
+        )}
+      </div>
+
+      <div style={twoCol}>
+        <div style={panel}>
+          <div style={panelHead}>
+            <h3 style={panelTitle}>Applications by job</h3>
+          </div>
+          {!loaded ? (
+            <p style={emptyText}>Loading…</p>
+          ) : topJobs.length === 0 ? (
+            <p style={emptyText}>No jobs posted yet.</p>
+          ) : (
+            topJobs.map((job) => (
+              <button key={job.id} onClick={() => navigate("/admin/jobs")} style={jobRow}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={rowTitle}>{job.title}</div>
+                  <div style={{ ...rowMeta, color: job.status === "published" ? "#4ade80" : "rgba(255,255,255,0.4)" }}>
+                    {job.status === "published" ? "Live" : job.status}
+                  </div>
+                </div>
+                <div style={{ width: "90px", flexShrink: 0 }}>
+                  <div style={pipeTrack}>
+                    <div style={{
+                      ...pipeFill,
+                      width: `${job.count === 0 ? 0 : Math.max(Math.round((job.count / jobMax) * 100), 6)}%`,
+                      background: "linear-gradient(90deg, #60a5fa, #60a5fa66)",
+                    }} />
+                  </div>
+                </div>
+                <span style={jobCount}>{job.count}</span>
+              </button>
+            ))
+          )}
         </div>
-        <div style={dashStatCard}>
-          <span style={{ fontSize: "32px" }}>📅</span>
-          <div>
-            <h3 style={dashStatNum}>{stats.interviews}</h3>
-            <p style={dashStatLabel}>Interviews</p>
+
+        <div style={panel}>
+          <div style={panelHead}>
+            <h3 style={panelTitle}>Recent activity</h3>
           </div>
-        </div>
-        <div style={dashStatCard}>
-          <span style={{ fontSize: "32px" }}>✅</span>
-          <div>
-            <h3 style={dashStatNum}>{stats.hired}</h3>
-            <p style={dashStatLabel}>Hired</p>
-          </div>
+          {!loaded ? (
+            <p style={emptyText}>Loading…</p>
+          ) : recent.length === 0 ? (
+            <p style={emptyText}>No applications yet.</p>
+          ) : (
+            recent.map((a) => (
+              <div key={a.id} style={activityRow}>
+                <span style={activityAvatar}>
+                  {(a.profiles?.full_name || "?").trim().charAt(0).toUpperCase() || "?"}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={rowTitle}>{a.profiles?.full_name || "Unnamed applicant"}</div>
+                  <div style={rowMeta}>{a.jobs?.title || "a job"}</div>
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <span style={statusBadge(a.status)}>{statusLabel(a.status)}</span>
+                  <div style={rowMeta}>{relativeTime(a.created_at)}</div>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
@@ -198,3 +401,80 @@ const pageBreadcrumb = { fontSize: "12px", color: "rgba(255,255,255,0.5)", margi
 const headerRight = { display: "flex", alignItems: "center", gap: "12px" };
 const dateBadge = { fontSize: "12px", color: "rgba(255,255,255,0.6)", background: "rgba(255,255,255,0.08)", padding: "6px 14px", borderRadius: "20px", fontWeight: "500", border: "1px solid rgba(255,255,255,0.1)" };
 const contentCard = { background: "rgba(255, 255, 255, 0.06)", backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)", borderRadius: "24px", padding: "32px", minHeight: "600px", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 20px 60px rgba(26,59,92,0.15)" };
+
+const overviewHead = { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "16px", marginBottom: "22px" };
+const overviewTitle = { fontSize: "22px", color: "#fff", fontWeight: "800", margin: 0 };
+const overviewSub = { fontSize: "13px", color: "rgba(255,255,255,0.55)", margin: "4px 0 0" };
+const primaryBtn = {
+  flexShrink: 0, padding: "10px 18px", borderRadius: "12px", border: "none",
+  background: "linear-gradient(135deg, #60a5fa, #3b82f6)", color: "#fff",
+  fontSize: "13px", fontWeight: "700", cursor: "pointer", transition: "all 0.2s",
+  boxShadow: "0 6px 18px rgba(59,130,246,0.3)",
+};
+
+// The to-do, promoted above the facts.
+const attentionCard = {
+  display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap",
+  padding: "20px 22px", borderRadius: "18px", marginBottom: "16px",
+  border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(12px)",
+};
+const attentionIcon = {
+  width: "46px", height: "46px", borderRadius: "14px", flexShrink: 0,
+  display: "flex", alignItems: "center", justifyContent: "center", fontSize: "22px",
+};
+const attentionKicker = { fontSize: "11px", fontWeight: "700", letterSpacing: "0.08em", textTransform: "uppercase" };
+const attentionLine = { fontSize: "16px", color: "#fff", fontWeight: "500", marginTop: "3px" };
+const attentionNote = { fontSize: "12px", color: "rgba(255,255,255,0.45)", marginTop: "3px" };
+const attentionBtn = {
+  flexShrink: 0, marginLeft: "auto", padding: "10px 18px", borderRadius: "12px",
+  border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.1)",
+  color: "#fff", fontSize: "13px", fontWeight: "700", cursor: "pointer", transition: "all 0.2s",
+};
+
+const statRow = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "12px", marginBottom: "16px" };
+const statCard = {
+  display: "flex", alignItems: "center", gap: "12px", textAlign: "left",
+  padding: "15px 16px", borderRadius: "16px", cursor: "pointer",
+  background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+  transition: "all 0.2s",
+};
+const statTile = {
+  width: "42px", height: "42px", borderRadius: "12px", flexShrink: 0,
+  display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px",
+};
+const statNum = { fontSize: "21px", fontWeight: "800", color: "#fff", lineHeight: "1.1" };
+const statLabel = { fontSize: "11px", color: "rgba(255,255,255,0.5)", marginTop: "2px" };
+const statArrow = { marginLeft: "auto", fontSize: "15px", opacity: 0.6, flexShrink: 0 };
+
+const panel = {
+  background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+  borderRadius: "18px", padding: "20px", marginBottom: "16px",
+};
+const panelHead = { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "12px", marginBottom: "16px" };
+const panelTitle = { fontSize: "14px", color: "#fff", fontWeight: "700", margin: 0 };
+const panelMeta = { fontSize: "11px", color: "rgba(255,255,255,0.4)" };
+const emptyText = { fontSize: "13px", color: "rgba(255,255,255,0.4)", margin: 0 };
+
+const pipeRow = { display: "flex", alignItems: "center", gap: "12px" };
+const pipeLabel = { width: "118px", flexShrink: 0, fontSize: "12px", fontWeight: "600" };
+const pipeTrack = { flex: 1, height: "8px", borderRadius: "6px", background: "rgba(255,255,255,0.07)", overflow: "hidden", minWidth: 0 };
+const pipeFill = { height: "100%", borderRadius: "6px", transition: "width 0.4s ease" };
+const pipeValue = { width: "26px", flexShrink: 0, textAlign: "right", fontSize: "13px", fontWeight: "700", color: "#fff" };
+
+const twoCol = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "16px" };
+const jobRow = {
+  display: "flex", alignItems: "center", gap: "12px", width: "100%", textAlign: "left",
+  padding: "11px 12px", borderRadius: "12px", border: "none", cursor: "pointer",
+  background: "transparent", transition: "background 0.15s", marginBottom: "2px",
+};
+const rowTitle = { fontSize: "13px", fontWeight: "600", color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+const rowMeta = { fontSize: "11px", color: "rgba(255,255,255,0.45)", marginTop: "2px" };
+const jobCount = { width: "26px", flexShrink: 0, textAlign: "right", fontSize: "14px", fontWeight: "800", color: "#fff" };
+
+const activityRow = { display: "flex", alignItems: "center", gap: "11px", padding: "10px 12px", borderRadius: "12px", marginBottom: "2px" };
+const activityAvatar = {
+  width: "34px", height: "34px", borderRadius: "10px", flexShrink: 0,
+  display: "flex", alignItems: "center", justifyContent: "center",
+  background: "linear-gradient(135deg, #60a5fa, #3b82f6)",
+  fontSize: "13px", fontWeight: "700", color: "#fff",
+};

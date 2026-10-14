@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { colors, radii, dashTable, dashTh, dashTd, dashRow, dashGrid } from "../uiStyles";
+import { colors, radii, dashTable, dashTh, dashTd, dashRow, dashGrid, statusBadge, statusLabel } from "../uiStyles";
 import { SkeletonTable } from "../components/Skeleton";
 import { aiSkillMatch } from "../lib/aiSkillMatch";
 import SkillPicker from "../components/SkillPicker";
@@ -19,33 +19,9 @@ import { loadSkillCatalog } from "../lib/skillCatalog";
  */
 const INTERVIEW_LOCATION = "CJTECH Shop";
 
-/**
- * Application status chip, used by both the applicant list and the detail
- * view.
- *
- * The list showed no status at all, and the detail rendered every status the
- * same amber — so "interview scheduled" was visually identical to "pending".
- * Scheduling an interview updated the row correctly and the admin still had
- * no way to see it without opening each applicant one at a time.
- */
-const STATUS_COLORS = {
-  pending:             { bg: "rgba(217,119,6,0.2)",   fg: "#fbbf24" },
-  reviewed:            { bg: "rgba(26,115,232,0.2)",  fg: "#93c5fd" },
-  interview_scheduled: { bg: "rgba(139,92,246,0.2)",  fg: "#c4b5fd" },
-  interviewed:         { bg: "rgba(139,92,246,0.2)",  fg: "#c4b5fd" },
-  accepted:            { bg: "rgba(34,197,94,0.2)",   fg: "#86efac" },
-  hired:               { bg: "rgba(34,197,94,0.2)",   fg: "#86efac" },
-  rejected:            { bg: "rgba(248,113,113,0.2)", fg: "#fca5a5" },
-};
-
-const statusBadge = (status) => {
-  const s = STATUS_COLORS[status] || STATUS_COLORS.pending;
-  return {
-    fontSize: "11px", padding: "3px 10px", borderRadius: "20px",
-    fontWeight: "600", backgroundColor: s.bg, color: s.fg,
-    textTransform: "capitalize", whiteSpace: "nowrap", display: "inline-block",
-  };
-};
+// statusBadge / statusLabel / STATUS_COLORS now come from uiStyles: the admin
+// dashboard renders the same chips, and a second copy would be a third place
+// for them to drift apart.
 
 export default function ManageJobs() {
   const [jobs, setJobs] = useState([]);
@@ -399,7 +375,7 @@ export default function ManageJobs() {
                         an interview left nothing on screen to show for it —
                         you had to open each applicant to find out. */}
                     <span style={statusBadge(a.application?.status || "pending")}>
-                      {(a.application?.status || "pending").replace("_", " ")}
+                      {statusLabel(a.application?.status)}
                     </span>
                   </div>
                   <div style={scoreCircle(a.match.score)}>{a.match.score}%</div>
@@ -476,7 +452,7 @@ export default function ManageJobs() {
               )}
               {interviewApplicant.application?.status && (
                 <div style={applicantBannerLine}>
-                  Application: {String(interviewApplicant.application.status).replace(/_/g, " ")}
+                  Application: {statusLabel(interviewApplicant.application.status)}
                 </div>
               )}
             </div>
@@ -576,7 +552,7 @@ export default function ManageJobs() {
                   everything else — pending, reviewed AND interview scheduled —
                   the same amber. */}
               <span style={statusBadge(a.application?.status || "pending")}>
-                {(a.application?.status || "pending").replace("_", " ")}
+                {statusLabel(a.application?.status)}
               </span>
             </div>
             {a.application?.status !== "hired" && a.application?.status !== "rejected" && (

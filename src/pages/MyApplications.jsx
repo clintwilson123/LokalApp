@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
-import { radii } from "../uiStyles";
+import { radii, statusLabel } from "../uiStyles";
 import { SkeletonCard } from "../components/Skeleton";
 
 /**
@@ -59,15 +59,7 @@ const formatTime = (t) => {
   return `${h12}:${String(m || 0).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
 };
 
-/**
- * "interview_scheduled" -> "Interview scheduled".
- *
- * The status chip is text-transform: capitalize, which only breaks on
- * whitespace — so rendering the raw value painted "Interview_scheduled",
- * on the one status the applicant most needs to read. Two of the three
- * badges were doing exactly that while the third already did it right.
- */
-const statusLabel = (status) => (status || "pending").replace(/_/g, " ");
+// statusLabel now comes from uiStyles, shared with the admin side.
 
 export default function MyApplications() {
   const { user, profile } = useAuth();

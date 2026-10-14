@@ -263,3 +263,32 @@ export const dashGrid = {
   gridTemplateColumns: "repeat(2, 1fr)",
   gap: "12px",
 };
+
+/**
+ * Application status chip.
+ *
+ * Shared by ManageJobs (admin) and AdminDashboard, and deliberately not
+ * duplicated: the colours had already drifted once, with two of three chips
+ * in MyApplications painting the raw `interview_scheduled` value. One map.
+ */
+export const STATUS_COLORS = {
+  pending:             { bg: "rgba(217,119,6,0.2)",   fg: "#fbbf24" },
+  reviewed:            { bg: "rgba(26,115,232,0.2)",  fg: "#93c5fd" },
+  interview_scheduled: { bg: "rgba(139,92,246,0.2)",  fg: "#c4b5fd" },
+  interviewed:         { bg: "rgba(139,92,246,0.2)",  fg: "#c4b5fd" },
+  accepted:            { bg: "rgba(34,197,94,0.2)",   fg: "#86efac" },
+  hired:               { bg: "rgba(34,197,94,0.2)",   fg: "#86efac" },
+  rejected:            { bg: "rgba(248,113,113,0.2)", fg: "#fca5a5" },
+};
+
+export const statusBadge = (status) => {
+  const s = STATUS_COLORS[status] || STATUS_COLORS.pending;
+  return {
+    fontSize: "11px", padding: "3px 10px", borderRadius: "20px",
+    fontWeight: "600", backgroundColor: s.bg, color: s.fg,
+    textTransform: "capitalize", whiteSpace: "nowrap", display: "inline-block",
+  };
+};
+
+/** "interview_scheduled" -> "Interview scheduled" (for textTransform: capitalize). */
+export const statusLabel = (status) => (status || "pending").replace(/_/g, " ");
