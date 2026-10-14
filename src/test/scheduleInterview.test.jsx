@@ -252,3 +252,57 @@ describe('Schedule Interview — the location is fixed', () => {
     expect(screen.queryByText(/Pick a date and a time/)).toBeNull();
   });
 });
+
+describe('the admin can see who has been scheduled', () => {
+  const asScheduled = () => {
+    h.apps = [{ id: 101, user_id: 'u1', job_id: 1, status: 'interview_scheduled', score: null }];
+  };
+
+  it('shows the status on the applicant card, which carried none at all', async () => {
+    asScheduled();
+    render(<ManageJobs />);
+    await screen.findByText('Manage Jobs');
+    fireEvent.click(screen.getByRole('button', { name: 'Applicants' }));
+
+    expect(await screen.findByText('Maria Santos')).toBeInTheDocument();
+    // Scheduling updated the row correctly and left nothing on screen to show
+    // for it — you had to open each applicant to find out which had moved.
+    expect(screen.getByText('interview scheduled')).toBeInTheDocument();
+  });
+
+  it('offers Reschedule and marks the detail as scheduled', async () => {
+    asScheduled();
+    render(<ManageJobs />);
+    await screen.findByText('Manage Jobs');
+    fireEvent.click(screen.getByRole('button', { name: 'Applicants' }));
+    fireEvent.click(await screen.findByText('Maria Santos'));
+
+    expect(await screen.findByRole('button', { name: 'Reschedule Interview' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Schedule Interview' })).toBeNull();
+    expect(screen.getByText('interview scheduled')).toBeInTheDocument();
+  });
+
+  it('still reads pending on the detail when nothing is scheduled', async () => {
+    render(<ManageJobs />);
+    await screen.findByText('Manage Jobs');
+    fireEvent.click(screen.getByRole('button', { name: 'Applicants' }));
+    fireEvent.click(await screen.findByText('Maria Santos'));
+
+    expect(await screen.findByRole('button', { name: 'Schedule Interview' })).toBeInTheDocument();
+    expect(screen.getByText('pending')).toBeInTheDocument();
+    expect(screen.queryByText('interview scheduled')).toBeNull();
+  });
+
+  it('uses the same label on the card as in the detail', async () => {
+    render(<ManageJobs />);
+    await screen.findByText('Manage Jobs');
+    fireEvent.click(screen.getByRole('button', { name: 'Applicants' }));
+
+    expect(await screen.findByText('pending')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Maria Santos'));
+    await screen.findByText('← Back to applicants');
+    // Card is not in the DOM in the detail view, so exactly one badge here.
+    expect(screen.getAllByText('pending')).toHaveLength(1);
+  });
+});

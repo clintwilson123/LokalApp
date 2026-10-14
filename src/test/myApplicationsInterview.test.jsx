@@ -159,6 +159,33 @@ describe('My Applications — the interview schedule the applicant can actually 
     await screen.findByText('Interview Schedule');
     expect(screen.getByText('12:05 AM')).toBeInTheDocument();
   });
+
+  it('spells the status out instead of showing the raw column value', async () => {
+    render(<MyApplications />);
+    await waitFor(() => expect(screen.getByText(/1 application submitted/)).toBeInTheDocument());
+
+    // Two of the three status chips rendered `app.status` verbatim. The chip
+    // is text-transform: capitalize, which only breaks on whitespace, so the
+    // applicant's headline badge read "Interview_scheduled" — on the one
+    // status they most needed to understand.
+    expect(screen.getAllByText('interview scheduled').length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText(/interview_scheduled/)).toBeNull();
+  });
+
+  it('reads the same in the detail view as on the card', async () => {
+    render(<MyApplications />);
+    await waitFor(() => expect(screen.getByText(/1 application submitted/)).toBeInTheDocument());
+
+    // Exactly one chip, on the card.
+    expect(screen.getAllByText('interview scheduled')).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole('button', { name: /View Details/ }));
+    await screen.findByText('Interview Schedule');
+
+    // Three in the detail: the header chip, the Application Status row, and
+    // the current step on the progress timeline.
+    expect(screen.getAllByText('interview scheduled')).toHaveLength(3);
+  });
 });
 
 describe('the calendar day does not shift with the viewer timezone', () => {

@@ -59,6 +59,16 @@ const formatTime = (t) => {
   return `${h12}:${String(m || 0).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
 };
 
+/**
+ * "interview_scheduled" -> "Interview scheduled".
+ *
+ * The status chip is text-transform: capitalize, which only breaks on
+ * whitespace — so rendering the raw value painted "Interview_scheduled",
+ * on the one status the applicant most needs to read. Two of the three
+ * badges were doing exactly that while the third already did it right.
+ */
+const statusLabel = (status) => (status || "pending").replace(/_/g, " ");
+
 export default function MyApplications() {
   const { user, profile } = useAuth();
   const [applications, setApplications] = useState([]);
@@ -203,7 +213,7 @@ export default function MyApplications() {
                 {job.company} • {job.location}
               </p>
             </div>
-            <span style={statusBadge(app.status)}>{app.status}</span>
+            <span style={statusBadge(app.status)}>{statusLabel(app.status)}</span>
           </div>
 
           {job.salary && (
@@ -230,7 +240,7 @@ export default function MyApplications() {
 
           <div style={detailRow}>
             <strong>Application Status:</strong>{" "}
-            <span style={statusBadge(app.status)}>{app.status?.replace("_", " ")}</span>
+            <span style={statusBadge(app.status)}>{statusLabel(app.status)}</span>
           </div>
           <div style={detailRow}>
             <strong>Applied:</strong> {new Date(app.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
@@ -367,7 +377,7 @@ export default function MyApplications() {
                     {app.jobs?.company} • {app.jobs?.location}
                   </p>
                 </div>
-                <span style={statusBadge(app.status)}>{app.status}</span>
+                <span style={statusBadge(app.status)}>{statusLabel(app.status)}</span>
               </div>
               <div style={cardBottom}>
                 <span style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)" }}>
