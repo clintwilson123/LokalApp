@@ -48,7 +48,7 @@ const makeApp = (overrides = {}) => ({
       id: 1,
       date: '2026-10-20',
       time: '14:30:00',
-      location: 'Office',
+      location: 'CJTECH Shop',
       instructions: 'Bring two copies of your resume.',
       status: 'scheduled',
       created_at: '2026-10-10T00:00:00Z',
@@ -80,7 +80,7 @@ describe('My Applications — the interview schedule the applicant can actually 
     expect(await screen.findByText('Interview Schedule')).toBeInTheDocument();
     expect(screen.getByText('Tuesday, October 20, 2026')).toBeInTheDocument();
     expect(screen.getByText('2:30 PM')).toBeInTheDocument();
-    expect(screen.getByText('Office')).toBeInTheDocument();
+    expect(screen.getByText('CJTECH Shop')).toBeInTheDocument();
     expect(screen.getByText('Bring two copies of your resume.')).toBeInTheDocument();
   });
 
@@ -111,6 +111,11 @@ describe('My Applications — the interview schedule the applicant can actually 
     expect(screen.getByText('Tuesday, October 27, 2026')).toBeInTheDocument();
     expect(screen.getByText('9:00 AM')).toBeInTheDocument();
     expect(screen.queryByText('Tuesday, October 20, 2026')).toBeNull();
+
+    // The newest row's location too, not the superseded one's — 'Shop' only
+    // appears in the row that was rescheduled over.
+    expect(screen.getByText('Shop')).toBeInTheDocument();
+    expect(screen.queryByText('Office')).toBeNull();
   });
 
   it('flags the application on the list before it is even opened', async () => {
@@ -182,5 +187,51 @@ describe('the calendar day does not shift with the viewer timezone', () => {
     await screen.findByText('Interview Schedule');
     expect(screen.getByText('Tuesday, October 20, 2026')).toBeInTheDocument();
     expect(screen.queryByText('Monday, October 19, 2026')).toBeNull();
+  });
+});
+
+describe('interviews scheduled before the location dropdown was removed', () => {
+  it('still displays whatever location the row actually holds', async () => {
+    // Rows already in production were written by the old Shop / Office /
+    // Business Address dropdown. The applicant view must not blank them out
+    // just because the admin form no longer offers those choices.
+    h.apps = [
+      makeApp({
+        interviews: [
+          {
+            id: 9,
+            date: '2026-10-22',
+            time: '10:00:00',
+            location: 'Business Address',
+            status: 'scheduled',
+            created_at: '2026-10-11T00:00:00Z',
+          },
+        ],
+      }),
+    ];
+    render(<MyApplications />);
+    await waitFor(() => expect(screen.getByText(/1 application submitted/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /View Details/ }));
+
+    await screen.findByText('Interview Schedule');
+    expect(screen.getByText('Business Address')).toBeInTheDocument();
+    expect(screen.getByText('Thursday, October 22, 2026')).toBeInTheDocument();
+    expect(screen.queryByText('To be confirmed')).toBeNull();
+  });
+
+  it('falls back to "To be confirmed" if a row somehow has no location', async () => {
+    h.apps = [
+      makeApp({
+        interviews: [
+          { id: 10, date: '2026-10-23', time: '11:00:00', location: null, status: 'scheduled', created_at: '2026-10-11T00:00:00Z' },
+        ],
+      }),
+    ];
+    render(<MyApplications />);
+    await waitFor(() => expect(screen.getByText(/1 application submitted/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /View Details/ }));
+
+    await screen.findByText('Interview Schedule');
+    expect(screen.getByText('To be confirmed')).toBeInTheDocument();
   });
 });

@@ -265,7 +265,7 @@ export default function MyApplications() {
                   <span style={interviewValue}>{formatTime(interview.time)}</span>
                 </div>
                 <div style={interviewField}>
-                  <span style={interviewLabel}>Location</span>
+                  <span style={interviewLabel}>📍 Location</span>
                   <span style={interviewValue}>{interview.location || "To be confirmed"}</span>
                 </div>
               </div>

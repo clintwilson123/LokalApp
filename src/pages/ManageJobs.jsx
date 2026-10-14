@@ -6,6 +6,19 @@ import { aiSkillMatch } from "../lib/aiSkillMatch";
 import SkillPicker from "../components/SkillPicker";
 import { loadSkillCatalog } from "../lib/skillCatalog";
 
+/**
+ * CJLink has one location: the CJTECH Shop.
+ *
+ * This used to be a required dropdown offering Shop / Office / Business
+ * Address. Three of those four options could never be the answer, and the
+ * fourth — the empty "Select location" — was a required field whose omission
+ * stalled scheduling with no visible error. A select that offers a single
+ * real choice is not a choice, so the location is stated and filled in
+ * automatically. Change this constant and the modal follows; the interviews
+ * table stays TEXT so nothing in the database needs touching.
+ */
+const INTERVIEW_LOCATION = "CJTECH Shop";
+
 export default function ManageJobs() {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -43,7 +56,7 @@ export default function ManageJobs() {
   });
 
   const [showInterviewModal, setShowInterviewModal] = useState(false);
-  const [interviewForm, setInterviewForm] = useState({ application_id: null, date: "", time: "", location: "", instructions: "" });
+  const [interviewForm, setInterviewForm] = useState({ application_id: null, date: "", time: "", instructions: "" });
   // The applicant the interview is for. The modal used to keep only the
   // application id, so the admin was setting a date and time for a row of
   // data with nothing on screen saying which person that was — easy to
@@ -240,17 +253,20 @@ export default function ManageJobs() {
   function closeInterviewModal() {
     setShowInterviewModal(false);
     setInterviewApplicant(null);
-    setInterviewForm({ application_id: null, date: "", time: "", location: "", instructions: "" });
+    setInterviewForm({ application_id: null, date: "", time: "", instructions: "" });
   }
 
   async function handleScheduleInterview() {
-    const { application_id, date, time, location, instructions } = interviewForm;
+    const { application_id, date, time, instructions } = interviewForm;
 
     // Both exits from this function used to be silent: a missing field simply
     // returned, and a failed insert fell through the `if (!error)` with no
     // message at all. The button did nothing, with no way to tell why.
-    if (!date || !time || !location) {
-      setMessage("Pick a date, a time and a location before scheduling.");
+    //
+    // Location is deliberately absent from this check. It is not something
+    // the admin enters — there is one location and it is filled in below.
+    if (!date || !time) {
+      setMessage("Pick a date and a time before scheduling.");
       return;
     }
 
@@ -258,7 +274,7 @@ export default function ManageJobs() {
       application_id,
       date,
       time,
-      location,
+      location: INTERVIEW_LOCATION,
       instructions,
       status: "scheduled",
     });
@@ -442,15 +458,17 @@ export default function ManageJobs() {
             <input id="iv-time" style={input} type="time" value={interviewForm.time}
               onChange={(e) => setInterviewForm({ ...interviewForm, time: e.target.value })} />
           </div>
-          <div style={fieldGroup}>
-            <label style={label} htmlFor="iv-location">Location *</label>
-            <select id="iv-location" style={input} value={interviewForm.location}
-              onChange={(e) => setInterviewForm({ ...interviewForm, location: e.target.value })}>
-              <option value="">Select location</option>
-              <option value="Shop">Shop</option>
-              <option value="Office">Office</option>
-              <option value="Business Address">Business Address</option>
-            </select>
+          {/* One location, so no dropdown. A select offering a single real
+              answer only asks the admin to restate what is already true —
+              and this one was required, so leaving it blank stalled
+              scheduling with nothing on screen saying why. Stated here, and
+              written to the interview automatically. */}
+          <div style={locationRow}>
+            <span style={locationPin} aria-hidden="true">📍</span>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <span style={locationRowLabel}>Location</span>
+              <span style={locationRowValue}>{INTERVIEW_LOCATION}</span>
+            </div>
           </div>
           <div style={fieldGroup}>
             <label style={label}>Instructions</label>
@@ -840,6 +858,27 @@ const applicantBannerLine = { color: "rgba(255,255,255,0.6)", fontSize: "12px", 
 const applicantMatchBadge = {
   flexShrink: 0, fontSize: "11px", fontWeight: "700", padding: "3px 8px",
   borderRadius: "20px", backgroundColor: "rgba(34,197,94,0.2)", color: "#86efac",
+};
+
+// The location line in the interview modal. Deliberately a statement rather
+// than an input — see INTERVIEW_LOCATION for why there is no dropdown.
+const locationRow = {
+  display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px",
+  padding: "12px", borderRadius: "8px",
+  backgroundColor: "rgba(255,255,255,0.04)",
+  border: "1px solid rgba(255,255,255,0.1)",
+};
+const locationPin = {
+  width: "34px", height: "34px", borderRadius: "8px", flexShrink: 0,
+  display: "flex", alignItems: "center", justifyContent: "center",
+  fontSize: "16px", backgroundColor: "rgba(34,197,94,0.15)",
+};
+const locationRowLabel = {
+  display: "block", fontSize: "10px", fontWeight: "700", letterSpacing: "0.06em",
+  textTransform: "uppercase", color: "rgba(255,255,255,0.45)",
+};
+const locationRowValue = {
+  display: "block", fontSize: "15px", fontWeight: "700", color: "#fff", marginTop: "2px",
 };
 const cancelBtn = { padding: "10px 20px", backgroundColor: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "8px", cursor: "pointer", fontWeight: "600", fontSize: "13px" };
 const saveBtn = { padding: "10px 20px", background: "linear-gradient(135deg, #4a90e2, #1a73e8)", color: "#fff", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "700", fontSize: "13px", boxShadow: "0 4px 16px rgba(26,115,232,0.3)" };

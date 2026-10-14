@@ -1,0 +1,26 @@
+-- =============================================
+-- REMOVE "Bookkeeping" AND "Cellphone Repair"
+--
+-- Same reasoning as the trades category: CJTECH is a computer shop, and
+-- these two were seed-list filler rather than skills the business hires for.
+--
+-- Verified against production before deleting — neither appears in any live
+-- job's requirements. Nothing references skills.id, so the delete cannot
+-- orphan anything; jobs.requirements is a TEXT[] of names and any job that
+-- somehow still named one would keep matching on it through normalizeSkill
+-- and whole-word containment, which never needed a catalog row.
+--
+--   Bookkeeping       Office & Admin    aliases {Accounting, Book Keeping}
+--   Cellphone Repair  Technical & IT    aliases {Mobile Phone Repair, Phone Repair}
+--
+-- Dropping the aliases with them is deliberate. "Accounting" is not a skill
+-- CJLink is advertising, and leaving it behind as a dangling alias would
+-- have made it resurface under a neighbouring skill's matching.
+--
+-- Hardware work still stands: Computer Hardware Repair, Laptop Repair,
+-- Printer Servicing and Troubleshooting cover what a computer shop does.
+--
+-- Idempotent: a re-run finds nothing left to delete.
+-- =============================================
+
+DELETE FROM skills WHERE name IN ('Bookkeeping', 'Cellphone Repair');

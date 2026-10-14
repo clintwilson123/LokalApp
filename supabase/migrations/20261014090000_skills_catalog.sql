@@ -48,7 +48,6 @@ INSERT INTO skills (name, category, aliases) VALUES
   ('Technical Support',          'Technical & IT', '{"Tech Support","IT Support"}'),
   ('Computer Hardware Repair',   'Technical & IT', '{"Hardware Repair","PC Repair"}'),
   ('Laptop Repair',              'Technical & IT', '{"Notebook Repair"}'),
-  ('Cellphone Repair',           'Technical & IT', '{"Mobile Phone Repair","Phone Repair"}'),
   ('Printer Servicing',          'Technical & IT', '{}'),
   ('Networking',                 'Technical & IT', '{"Network Administration"}'),
   ('Troubleshooting',            'Technical & IT', '{"Fault Finding"}'),
@@ -67,7 +66,6 @@ INSERT INTO skills (name, category, aliases) VALUES
 
   -- Office & Admin
   ('Filing and Records Management', 'Office & Admin', '{"Records Management","Filing"}'),
-  ('Bookkeeping',                'Office & Admin', '{"Accounting","Book Keeping"}'),
   ('QuickBooks',                 'Office & Admin', '{}'),
   ('Payroll',                    'Office & Admin', '{"Payroll Processing"}'),
   ('Inventory Management',       'Office & Admin', '{"Stock Control","Inventory Control"}'),

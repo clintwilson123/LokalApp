@@ -90,7 +90,7 @@ async function openApplicant() {
 function fillModal() {
   fireEvent.change(screen.getByLabelText('Date *'), { target: { value: '2026-10-20' } });
   fireEvent.change(screen.getByLabelText('Time *'), { target: { value: '14:30' } });
-  fireEvent.change(screen.getByLabelText('Location *'), { target: { value: 'Office' } });
+  // No location field any more — CJLink has one, so it is filled in for you.
 }
 
 beforeEach(() => {
@@ -163,7 +163,7 @@ describe('Schedule Interview — scheduling', () => {
       application_id: 101,
       date: '2026-10-20',
       time: '14:30',
-      location: 'Office',
+      location: 'CJTECH Shop',
       status: 'scheduled',
     });
     expect(await screen.findByText(/Interview scheduled for Maria Santos/)).toBeInTheDocument();
@@ -177,7 +177,7 @@ describe('Schedule Interview — scheduling', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Schedule' }));
 
-    expect(await screen.findByText(/Pick a date, a time and a location/)).toBeInTheDocument();
+    expect(await screen.findByText(/Pick a date and a time/)).toBeInTheDocument();
     expect(interviewWrites()).toHaveLength(0);
     // The modal stays open so the field can be fixed.
     expect(screen.getByRole('button', { name: 'Schedule' })).toBeInTheDocument();
@@ -212,5 +212,43 @@ describe('Schedule Interview — scheduling', () => {
       await screen.findByText(/Interview scheduled, but .* status could not be updated/)
     ).toBeInTheDocument();
     expect(screen.queryByText(/Interview scheduled for Maria Santos\./)).toBeNull();
+  });
+});
+
+describe('Schedule Interview — the location is fixed', () => {
+  it('states the location instead of asking the admin to pick it', async () => {
+    await openApplicant();
+    fireEvent.click(screen.getByRole('button', { name: 'Schedule Interview' }));
+
+    expect(await screen.findByText('CJTECH Shop')).toBeInTheDocument();
+
+    // A dropdown offering one real answer is not a choice. It was also
+    // required, so leaving it blank stalled scheduling with no visible error.
+    expect(screen.queryByLabelText('Location *')).toBeNull();
+    expect(document.getElementById('iv-location')).toBeNull();
+  });
+
+  it('writes CJTECH Shop without the admin ever entering it', async () => {
+    await openApplicant();
+    fireEvent.click(screen.getByRole('button', { name: 'Schedule Interview' }));
+    fillModal(); // date and time only
+
+    fireEvent.click(screen.getByRole('button', { name: 'Schedule' }));
+
+    await waitFor(() => expect(interviewWrites()).toHaveLength(1));
+    expect(interviewWrites()[0].payload.location).toBe('CJTECH Shop');
+    expect(screen.getByText(/Interview scheduled for Maria Santos/)).toBeInTheDocument();
+  });
+
+  it('no longer lets a missing location block scheduling', async () => {
+    await openApplicant();
+    fireEvent.click(screen.getByRole('button', { name: 'Schedule Interview' }));
+    fillModal();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Schedule' }));
+
+    // Previously this stalled on "Select location" and said nothing.
+    await waitFor(() => expect(interviewWrites()).toHaveLength(1));
+    expect(screen.queryByText(/Pick a date and a time/)).toBeNull();
   });
 });
