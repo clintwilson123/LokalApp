@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
-import { radii, statusLabel } from "../uiStyles";
+import { radii, statusBadge, statusLabel, STATUS_COLORS } from "../uiStyles";
 import { SkeletonCard } from "../components/Skeleton";
 
 /**
@@ -119,70 +119,143 @@ export default function MyApplications() {
     }
   }
 
-  const statusBadge = (status) => {
-    const map = {
-      pending: { bg: "rgba(217,119,6,0.2)", color: "#fbbf24" },
-      reviewed: { bg: "rgba(26,115,232,0.2)", color: "#93c5fd" },
-      interview_scheduled: { bg: "rgba(139,92,246,0.2)", color: "#c4b5fd" },
-      interviewed: { bg: "rgba(139,92,246,0.2)", color: "#c4b5fd" },
-      accepted: { bg: "rgba(34,197,94,0.2)", color: "#86efac" },
-      rejected: { bg: "rgba(248,113,113,0.2)", color: "#fca5a5" },
-      hired: { bg: "rgba(34,197,94,0.2)", color: "#86efac" },
-    };
-    const s = map[status] || map.pending;
-    return {
-      fontSize: "11px", padding: "3px 10px", borderRadius: "20px",
-      fontWeight: "600", backgroundColor: s.bg, color: s.color, textTransform: "capitalize",
-    };
+  // statusBadge now comes from uiStyles — this file had a fourth copy of the
+  // same colour map, and this one was missing the `whiteSpace: nowrap` the
+  // others had, so long statuses wrapped differently here than on the admin
+  // side.
+
+  /**
+   * The progression, as human steps rather than raw column values.
+   *
+   * `interviewed` was missing from the old timeline, so an application that
+   * had actually been interviewed rendered with the current marker sitting
+   * on the step *before* it.
+   */
+  const PROGRESS_STEPS = [
+    { key: "pending",             label: "Application Submitted", note: "We have your application." },
+    { key: "reviewed",            label: "Under Review",          note: "An employer is looking it over." },
+    { key: "interview_scheduled", label: "Interview Scheduled",   note: "A date, time and place are set." },
+    { key: "interviewed",         label: "Interviewed",           note: "Thanks for coming in." },
+    { key: "accepted",            label: "Accepted",              note: "You were selected for the role." },
+    { key: "hired",               label: "Hired",                 note: "Welcome aboard." },
+  ];
+
+  const STATUS_ICON = {
+    pending: "⏳", reviewed: "👀", interview_scheduled: "📅", interviewed: "🤝",
+    accepted: "✅", hired: "🎉", rejected: "💔",
   };
 
-  const statusSteps = ["pending", "reviewed", "interview_scheduled", "accepted", "hired"];
-
-  const StatusTimeline = ({ currentStatus }) => {
-    if (currentStatus === "rejected") {
-      return (
-        <div style={{ padding: "12px", borderRadius: "8px", backgroundColor: "rgba(248,113,113,0.1)", marginBottom: "16px" }}>
-          <span style={{ fontSize: "13px", fontWeight: "600", color: "#fca5a5" }}>
-            Application not selected
-          </span>
-        </div>
-      );
+  /** What the status *means*, in one sentence, rather than just its name. */
+  const statusInfo = (status, hasInterview) => {
+    switch (status) {
+      case "reviewed":
+        return { title: "Reviewed", body: "An employer has opened your application and is considering it." };
+      case "interview_scheduled":
+        // Only promise details that actually exist — this also covers a
+        // status with no row, where there is nothing to point at yet.
+        return hasInterview
+          ? { title: "Interview Scheduled", body: "Your application moved on. The date, time and location are below." }
+          : { title: "Interview Scheduled", body: "Your application moved on to the interview stage. A time will be confirmed with you." };
+      case "interviewed":
+        return { title: "Interviewed", body: "A decision is on the way — there is nothing you need to do." };
+      case "accepted":
+        return { title: "Accepted", body: "Congratulations, you were selected for this role." };
+      case "hired":
+        return { title: "Hired", body: "Congratulations, you are hired." };
+      case "rejected":
+        return { title: "Not Selected", body: "This employer moved ahead with other applicants. There are other jobs still open." };
+      default:
+        return { title: "Pending", body: "Your application is in the queue and has not been opened yet." };
     }
-    const currentIndex = statusSteps.indexOf(currentStatus);
+  };
+
+  /**
+   * The status, stated once and stated loudly.
+   *
+   * It used to appear four times: an 11px chip beside the job title, a
+   * timeline of 10px labels, a second 11px chip in an "Application Status:"
+   * row, and a plain sentence buried at the very bottom of the page underneath
+   * the profile section. Four small things, none of them the thing you look at.
+   */
+  const StatusHero = ({ status, hasInterview, appliedOn }) => {
+    const c = STATUS_COLORS[status] || STATUS_COLORS.pending;
+    const { title, body } = statusInfo(status, hasInterview);
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: "4px", marginBottom: "16px", flexWrap: "wrap" }}>
-        {statusSteps.map((step, i) => {
-          const isActive = i <= currentIndex;
-          const isCurrent = step === currentStatus;
+      <div style={{ ...heroCard, borderColor: `${c.fg}40`, background: `linear-gradient(120deg, ${c.fg}2b, ${c.fg}0a)` }}>
+        <span style={{ ...heroTile, backgroundColor: `${c.fg}26`, color: c.fg }}>
+          {STATUS_ICON[status] || "•"}
+        </span>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ ...heroTitle, color: c.fg }}>{title}</div>
+          <p style={heroBody}>{body}</p>
+          <div style={heroMeta}>Applied {appliedOn}</div>
+        </div>
+      </div>
+    );
+  };
+
+  /**
+   * Vertical, so it can never wrap.
+   *
+   * The old one laid its steps out horizontally with flexWrap, so on a
+   * narrow screen the connector lines broke across lines and the progression
+   * stopped reading as a progression. Every completed step was the same blue
+   * as every other one too — only a 2px border marked the current step,
+   * which at that size is effectively invisible. Done, now and not-yet are
+   * three distinct states here.
+   */
+  const StatusProgress = ({ status }) => {
+    const currentIndex = PROGRESS_STEPS.findIndex((s) => s.key === status);
+    return (
+      <ol style={progressList}>
+        {PROGRESS_STEPS.map((step, i) => {
+          const done = i < currentIndex;
+          const current = i === currentIndex;
+          const future = i > currentIndex;
+          const accent = (STATUS_COLORS[step.key] || STATUS_COLORS.pending).fg;
           return (
-            <div key={step} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-              <div style={{
-                width: "20px", height: "20px", borderRadius: "50%",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: "10px", fontWeight: "700",
-                backgroundColor: isActive ? "#4a90e2" : "rgba(255,255,255,0.1)",
-                color: isActive ? "#fff" : "rgba(255,255,255,0.4)",
-                border: isCurrent ? "2px solid #93c5fd" : "none",
-              }}>
-                {isActive ? "✓" : i + 1}
+            <li key={step.key} style={progressItem}>
+              <div style={{ position: "relative", width: "26px", flexShrink: 0 }}>
+                <span style={{
+                  ...progressDot,
+                  backgroundColor: done || current ? accent : "rgba(255,255,255,0.05)",
+                  border: done || current ? "none" : "2px solid rgba(255,255,255,0.16)",
+                  color: done || current ? "#0f172a" : "rgba(255,255,255,0.42)",
+                  boxShadow: current ? `0 0 0 4px ${accent}30` : "none",
+                }}>
+                  {done ? "✓" : current ? "●" : i + 1}
+                </span>
+                {i < PROGRESS_STEPS.length - 1 && (
+                  <span style={{
+                    ...progressLine,
+                    backgroundColor: done ? accent : "rgba(255,255,255,0.12)",
+                  }} />
+                )}
               </div>
-              <span style={{
-                fontSize: "10px", fontWeight: isCurrent ? "700" : "500",
-                color: isActive ? "#fff" : "rgba(255,255,255,0.4)",
-                textTransform: "capitalize",
-              }}>
-                {step.replace("_", " ")}
-              </span>
-              {i < statusSteps.length - 1 && (
+              <div style={{ flex: 1, minWidth: 0, paddingTop: "2px", paddingBottom: i === PROGRESS_STEPS.length - 1 ? 0 : "16px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                  <span style={{
+                    fontSize: current ? "14px" : "13px",
+                    fontWeight: current ? "700" : "600",
+                    color: future ? "rgba(255,255,255,0.4)" : "#fff",
+                  }}>
+                    {step.label}
+                  </span>
+                  {current && (
+                    <span style={{ ...nowPill, backgroundColor: `${accent}26`, color: accent }}>Now</span>
+                  )}
+                </div>
                 <div style={{
-                  width: "20px", height: "2px",
-                  backgroundColor: i < currentIndex ? "#4a90e2" : "rgba(255,255,255,0.1)",
-                }} />
-              )}
-            </div>
+                  fontSize: "12px", lineHeight: "1.45", marginTop: "2px",
+                  color: future ? "rgba(255,255,255,0.32)" : "rgba(255,255,255,0.55)",
+                }}>
+                  {step.note}
+                </div>
+              </div>
+            </li>
           );
         })}
-      </div>
+      </ol>
     );
   };
 
@@ -205,8 +278,25 @@ export default function MyApplications() {
                 {job.company} • {job.location}
               </p>
             </div>
-            <span style={statusBadge(app.status)}>{statusLabel(app.status)}</span>
           </div>
+
+          <StatusHero
+            status={app.status}
+            hasInterview={!!interview}
+            appliedOn={new Date(app.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+          />
+
+          <h4 style={sectionHead}>Where you are</h4>
+          {app.status === "rejected" ? (
+            // No ladder to show: we do not record how far a rejected
+            // application got, and a list of six things it did not reach
+            // tells the applicant nothing they can use.
+            <p style={rejectionNote}>
+              This application has not moved on. Other jobs are still open — keep applying.
+            </p>
+          ) : (
+            <StatusProgress status={app.status} />
+          )}
 
           {job.salary && (
             <div style={detailRow}><strong>Salary:</strong> {job.salary}</div>
@@ -227,16 +317,6 @@ export default function MyApplications() {
 
           <div style={divider} />
 
-          <h4 style={{ color: "#fff", fontSize: "14px", fontWeight: "700", margin: "0 0 8px" }}>Application Progress</h4>
-          <StatusTimeline currentStatus={app.status} />
-
-          <div style={detailRow}>
-            <strong>Application Status:</strong>{" "}
-            <span style={statusBadge(app.status)}>{statusLabel(app.status)}</span>
-          </div>
-          <div style={detailRow}>
-            <strong>Applied:</strong> {new Date(app.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
-          </div>
           {app.score && (
             <div style={detailRow}>
               <strong>Match Score:</strong>{" "}
@@ -311,30 +391,6 @@ export default function MyApplications() {
               </a>
             </div>
           )}
-
-          <div style={{ marginTop: "16px", display: "flex", gap: "8px" }}>
-            {app.status === "pending" && (
-              <span style={infoMsg}>⏳ Your application is under review.</span>
-            )}
-            {app.status === "reviewed" && (
-              <span style={infoMsg}>📋 Your application has been reviewed.</span>
-            )}
-            {app.status === "interview_scheduled" && interview && (
-              <span style={infoMsg}>📅 Your interview details are shown above.</span>
-            )}
-            {app.status === "interviewed" && (
-              <span style={infoMsg}>🤝 You have been interviewed. Awaiting decision.</span>
-            )}
-            {app.status === "accepted" && (
-              <span style={{ ...infoMsg, color: "#86efac" }}>✅ Your application has been accepted!</span>
-            )}
-            {app.status === "hired" && (
-              <span style={{ ...infoMsg, color: "#86efac" }}>🎉 Congratulations! You're hired!</span>
-            )}
-            {app.status === "rejected" && (
-              <span style={{ ...infoMsg, color: "#fca5a5" }}>💔 Unfortunately, your application was not selected.</span>
-            )}
-          </div>
         </div>
       </div>
     );
@@ -431,6 +487,48 @@ const detailCard = {
 };
 const detailRow = { fontSize: "13px", color: "rgba(255,255,255,0.85)", lineHeight: "1.6", marginBottom: "10px" };
 const divider = { height: "1px", backgroundColor: "rgba(255,255,255,0.08)", margin: "16px 0" };
+
+const sectionHead = { color: "#fff", fontSize: "14px", fontWeight: "700", margin: "0 0 12px" };
+
+// The status panel. Deliberately the largest thing on the detail card — it
+// is the question the applicant opened this screen to ask.
+const heroCard = {
+  display: "flex", alignItems: "flex-start", gap: "14px", flexWrap: "wrap",
+  padding: "18px 20px", borderRadius: radii.lg, marginBottom: "20px",
+  border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(10px)",
+  WebkitBackdropFilter: "blur(10px)",
+};
+const heroTile = {
+  width: "44px", height: "44px", borderRadius: "13px", flexShrink: 0,
+  display: "flex", alignItems: "center", justifyContent: "center", fontSize: "21px",
+};
+const heroTitle = { fontSize: "20px", fontWeight: "800", lineHeight: "1.2", letterSpacing: "-0.01em" };
+const heroBody = { margin: "5px 0 0", fontSize: "14px", lineHeight: "1.5", color: "rgba(255,255,255,0.82)" };
+const heroMeta = { marginTop: "7px", fontSize: "12px", color: "rgba(255,255,255,0.45)" };
+
+const rejectionNote = {
+  margin: "0 0 18px", fontSize: "13px", lineHeight: "1.55", color: "rgba(255,255,255,0.6)",
+};
+
+// Vertical so the connectors can never break across lines. Each step is one
+// row: dot, label, and what that step actually means.
+const progressList = { listStyle: "none", margin: "0 0 18px", padding: "0" };
+const progressItem = { display: "flex", alignItems: "stretch", gap: "13px" };
+const progressDot = {
+  position: "relative", zIndex: 1, width: "26px", height: "26px", borderRadius: "50%",
+  display: "flex", alignItems: "center", justifyContent: "center",
+  fontSize: "12px", fontWeight: "800", boxSizing: "border-box",
+  transition: "background-color 0.2s, box-shadow 0.2s",
+};
+// The column stretches with the row, so `bottom: 0` lands exactly on the
+// next dot however tall the label and note turn out to be.
+const progressLine = {
+  position: "absolute", left: "12px", top: "26px", bottom: "0", width: "2px", borderRadius: "2px",
+};
+const nowPill = {
+  fontSize: "10px", fontWeight: "800", letterSpacing: "0.06em", textTransform: "uppercase",
+  padding: "2px 7px", borderRadius: "20px", flexShrink: 0,
+};
 const reqTag = {
   fontSize: "11px", padding: "3px 8px", borderRadius: "6px",
   backgroundColor: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)", fontWeight: "500",

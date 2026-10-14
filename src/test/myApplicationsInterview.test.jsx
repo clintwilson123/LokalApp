@@ -91,7 +91,10 @@ describe('My Applications — the interview schedule the applicant can actually 
 
     await screen.findByText('Interview Schedule');
     expect(screen.queryByText(/An interview has been scheduled\./)).toBeNull();
-    expect(screen.getByText(/Your interview details are shown above/)).toBeInTheDocument();
+    // The status panel points at the details that are actually on this
+    // screen, rather than sending the applicant hunting for a banner that
+    // was never rendered.
+    expect(screen.getByText(/The date, time and location are below/)).toBeInTheDocument();
   });
 
   it('shows the LATEST schedule after a reschedule, not the first one', async () => {
@@ -140,10 +143,12 @@ describe('My Applications — the interview schedule the applicant can actually 
     await waitFor(() => expect(screen.getByText(/1 application submitted/)).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /View Details/ }));
 
-    await screen.findByText('Application Progress');
+    await screen.findByText('Where you are');
     expect(screen.queryByText('Interview Schedule')).toBeNull();
     expect(screen.queryByText(/Refresh the page/)).toBeNull();
-    expect(screen.getByText(/Your application is under review/)).toBeInTheDocument();
+    // The status panel says what "pending" means instead of printing the
+    // word and leaving the applicant to infer the rest.
+    expect(screen.getByText(/in the queue and has not been opened yet/)).toBeInTheDocument();
   });
 
   it('formats 12-hour times correctly at the edges', async () => {
@@ -182,9 +187,68 @@ describe('My Applications — the interview schedule the applicant can actually 
     fireEvent.click(screen.getByRole('button', { name: /View Details/ }));
     await screen.findByText('Interview Schedule');
 
-    // Three in the detail: the header chip, the Application Status row, and
-    // the current step on the progress timeline.
-    expect(screen.getAllByText('interview scheduled')).toHaveLength(3);
+    // Two in the detail, both deliberate: the status panel's title and the
+    // current step. The header chip, the "Application Status:" row and the
+    // banner buried under the profile section are all gone — one statement
+    // of it instead of four small ones — and it is never the raw column
+    // value either way.
+    expect(screen.getAllByText('Interview Scheduled')).toHaveLength(2);
+    expect(screen.queryByText(/interview_scheduled/)).toBeNull();
+  });
+});
+
+describe('My Applications — the status is actually readable', () => {
+  it('says what the status means, not just what it is called', async () => {
+    render(<MyApplications />);
+    await waitFor(() => expect(screen.getByText(/1 application submitted/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /View Details/ }));
+
+    expect(await screen.findByText(/The date, time and location are below/)).toBeInTheDocument();
+    expect(screen.queryByText('Application Status:')).toBeNull();
+    expect(screen.queryByText('Application Progress')).toBeNull();
+  });
+
+  it('marks where the applicant is on the ladder, in plain words', async () => {
+    render(<MyApplications />);
+    await waitFor(() => expect(screen.getByText(/1 application submitted/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /View Details/ }));
+
+    await screen.findByText('Where you are');
+    expect(screen.getByText('Now')).toBeInTheDocument();
+    // Human labels, not the column values the old timeline used to print.
+    expect(screen.getByText('Application Submitted')).toBeInTheDocument();
+    // Twice: the status panel's title and the step it sits on.
+    expect(screen.getAllByText('Interview Scheduled')).toHaveLength(2);
+    expect(screen.getByText('Hired')).toBeInTheDocument();
+  });
+
+  it('gives interviewed a place on the ladder, which the old timeline lacked', async () => {
+    h.apps = [makeApp({ status: 'interviewed', interviews: [] })];
+    render(<MyApplications />);
+    await waitFor(() => expect(screen.getByText(/1 application submitted/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /View Details/ }));
+
+    await screen.findByText('Where you are');
+    // Once for the status panel's title, once for the step it sits on —
+    // the old timeline had no `interviewed` entry at all, so the marker
+    // rested on the step before it.
+    expect(screen.getAllByText('Interviewed')).toHaveLength(2);
+    expect(screen.getByText('Now')).toBeInTheDocument();
+  });
+
+  it('does not show a rejected applicant a ladder of what they did not reach', async () => {
+    h.apps = [makeApp({ status: 'rejected', interviews: [] })];
+    render(<MyApplications />);
+    await waitFor(() => expect(screen.getByText(/1 application submitted/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /View Details/ }));
+
+    expect(await screen.findByText('Not Selected')).toBeInTheDocument();
+    expect(screen.getByText(/moved ahead with other applicants/)).toBeInTheDocument();
+    // No step-by-step: we do not record how far a rejected application got,
+    // and a list of six things they did not achieve helps nobody.
+    expect(screen.queryByText('Application Submitted')).toBeNull();
+    expect(screen.queryByText('Now')).toBeNull();
+    expect(screen.queryByText('Hired')).toBeNull();
   });
 });
 
