@@ -4,6 +4,61 @@ import { useAuth } from "../context/AuthContext";
 import { radii } from "../uiStyles";
 import { SkeletonCard } from "../components/Skeleton";
 
+/**
+ * The current interview for an application.
+ *
+ * Rescheduling inserts a NEW row rather than updating the old one, so an
+ * application can accumulate several. The most recent one is the schedule the
+ * admin last set, which is what the applicant needs to see; the others are
+ * superseded. Falls back to id for rows with no created_at, since ids are
+ * serial and always increase.
+ */
+const latestInterview = (app) => {
+  const list = Array.isArray(app?.interviews) ? app.interviews : [];
+  if (!list.length) return null;
+  return [...list].sort(
+    (a, b) =>
+      new Date(b.created_at || 0) - new Date(a.created_at || 0) ||
+      (b.id || 0) - (a.id || 0)
+  )[0];
+};
+
+/**
+ * "2026-10-20" -> "Thursday, October 20, 2026".
+ *
+ * Parsed field by field on purpose. `new Date("2026-10-20")` is UTC midnight,
+ * which in a timezone west of UTC renders as the 19th — the applicant would be
+ * told to turn up a day early. Reading the parts and building a local date
+ * sidesteps that entirely.
+ */
+const formatDate = (iso) => {
+  if (!iso) return "";
+  const [y, m, d] = String(iso).split("-").map(Number);
+  if (!y || !m || !d) return String(iso);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+    weekday: "long", month: "long", day: "numeric", year: "numeric",
+  });
+};
+
+/** "2026-10-20" -> "Oct 20". Same timezone-safe parsing as formatDate. */
+const formatDateShort = (iso) => {
+  if (!iso) return "";
+  const [y, m, d] = String(iso).split("-").map(Number);
+  if (!y || !m || !d) return String(iso);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+    month: "short", day: "numeric",
+  });
+};
+
+/** "14:30:00" -> "2:30 PM". */
+const formatTime = (t) => {
+  if (!t) return "";
+  const [h, m] = String(t).split(":").map(Number);
+  if (Number.isNaN(h)) return String(t);
+  const h12 = ((h + 11) % 12) + 1;
+  return `${h12}:${String(m || 0).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
+};
+
 export default function MyApplications() {
   const { user, profile } = useAuth();
   const [applications, setApplications] = useState([]);
@@ -15,7 +70,11 @@ export default function MyApplications() {
     if (!user) return;
     const { data } = await supabase
       .from("applications")
-      .select("id, job_id, status, score, created_at, jobs(title, company, location, icon, description, salary, requirements)")
+      // interviews is embedded rather than fetched separately: one query, and
+      // RLS ("Users can read own interviews") already scopes it to this
+      // applicant's own rows. PostgREST applies that policy to the embed, so
+      // someone else's schedule can never leak in here.
+      .select("id, job_id, status, score, created_at, interviews(id, date, time, location, instructions, status, created_at), jobs(title, company, location, icon, description, salary, requirements)")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false });
     if (data) setApplications(data);
@@ -128,6 +187,7 @@ export default function MyApplications() {
   if (selectedApp) {
     const app = selectedApp;
     const job = app.jobs || {};
+    const interview = latestInterview(app);
     return (
       <div style={container}>
         <button style={backBtn} onClick={() => setSelectedApp(null)}>
@@ -182,6 +242,56 @@ export default function MyApplications() {
             </div>
           )}
 
+          {/* The whole point of this view for a scheduled applicant. The
+              schedule was always written to `interviews` — it was simply never
+              read back, so the only thing here was a line saying one existed. */}
+          {interview ? (
+            <div style={interviewCard}>
+              <div style={interviewCardHead}>
+                <span style={{ fontSize: "16px" }}>📅</span>
+                <strong style={{ color: "#fff", fontSize: "14px" }}>Interview Schedule</strong>
+                <span style={interviewPill}>
+                  {String(interview.status || "scheduled").replace("_", " ")}
+                </span>
+              </div>
+
+              <div style={interviewGrid}>
+                <div style={interviewField}>
+                  <span style={interviewLabel}>Date</span>
+                  <span style={interviewValue}>{formatDate(interview.date)}</span>
+                </div>
+                <div style={interviewField}>
+                  <span style={interviewLabel}>Time</span>
+                  <span style={interviewValue}>{formatTime(interview.time)}</span>
+                </div>
+                <div style={interviewField}>
+                  <span style={interviewLabel}>Location</span>
+                  <span style={interviewValue}>{interview.location || "To be confirmed"}</span>
+                </div>
+              </div>
+
+              {interview.instructions && (
+                <div style={interviewField}>
+                  <span style={interviewLabel}>Instructions from the employer</span>
+                  <p style={{ margin: "4px 0 0", fontSize: "13px", color: "rgba(255,255,255,0.75)", lineHeight: "1.55" }}>
+                    {interview.instructions}
+                  </p>
+                </div>
+              )}
+
+              <p style={{ margin: "10px 0 0", fontSize: "11px", color: "rgba(255,255,255,0.45)" }}>
+                Please arrive on time. If you cannot make this slot, contact the employer.
+              </p>
+            </div>
+          ) : app.status === "interview_scheduled" ? (
+            // Status says scheduled but nothing came back — never present in
+            // practice (the row is inserted before the status is set), but
+            // silent absence would read as "no interview", so say something.
+            <div style={{ ...infoMsg, display: "block", margin: "12px 0 0" }}>
+              📅 An interview has been scheduled. Refresh the page to load the details.
+            </div>
+          ) : null}
+
           <div style={divider} />
 
           <h4 style={{ color: "#fff", fontSize: "14px", fontWeight: "700", margin: "0 0 12px" }}>Your Profile</h4>
@@ -207,8 +317,8 @@ export default function MyApplications() {
             {app.status === "reviewed" && (
               <span style={infoMsg}>📋 Your application has been reviewed.</span>
             )}
-            {app.status === "interview_scheduled" && (
-              <span style={infoMsg}>📅 An interview has been scheduled. Check your details.</span>
+            {app.status === "interview_scheduled" && interview && (
+              <span style={infoMsg}>📅 Your interview details are shown above.</span>
             )}
             {app.status === "interviewed" && (
               <span style={infoMsg}>🤝 You have been interviewed. Awaiting decision.</span>
@@ -263,6 +373,11 @@ export default function MyApplications() {
                 <span style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)" }}>
                   Applied: {new Date(app.created_at).toLocaleDateString()}
                 </span>
+                {app.interviews?.length > 0 && (
+                  <span style={interviewChip}>
+                    📅 Interview {formatDateShort(latestInterview(app).date)}
+                  </span>
+                )}
                 {app.score && (
                   <span style={{
                     fontSize: "12px", fontWeight: "700", color: "#93c5fd",
@@ -306,7 +421,7 @@ const card = {
   border: "1px solid rgba(255,255,255,0.1)",
 };
 const cardTop = { display: "flex", alignItems: "center", gap: "14px" };
-const cardBottom = { display: "flex", justifyContent: "space-between", marginTop: "12px", paddingTop: "10px", borderTop: "1px solid rgba(255,255,255,0.08)" };
+const cardBottom = { display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "6px", marginTop: "12px", paddingTop: "10px", borderTop: "1px solid rgba(255,255,255,0.08)" };
 const backBtn = { background: "none", border: "none", color: "#93c5fd", cursor: "pointer", fontSize: "13px", fontWeight: "600", padding: 0, marginBottom: "16px" };
 const detailCard = {
   backgroundColor: "rgba(255,255,255,0.06)", borderRadius: radii.lg, padding: "24px",
@@ -320,6 +435,40 @@ const reqTag = {
 };
 const resumeLink = { color: "#93c5fd", fontSize: "13px", fontWeight: "600", textDecoration: "none" };
 const infoMsg = { fontSize: "13px", fontWeight: "600", color: "#fbbf24" };
+
+// Interview schedule block in the application detail view. Deliberately the
+// strongest surface on the page — for a scheduled applicant this is the only
+// thing they actually opened the page to read.
+const interviewCard = {
+  marginTop: "16px", padding: "16px", borderRadius: "10px",
+  backgroundColor: "rgba(139,92,246,0.12)",
+  border: "1px solid rgba(139,92,246,0.35)",
+};
+const interviewCardHead = {
+  display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px",
+};
+const interviewPill = {
+  marginLeft: "auto", fontSize: "10px", fontWeight: "700", padding: "3px 8px",
+  borderRadius: "20px", textTransform: "capitalize",
+  backgroundColor: "rgba(255,255,255,0.1)", color: "#c4b5fd",
+};
+const interviewGrid = {
+  display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+  gap: "12px",
+};
+const interviewField = { minWidth: 0 };
+const interviewLabel = {
+  display: "block", fontSize: "10px", fontWeight: "700", letterSpacing: "0.06em",
+  textTransform: "uppercase", color: "rgba(255,255,255,0.45)",
+};
+const interviewValue = {
+  display: "block", fontSize: "14px", fontWeight: "700", color: "#fff",
+  marginTop: "3px", lineHeight: "1.4",
+};
+const interviewChip = {
+  fontSize: "11px", fontWeight: "700", padding: "3px 8px", borderRadius: "12px",
+  backgroundColor: "rgba(139,92,246,0.2)", color: "#c4b5fd", whiteSpace: "nowrap",
+};
 const viewBtn = {
   flex: 1, padding: "8px", fontSize: "12px", fontWeight: "700",
   background: "rgba(74,144,226,0.2)", color: "#93c5fd", border: "1px solid rgba(74,144,226,0.3)",
