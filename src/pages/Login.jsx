@@ -4,6 +4,8 @@ import { useAuth } from "../context/AuthContext";
 import GoogleSignInButton from "../components/GoogleSignInButton";
 import { postAuthPath } from "../lib/authFlow";
 import { AUTH_MSG, messageForCode } from "../lib/authErrors";
+import { supabase } from "../lib/supabaseClient";
+import ConsentModal from "../components/ConsentModal";
 import {
   writePendingEmail,
   clearPendingEmail,
@@ -25,7 +27,7 @@ const bgBlob = {
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { signIn, user, profile, loading } = useAuth();
+  const { signIn, user, profile, loading, loadProfile, signOut } = useAuth();
   // Carried by the confirmation callback (verified, sign in yourself) and by
   // the error fragment from a dead link.
   const navState = location.state || {};
@@ -50,6 +52,13 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false);
   const [justSignedIn, setJustSignedIn] = useState(false);
   const [userName, setUserName] = useState("");
+  // Consent panel state — only ever rendered for a live applicant session
+  // whose profile still owes the agreement.
+  const [consentChecked, setConsentChecked] = useState(false);
+  const [consentOpen, setConsentOpen] = useState(false);
+  const [consentSaving, setConsentSaving] = useState(false);
+
+  const owesConsent = Boolean(profile && profile.role !== "admin" && !profile.consent_accepted);
 
   // Redirect only once auth AND profile loading have settled, and never while
   // the welcome overlay is showing. One rule for everyone: an authenticated but
@@ -103,6 +112,15 @@ export default function Login() {
       // screen; admins bypass verification exactly as ProtectedRoute does.
       const emailVerified =
         Boolean(result?.email_verified) || Boolean(result?.user?.email_confirmed_at);
+      // ProtectedRoute bounces an applicant that still owes consent straight
+      // back to this screen, so shipping it to a protected route would be a
+      // loop that never makes progress. The consent panel that replaces this
+      // form collects the tick in place instead. Strict equality: a caller
+      // whose result predates the field must not be blocked by an absence.
+      if (signedInRole !== "admin" && result?.consent_accepted === false) {
+        setSubmitting(false);
+        return;
+      }
       const destination =
         signedInRole === "admin" ? "/admin" : emailVerified ? "/find-jobs" : "/verify-email";
       setJustSignedIn(true);
@@ -147,6 +165,102 @@ export default function Login() {
   const handleKeyDown = (e) => {
     if (e.key === "Enter") handleLogin();
   };
+
+  /**
+   * Record the acceptance NOW, in this session, by this person.
+   *
+   * Never back-dated to the sign-up where the tick got lost — that is what
+   * makes this a genuine consent record rather than a guess about one. The
+   * timestamp written here is the moment the agreement was actually given.
+   */
+  const acceptConsent = async () => {
+    if (!consentChecked || consentSaving || !user) return;
+    setConsentSaving(true);
+    setError("");
+    try {
+      const { error: updateErr } = await supabase
+        .from("profiles")
+        .update({ consent_accepted: true, consent_accepted_at: new Date().toISOString() })
+        .eq("id", user.id);
+      if (updateErr) throw updateErr;
+
+      // Refresh the context row first, or ProtectedRoute would still be
+      // reading the stale one and bounce us straight back to this screen.
+      await loadProfile(user.id);
+      navigate(postAuthPath(profile, user), { replace: true });
+    } catch {
+      setError("We could not save that just now. Please try again.");
+    } finally {
+      setConsentSaving(false);
+    }
+  };
+
+  /**
+   * A live applicant session that still owes consent.
+   *
+   * ProtectedRoute parks it here with AUTH_MSG.consentRequired, and the only
+   * way out used to be "Continue with Google" — which an email+password user
+   * has no reason and no means to use. That made it a genuine dead end: the
+   * person HAD ticked the box at sign-up, but the marker carrying that tick
+   * expires after two hours, so a later confirmation wrote "never consented"
+   * onto a profile whose owner had plainly consented. The agreement is
+   * collected here instead — same checkbox, same document, same dialog — so
+   * the tick counts wherever the person actually gives it.
+   */
+  if (owesConsent) {
+    return (
+      <div style={pageWrapper}>
+        <div style={{ ...bgBlob, width: "400px", height: "400px", background: "#4a90e2", top: "-10%", left: "-5%" }} />
+        <div style={{ ...bgBlob, width: "300px", height: "300px", background: "#a78bfa", bottom: "-5%", right: "-5%" }} />
+
+        <div style={card}>
+          <div style={{ fontSize: "42px", marginBottom: "8px" }}>📋</div>
+          <h2 style={title}>One last step</h2>
+          <p style={subtitle}>
+            Your account is ready. Please review and accept the CJLink Consent
+            Agreement to continue.
+          </p>
+
+          {notice && <div style={consentNotice}>{notice}</div>}
+          {error && <div style={consentError}>{error}</div>}
+
+          <label style={consentCheckbox}>
+            <input
+              type="checkbox"
+              checked={consentChecked}
+              onChange={(e) => { setConsentChecked(e.target.checked); setError(""); }}
+              style={{ width: "16px", height: "16px", cursor: "pointer", marginTop: "2px", flexShrink: 0 }}
+            />
+            <span>
+              I have read and agree to the{" "}
+              <button type="button" onClick={() => setConsentOpen(true)} style={consentLinkBtn}>
+                CJLink Consent Agreement
+              </button>
+            </span>
+          </label>
+
+          <button
+            style={{
+              ...button,
+              marginTop: "18px",
+              opacity: consentChecked && !consentSaving ? 1 : 0.6,
+              cursor: consentChecked && !consentSaving ? "pointer" : "not-allowed",
+            }}
+            onClick={acceptConsent}
+            disabled={!consentChecked || consentSaving}
+          >
+            {consentSaving ? "Saving..." : "Accept and continue"}
+          </button>
+
+          <button type="button" onClick={signOut} style={consentSignOut}>
+            Use a different account
+          </button>
+        </div>
+
+        <ConsentModal open={consentOpen} onClose={() => setConsentOpen(false)} />
+      </div>
+    );
+  }
 
   return (
     <div style={pageWrapper}>
@@ -337,3 +451,64 @@ export default function Login() {
     </div>
   );
 }
+
+const consentNotice = {
+  background: "rgba(217, 119, 6, 0.15)",
+  border: "1px solid rgba(217, 119, 6, 0.3)",
+  color: "#fcd34d",
+  fontSize: "13px",
+  padding: "12px 16px",
+  borderRadius: "10px",
+  marginBottom: "16px",
+  textAlign: "left",
+  fontWeight: 600,
+};
+
+const consentError = {
+  background: "rgba(239, 68, 68, 0.15)",
+  border: "1px solid rgba(239, 68, 68, 0.3)",
+  color: "#fca5a5",
+  fontSize: "13px",
+  padding: "12px 16px",
+  borderRadius: "10px",
+  marginBottom: "16px",
+  textAlign: "left",
+  fontWeight: 600,
+};
+
+const consentCheckbox = {
+  display: "flex",
+  alignItems: "flex-start",
+  gap: "10px",
+  marginTop: "18px",
+  fontSize: "13px",
+  color: "rgba(255, 255, 255, 0.85)",
+  lineHeight: "1.6",
+  textAlign: "left",
+};
+
+// Reads as a link because it opens the document — but it is a button, so it
+// never navigates away and never loses the tick.
+const consentLinkBtn = {
+  background: "none",
+  border: "none",
+  padding: 0,
+  color: "#93c5fd",
+  fontWeight: 700,
+  fontSize: "13px",
+  textDecoration: "underline",
+  cursor: "pointer",
+};
+
+// Always available: someone parked here by mistake must still be able to leave.
+const consentSignOut = {
+  display: "block",
+  width: "100%",
+  marginTop: "12px",
+  background: "none",
+  border: "none",
+  color: "rgba(255, 255, 255, 0.5)",
+  fontSize: "12px",
+  cursor: "pointer",
+  textDecoration: "underline",
+};

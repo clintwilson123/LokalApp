@@ -412,7 +412,7 @@ export function AuthProvider({ children }) {
     // Check suspension and email verification BEFORE setting session
     const { data: recoveredRow, error: profileErr } = await supabase
       .from("profiles")
-      .select("status, role, email_verified")
+      .select("status, role, email_verified, consent_accepted")
       .eq("id", data.user.id)
       .single();
     let profileData = recoveredRow;
@@ -465,6 +465,11 @@ export function AuthProvider({ children }) {
       ...data,
       role: profileData.role,
       email_verified: Boolean(profileData.email_verified),
+      // Surfaced so the caller can tell a consent-owed applicant apart from a
+      // ready one WITHOUT waiting for the context profile to settle — and
+      // without shipping it to a protected route that would only bounce it
+      // straight back to /login.
+      consent_accepted: Boolean(profileData.consent_accepted),
     };
   }
 

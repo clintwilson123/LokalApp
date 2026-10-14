@@ -63,13 +63,14 @@ export default function ProtectedRoute({ children, allowedRoles, requireVerifica
   // the full document readable in place from the dialog beside it — so there
   // is no second page to send anyone to.
   //
-  // A profile still showing consent as unaccepted has never seen it, and the
-  // only surface left that can collect it is the Google completion form. So
-  // they are parked on /login WITH the reason, exactly like a suspended
-  // account: the session is kept, and Login refuses to auto-redirect a profile
-  // that still owes consent — otherwise it would bounce straight back into this
-  // guard. "Continue with Google" then carries them through the callback to
-  // the completion form that collects the tick.
+  // A profile still showing consent as unaccepted was usually signed up long
+  // enough ago that the marker carrying their tick expired before the email
+  // was confirmed, so the row recorded "never consented" for someone who
+  // plainly did tick the box. They are parked on /login WITH the reason, just
+  // like a suspended account: the session is kept, and Login replaces its form
+  // with a consent panel that collects the agreement here — same checkbox,
+  // same document — rather than sending them back to a sign-up form that would
+  // reject an account that already exists.
   if (profile.role !== "admin" && !profile.consent_accepted) {
     return (
       <Navigate

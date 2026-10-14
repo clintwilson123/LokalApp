@@ -102,12 +102,14 @@ export const AUTH_MSG = {
   // that stops Login auto-redirecting it onward.
   passwordUpdated:
     "Your password has been updated. Please sign in with your new password.",
-  // A profile that still shows consent as not accepted has never seen the
-  // agreement. There is no standalone consent page any more — the checkbox on
-  // sign-up and the readable CJLink Consent Agreement are the whole of it — so
-  // the only surface that can still collect it is the Google completion form.
+  // A profile still showing consent as not accepted. Usually the sign-up tick
+  // was lost on its way to the profile row: the marker that carries it expires
+  // after two hours, so confirming later than that — or on a different device —
+  // leaves the row saying "never consented" for someone who plainly did tick
+  // the box. Login now collects it in place, with the same checkbox and the
+  // same document, so this reads as a request rather than a dead end.
   consentRequired:
-    "You haven't accepted the CJLink Consent Agreement yet. Use Continue with Google to review and accept it.",
+    "Please review and accept the CJLink Consent Agreement to continue.",
 };
 
 // Codes that describe a failure to PRODUCE the verification email. After the

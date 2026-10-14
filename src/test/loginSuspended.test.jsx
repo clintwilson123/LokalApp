@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 // The /login auto-redirect must never bounce a SUSPENDED session into a
@@ -10,12 +10,25 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 const h = vi.hoisted(() => ({
   auth: { user: null, profile: null, loading: false, signIn: vi.fn() },
+  updates: [],
 }));
 
 vi.mock('../lib/supabaseClient', () => ({
   supabase: {
     auth: {},
     functions: { invoke: vi.fn().mockResolvedValue({ data: {}, error: null }) },
+    // Only used by the consent panel's acceptance write; every assertion
+    // records what was sent so the test can read the real timestamp.
+    from: vi.fn(() => {
+      const chain = {
+        update: (values) => {
+          h.updates.push(values);
+          return chain;
+        },
+        eq: () => Promise.resolve({ error: null }),
+      };
+      return chain;
+    }),
   },
 }));
 
@@ -48,7 +61,15 @@ const suspendedArrival = [
 ];
 
 beforeEach(() => {
-  h.auth = { user: null, profile: null, loading: false, signIn: vi.fn() };
+  h.auth = {
+    user: null,
+    profile: null,
+    loading: false,
+    signIn: vi.fn(),
+    loadProfile: vi.fn().mockResolvedValue(undefined),
+    signOut: vi.fn(),
+  };
+  h.updates.length = 0;
   window.localStorage.clear();
 });
 
@@ -136,13 +157,73 @@ describe('Login — an applicant that still owes consent stays put', () => {
     expect(screen.getByText(AUTH_MSG.consentRequired)).toBeInTheDocument();
     // ...and the session is held here rather than bounced onward.
     await act(async () => {});
-    expect(screen.getByText('Welcome Back')).toBeInTheDocument();
     expect(screen.queryByText('APPLICANT_PAGE')).toBeNull();
     expect(screen.queryByText('ADMIN_PAGE')).toBeNull();
-    // The way forward is on this very screen.
+    // The sign-in form is replaced by the consent panel — the agreement is
+    // collected HERE rather than sent back to a sign-up form that would
+    // reject the account as already registered.
+    expect(screen.getByText('One last step')).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: /continue with google/i })
+      screen.getByRole('button', { name: /accept and continue/i })
     ).toBeInTheDocument();
+    // The document is readable from the panel, in place.
+    expect(
+      screen.getByRole('button', { name: /cjlink consent agreement/i })
+    ).toBeInTheDocument();
+    // And there is always a way out, even for someone parked here by mistake.
+    expect(
+      screen.getByRole('button', { name: /use a different account/i })
+    ).toBeInTheDocument();
+  });
+
+  it('the accept button stays disabled until the box is ticked', async () => {
+    h.auth.user = { id: 'u1', email_confirmed_at: '2026-01-01T00:00:00Z' };
+    h.auth.profile = {
+      id: 'u1',
+      role: 'applicant',
+      status: 'active',
+      email_verified: true,
+      consent_accepted: false,
+    };
+
+    renderLogin(consentArrival);
+    await act(async () => {});
+
+    const accept = screen.getByRole('button', { name: /accept and continue/i });
+    expect(accept).toBeDisabled();
+
+    // Ticking the box — and only ticking it — is what unlocks acceptance.
+    fireEvent.click(screen.getByRole('checkbox'));
+    expect(
+      screen.getByRole('button', { name: /accept and continue/i })
+    ).not.toBeDisabled();
+  });
+
+  it('ticking and accepting records consent NOW, on this profile', async () => {
+    h.auth.user = { id: 'u1', email_confirmed_at: '2026-01-01T00:00:00Z' };
+    h.auth.profile = {
+      id: 'u1',
+      role: 'applicant',
+      status: 'active',
+      email_verified: true,
+      consent_accepted: false,
+    };
+
+    renderLogin(consentArrival);
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: /accept and continue/i }));
+
+    await waitFor(() => expect(h.updates).toHaveLength(1));
+    // Written against THIS user, with the time it was actually given — never
+    // back-dated to the sign-up where the original tick went missing.
+    expect(h.auth.loadProfile).toHaveBeenCalledWith('u1');
+    expect(h.updates[0].consent_accepted).toBe(true);
+    expect(Number.isNaN(Date.parse(h.updates[0].consent_accepted_at))).toBe(false);
+
+    // The agreement is now recorded, so the way through opens up.
+    await waitFor(() => expect(screen.getByText('APPLICANT_PAGE')).toBeInTheDocument());
   });
 
   it('an ADMIN who owes consent is still let through — the check skips admins', async () => {

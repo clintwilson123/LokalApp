@@ -40,9 +40,9 @@ function AppContent() {
         {/* There is no /consent page. The agreement has exactly one home: the
             checkbox on sign-up, with the full CJLink Consent Agreement readable
             in place from the dialog beside it. ProtectedRoute no longer points
-            here — an un-consented profile is signed out and returned to /login,
-            where Continue with Google carries it to the completion form that
-            collects consent. */}
+            here — an un-consented profile is returned to /login WITH its
+            session kept, where Login swaps its form for a consent panel that
+            collects the agreement on the spot. */}
         <Route path="/set-password" element={<SetPassword />} />
         {/* Google (OAuth) redirect target — owned by OAuthCallback, never by
             the confirmation-link hand-off in AuthCallbackHandler. */}
