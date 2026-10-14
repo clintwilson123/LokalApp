@@ -44,6 +44,11 @@ export default function ManageJobs() {
 
   const [showInterviewModal, setShowInterviewModal] = useState(false);
   const [interviewForm, setInterviewForm] = useState({ application_id: null, date: "", time: "", location: "", instructions: "" });
+  // The applicant the interview is for. The modal used to keep only the
+  // application id, so the admin was setting a date and time for a row of
+  // data with nothing on screen saying which person that was — easy to
+  // schedule the right slot against the wrong applicant.
+  const [interviewApplicant, setInterviewApplicant] = useState(null);
 
   const fetchJobs = async () => {
     const { data } = await supabase.from("jobs").select("*").order("created_at", { ascending: false });
@@ -226,9 +231,28 @@ export default function ManageJobs() {
     }
   }
 
+  function openInterviewModal(applicant) {
+    setInterviewForm((f) => ({ ...f, application_id: applicant.application.id }));
+    setInterviewApplicant(applicant);
+    setShowInterviewModal(true);
+  }
+
+  function closeInterviewModal() {
+    setShowInterviewModal(false);
+    setInterviewApplicant(null);
+    setInterviewForm({ application_id: null, date: "", time: "", location: "", instructions: "" });
+  }
+
   async function handleScheduleInterview() {
     const { application_id, date, time, location, instructions } = interviewForm;
-    if (!date || !time || !location) return;
+
+    // Both exits from this function used to be silent: a missing field simply
+    // returned, and a failed insert fell through the `if (!error)` with no
+    // message at all. The button did nothing, with no way to tell why.
+    if (!date || !time || !location) {
+      setMessage("Pick a date, a time and a location before scheduling.");
+      return;
+    }
 
     const { error } = await supabase.from("interviews").insert({
       application_id,
@@ -238,12 +262,29 @@ export default function ManageJobs() {
       instructions,
       status: "scheduled",
     });
-    if (!error) {
-      await supabase.from("applications").update({ status: "interview_scheduled" }).eq("id", application_id);
-      setShowInterviewModal(false);
-      setInterviewForm({ application_id: null, date: "", time: "", location: "", instructions: "" });
-      fetchApplicantsForJob(viewingJob.id);
+    if (error) {
+      setMessage("Could not schedule the interview: " + error.message);
+      return;
     }
+
+    // The interview row already exists at this point, so a failure here must
+    // not read as "nothing happened".
+    const { error: statusError } = await supabase
+      .from("applications")
+      .update({ status: "interview_scheduled" })
+      .eq("id", application_id);
+
+    if (statusError) {
+      setMessage(
+        "Interview scheduled, but " + (interviewApplicant?.full_name || "the applicant") +
+        "'s status could not be updated: " + statusError.message
+      );
+    } else {
+      setMessage("Interview scheduled for " + (interviewApplicant?.full_name || "the applicant") + ".");
+    }
+
+    closeInterviewModal();
+    fetchApplicantsForJob(viewingJob.id);
   }
 
   const msg = (text) => {
@@ -343,13 +384,104 @@ export default function ManageJobs() {
     );
   }
 
+  // Built ABOVE the `selectedApplicant` early return, not inside either
+  // return path. The modal used to sit in the main return, which that early
+  // return skips — so the only view containing a "Schedule Interview" button
+  // was the one place the modal could never render. Clicking the button set
+  // showInterviewModal and nothing appeared. Referencing it from both paths
+  // is what makes it reachable.
+  const interviewModal = showInterviewModal && (
+    <div style={formOverlay}>
+      <div style={formModal}>
+        <div style={formHeader}>
+          <h3 style={{ margin: 0, color: "#fff" }}>Schedule Interview</h3>
+          <button onClick={closeInterviewModal} style={closeBtn}>✕</button>
+        </div>
+        <div style={formBody}>
+          {/* Who this interview is for. Before this the modal showed only
+              date, time and location — nothing on screen identified the
+              person, so the only way to be sure you were scheduling the
+              right applicant was to look back at the list behind it. */}
+          {interviewApplicant && (
+            <div style={applicantBanner}>
+              <div style={applicantBannerTop}>
+                <span style={applicantAvatar}>
+                  {(interviewApplicant.full_name || "?").trim().charAt(0).toUpperCase() || "?"}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={applicantBannerName}>
+                    {interviewApplicant.full_name || "Unnamed applicant"}
+                  </div>
+                  <div style={applicantBannerMeta}>
+                    {viewingJob?.title || "this job"}
+                    {interviewApplicant.location ? " · " + interviewApplicant.location : ""}
+                  </div>
+                </div>
+                {typeof interviewApplicant.match?.score === "number" && (
+                  <span style={applicantMatchBadge}>{interviewApplicant.match.score}% match</span>
+                )}
+              </div>
+              {interviewApplicant.phone_number && (
+                <div style={applicantBannerLine}>📞 {interviewApplicant.phone_number}</div>
+              )}
+              {interviewApplicant.application?.status && (
+                <div style={applicantBannerLine}>
+                  Application: {String(interviewApplicant.application.status).replace(/_/g, " ")}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div style={fieldGroup}>
+            <label style={label} htmlFor="iv-date">Date *</label>
+            <input id="iv-date" style={input} type="date" value={interviewForm.date}
+              onChange={(e) => setInterviewForm({ ...interviewForm, date: e.target.value })} />
+          </div>
+          <div style={fieldGroup}>
+            <label style={label} htmlFor="iv-time">Time *</label>
+            <input id="iv-time" style={input} type="time" value={interviewForm.time}
+              onChange={(e) => setInterviewForm({ ...interviewForm, time: e.target.value })} />
+          </div>
+          <div style={fieldGroup}>
+            <label style={label} htmlFor="iv-location">Location *</label>
+            <select id="iv-location" style={input} value={interviewForm.location}
+              onChange={(e) => setInterviewForm({ ...interviewForm, location: e.target.value })}>
+              <option value="">Select location</option>
+              <option value="Shop">Shop</option>
+              <option value="Office">Office</option>
+              <option value="Business Address">Business Address</option>
+            </select>
+          </div>
+          <div style={fieldGroup}>
+            <label style={label}>Instructions</label>
+            <textarea style={{ ...input, minHeight: "60px" }} value={interviewForm.instructions}
+              onChange={(e) => setInterviewForm({ ...interviewForm, instructions: e.target.value })}
+              placeholder="Any additional instructions for the applicant..." />
+          </div>
+        </div>
+        <div style={formFooter}>
+          <button onClick={closeInterviewModal} style={cancelBtn}>Cancel</button>
+          <button onClick={handleScheduleInterview} style={saveBtn}>Schedule</button>
+        </div>
+      </div>
+    </div>
+  );
+
   if (selectedApplicant) {
     const a = selectedApplicant;
     return (
       <div style={container}>
+        {interviewModal}
+
         <button style={backBtn} onClick={() => setSelectedApplicant(null)}>
           ← Back to applicants
         </button>
+
+        {/* Feedback for actions taken from THIS view. The message used to
+            render only in the jobs list, so scheduling an interview from
+            here reported nothing — the modal closed and the screen looked
+            exactly as it had before. */}
+        {message && <p style={msg(message)}>{message}</p>}
 
         <div style={detailCard}>
           <h3 style={{ color: "#fff", marginBottom: "8px" }}>{a.full_name || "Unnamed"}</h3>
@@ -429,7 +561,7 @@ export default function ManageJobs() {
             )}
             {(a.application?.status === "reviewed" || a.application?.status === "pending" || a.application?.status === "interview_scheduled") && (
               <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
-                <button onClick={() => { setInterviewForm({ ...interviewForm, application_id: a.application.id }); setShowInterviewModal(true); }} style={{
+                <button onClick={() => openInterviewModal(a)} style={{
                   flex: 1, padding: "10px", backgroundColor: "rgba(139,92,246,0.2)", color: "#c4b5fd",
                   border: "1px solid rgba(139,92,246,0.3)", borderRadius: "8px", fontWeight: "700", fontSize: "13px", cursor: "pointer",
                 }}>{a.application?.status === "interview_scheduled" ? "Reschedule Interview" : "Schedule Interview"}</button>
@@ -463,49 +595,7 @@ export default function ManageJobs() {
 
   return (
     <div style={container}>
-      {/* Interview Scheduling Modal */}
-      {showInterviewModal && (
-        <div style={formOverlay}>
-          <div style={formModal}>
-            <div style={formHeader}>
-              <h3 style={{ margin: 0, color: "#fff" }}>Schedule Interview</h3>
-              <button onClick={() => setShowInterviewModal(false)} style={closeBtn}>✕</button>
-            </div>
-            <div style={formBody}>
-              <div style={fieldGroup}>
-                <label style={label}>Date *</label>
-                <input style={input} type="date" value={interviewForm.date}
-                  onChange={(e) => setInterviewForm({ ...interviewForm, date: e.target.value })} />
-              </div>
-              <div style={fieldGroup}>
-                <label style={label}>Time *</label>
-                <input style={input} type="time" value={interviewForm.time}
-                  onChange={(e) => setInterviewForm({ ...interviewForm, time: e.target.value })} />
-              </div>
-              <div style={fieldGroup}>
-                <label style={label}>Location *</label>
-                <select style={input} value={interviewForm.location}
-                  onChange={(e) => setInterviewForm({ ...interviewForm, location: e.target.value })}>
-                  <option value="">Select location</option>
-                  <option value="Shop">Shop</option>
-                  <option value="Office">Office</option>
-                  <option value="Business Address">Business Address</option>
-                </select>
-              </div>
-              <div style={fieldGroup}>
-                <label style={label}>Instructions</label>
-                <textarea style={{ ...input, minHeight: "60px" }} value={interviewForm.instructions}
-                  onChange={(e) => setInterviewForm({ ...interviewForm, instructions: e.target.value })}
-                  placeholder="Any additional instructions for the applicant..." />
-              </div>
-            </div>
-            <div style={formFooter}>
-              <button onClick={() => setShowInterviewModal(false)} style={cancelBtn}>Cancel</button>
-              <button onClick={handleScheduleInterview} style={saveBtn}>Schedule</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {interviewModal}
 
       <div style={headerRow}>
         <div>
@@ -727,6 +817,30 @@ const input = { width: "100%", padding: "10px 12px", borderRadius: "8px", border
 // instead of the browser's default white-on-white.
 const selectInput = { ...input, colorScheme: "dark", cursor: "pointer" };
 const fieldHint = { margin: "6px 0 0", fontSize: "11px", color: "rgba(255,255,255,0.4)", lineHeight: "1.5" };
+
+// The applicant summary pinned to the top of the interview modal, so a date
+// and time are never set against an unidentified row of data.
+const applicantBanner = {
+  marginBottom: "16px", padding: "12px", borderRadius: "8px",
+  backgroundColor: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.25)",
+};
+const applicantBannerTop = { display: "flex", alignItems: "center", gap: "10px" };
+const applicantAvatar = {
+  width: "34px", height: "34px", borderRadius: "50%", flexShrink: 0,
+  display: "flex", alignItems: "center", justifyContent: "center",
+  backgroundColor: "rgba(139,92,246,0.3)", color: "#c4b5fd",
+  fontWeight: "700", fontSize: "14px",
+};
+const applicantBannerName = { color: "#fff", fontWeight: "700", fontSize: "14px" };
+const applicantBannerMeta = {
+  color: "rgba(255,255,255,0.5)", fontSize: "12px", marginTop: "2px",
+  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+};
+const applicantBannerLine = { color: "rgba(255,255,255,0.6)", fontSize: "12px", marginTop: "6px" };
+const applicantMatchBadge = {
+  flexShrink: 0, fontSize: "11px", fontWeight: "700", padding: "3px 8px",
+  borderRadius: "20px", backgroundColor: "rgba(34,197,94,0.2)", color: "#86efac",
+};
 const cancelBtn = { padding: "10px 20px", backgroundColor: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "8px", cursor: "pointer", fontWeight: "600", fontSize: "13px" };
 const saveBtn = { padding: "10px 20px", background: "linear-gradient(135deg, #4a90e2, #1a73e8)", color: "#fff", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "700", fontSize: "13px", boxShadow: "0 4px 16px rgba(26,115,232,0.3)" };
 

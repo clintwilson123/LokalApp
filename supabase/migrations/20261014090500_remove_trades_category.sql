@@ -1,0 +1,25 @@
+-- =============================================
+-- REMOVE THE "Trades & Field Work" CATEGORY
+--
+-- CJLink is CJTECH Computer Trading. Welding, plumbing, carpentry and
+-- forklift operation have nothing to do with any job posted here, and the
+-- category was generic filler carried across from the first seed list —
+-- every applicant saw it in their skill dropdown regardless of what the
+-- business actually hires for.
+--
+-- Verified against production before deleting: none of the 12 skills appear
+-- in any live job's requirements, and no applicant profile has one saved, so
+-- this cannot orphan anyone's data. Nothing references skills.id either —
+-- jobs.requirements is a TEXT[] of names.
+--
+-- Hardware work stays, under Technical & IT: Computer Hardware Repair,
+-- Laptop Repair, Cellphone Repair, Printer Servicing and Troubleshooting
+-- already cover what a computer shop actually does. "Equipment Maintenance"
+-- and "Quality Control" go with the rest rather than being cherry-picked —
+-- a category that is 10 dead entries and 2 half-relevant ones is worse than
+-- no category.
+--
+-- Idempotent: a re-run finds nothing left to delete.
+-- =============================================
+
+DELETE FROM skills WHERE category = 'Trades & Field Work';

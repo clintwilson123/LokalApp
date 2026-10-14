@@ -132,6 +132,21 @@ export default function Profile() {
     setUploadingResume(false);
   }
 
+  // The same escape hatch the job form has: a skill the catalog does not list
+  // can still be claimed.
+  //
+  // Deliberately NOT written to the `skills` table. That write is admin-only
+  // by RLS, and opening it to every applicant is how the vocabulary drifted
+  // in the first place — "Good communication" and "Communication Skills" both
+  // became permanent options for everyone because free text went straight
+  // into the shared list. This stays on the applicant's own profile; matching
+  // still scores it, because normalizeSkill and whole-word containment never
+  // needed a catalog entry.
+  function handleAddCustomSkill(name) {
+    if (!name || selectedSkills.includes(name)) return;
+    setSelectedSkills((prev) => [...prev, name]);
+  }
+
   async function handleSave() {
     setSaving(true);
     setMessage("");
@@ -246,8 +261,10 @@ export default function Profile() {
                 onChange={setSelectedSkills}
                 options={skillCatalog?.options || []}
                 grouped={skillCatalog?.grouped || null}
+                allowCustom
+                onCreateCustom={handleAddCustomSkill}
                 placeholder="Select your skills..."
-                emptyMessage="No skills available yet."
+                emptyMessage="Type a skill name to add the first one."
               />
             </div>
             <div style={fieldGroup}>

@@ -92,20 +92,6 @@ INSERT INTO skills (name, category, aliases) VALUES
   ('Order Processing',           'Sales & Customer Service', '{"Order Fulfilment"}'),
   ('Complaint Handling',         'Sales & Customer Service', '{"Complaint Resolution","Escalation Handling"}'),
 
-  -- Trades & Field Work
-  ('Electrical Wiring',          'Trades & Field Work', '{"Electrical Installation","Electrician"}'),
-  ('Welding',                    'Trades & Field Work', '{"Welder"}'),
-  ('Aircon Servicing',           'Trades & Field Work', '{"Air Conditioning Repair","HVAC"}'),
-  ('Delivery Driving',           'Trades & Field Work', '{"Driving","Driver","Delivery"}'),
-  ('Motorcycle Riding',          'Trades & Field Work', '{"Motorcycle Delivery","Habal-habal"}'),
-  ('Warehouse Operations',       'Trades & Field Work', '{"Warehouse","Warehouse Handling"}'),
-  ('Packing and Loading',        'Trades & Field Work', '{"Packing","Loading"}'),
-  ('Forklift Operation',         'Trades & Field Work', '{"Forklift"}'),
-  ('Plumbing',                   'Trades & Field Work', '{"Plumber"}'),
-  ('Carpentry',                  'Trades & Field Work', '{"Carpenter"}'),
-  ('Equipment Maintenance',      'Trades & Field Work', '{"Equipment Repair","Maintenance"}'),
-  ('Quality Control',            'Trades & Field Work', '{"QC","Quality Assurance"}'),
-
   -- Soft Skills
   ('Communication',              'Soft Skills', '{"Good Communication","Communication Skills","Communications"}'),
   ('Teamwork',                   'Soft Skills', '{"Collaboration","Team Player"}'),
