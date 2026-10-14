@@ -54,6 +54,7 @@ vi.mock('../context/AuthContext', () => ({
 // The other admin pages have their own effects; keep them out of this.
 vi.mock('../pages/ManageJobs', () => ({ default: () => <div>JOBS PAGE</div> }));
 vi.mock('../pages/AdminApplicants', () => ({ default: () => <div>APPLICANTS PAGE</div> }));
+vi.mock('../pages/AdminRecords', () => ({ default: ({ view }) => <div>RECORDS {view}</div> }));
 vi.mock('../pages/Users', () => ({ default: () => <div>USERS PAGE</div> }));
 
 import AdminDashboard from '../pages/AdminDashboard';
@@ -70,6 +71,9 @@ function renderDashboard() {
         <Route path="/admin" element={<><AdminDashboard /><CurrentPath /></>} />
         <Route path="/admin/jobs" element={<><div>JOBS PAGE</div><CurrentPath /></>} />
         <Route path="/admin/applicants" element={<><div>APPLICANTS PAGE</div><CurrentPath /></>} />
+        <Route path="/admin/applications" element={<><div>APPLICATIONS PAGE</div><CurrentPath /></>} />
+        <Route path="/admin/interviews" element={<><div>INTERVIEWS PAGE</div><CurrentPath /></>} />
+        <Route path="/admin/hired" element={<><div>HIRED PAGE</div><CurrentPath /></>} />
         <Route path="/admin/users" element={<><div>USERS PAGE</div><CurrentPath /></>} />
       </Routes>
     </MemoryRouter>
@@ -230,5 +234,37 @@ describe('Dashboard Overview — every number is a way in', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /\+ Post a job/ }));
     await waitFor(() => expect(screen.getByTestId('path')).toHaveTextContent('/admin/jobs'));
+  });
+});
+
+// Regression: all four cards pointed at /admin/applicants, so "Interviews: 4"
+// opened a skill-match page with no interviews on it — and no way to tell
+// which number had been clicked. Each card now has a route of its own.
+describe('Dashboard Overview — each card lands on its own rows', () => {
+  const statCard = (label) =>
+    screen
+      .getAllByRole('button')
+      .find((b) => b.textContent.includes('→') && b.textContent.includes(label));
+
+  [
+    ['Applicants',   '/admin/applicants'],
+    ['Applications', '/admin/applications'],
+    ['Interviews',   '/admin/interviews'],
+    ['Hired',        '/admin/hired'],
+  ].forEach(([label, path]) => {
+    it(`sends the ${label} card to ${path}`, async () => {
+      renderDashboard();
+      await screen.findByText('Needs your attention');
+
+      const card = statCard(label);
+      expect(card).toBeDefined();
+      fireEvent.click(card);
+      await waitFor(() => expect(screen.getByTestId('path')).toHaveTextContent(path));
+    });
+  });
+
+  it('the three new routes are genuinely different from one another', () => {
+    const targets = ['/admin/applicants', '/admin/applications', '/admin/interviews', '/admin/hired'];
+    expect(new Set(targets).size).toBe(targets.length);
   });
 });

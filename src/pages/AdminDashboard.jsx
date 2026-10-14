@@ -6,13 +6,29 @@ import { colors, statusBadge, statusLabel } from "../uiStyles";
 import { supabase } from "../lib/supabaseClient";
 import ManageJobs from "./ManageJobs";
 import AdminApplicants from "./AdminApplicants";
+import AdminRecords from "./AdminRecords";
 import Users from "./Users";
+import { relativeTime } from "../lib/format";
 const menuItems = [
   { name: "Dashboard", path: "/admin", icon: "📊", desc: "Overview" },
   { name: "Jobs", path: "/admin/jobs", icon: "💼", desc: "Post & Manage" },
   { name: "Applicants", path: "/admin/applicants", icon: "🔍", desc: "Skill Match" },
   { name: "Users", path: "/admin/users", icon: "👥", desc: "Manage" },
 ];
+
+/**
+ * Routes that are real destinations without being menu entries.
+ *
+ * The three overview cards need somewhere specific to land, but they are
+ * reached from the dashboard rather than from the sidebar — adding them there
+ * too would triple a four-item menu. Without this map they fell through to
+ * `|| "Dashboard"` and the header called them all "Dashboard".
+ */
+const ROUTE_TITLES = {
+  "/admin/applications": "Applications",
+  "/admin/interviews": "Interviews",
+  "/admin/hired": "Hired",
+};
 
 export default function AdminDashboard() {
   const location = useLocation();
@@ -24,6 +40,9 @@ export default function AdminDashboard() {
       case "/admin": return <AdminDashboardHome />;
       case "/admin/jobs": return <ManageJobs />;
       case "/admin/applicants": return <AdminApplicants />;
+      case "/admin/applications": return <AdminRecords view="applications" />;
+      case "/admin/interviews": return <AdminRecords view="interviews" />;
+      case "/admin/hired": return <AdminRecords view="hired" />;
       case "/admin/users": return <Users />;
       case "/admin/email-settings": return <AdminDashboardHome />;
       default: return <AdminDashboardHome />;
@@ -35,7 +54,7 @@ export default function AdminDashboard() {
   }
 
   const currentItem = menuItems.find((item) => item.path === location.pathname);
-  const displayTitle = currentItem?.name || "Dashboard";
+  const displayTitle = currentItem?.name || ROUTE_TITLES[location.pathname] || "Dashboard";
 
   return (
     <div style={dashboardLayout}>
@@ -118,27 +137,22 @@ const PIPELINE = [
   { key: "hired",               label: "Hired",          color: "#22c55e" },
 ];
 
+/**
+ * Every card links to the rows it counted — Applications to the applications,
+ * Interviews to the interviews, Hired to the hired. All four used to point at
+ * /admin/applicants, so "Interviews: 4" opened a skill-match page with no
+ * interviews on it and no way to tell which number you had clicked.
+ */
 const STAT_META = [
   { key: "jobs",         label: "Jobs",         icon: "💼", accent: "#60a5fa", to: "/admin/jobs" },
   { key: "applicants",   label: "Applicants",   icon: "👤", accent: "#2dd4bf", to: "/admin/applicants" },
-  { key: "applications", label: "Applications", icon: "📋", accent: "#818cf8", to: "/admin/applicants" },
-  { key: "interviews",   label: "Interviews",   icon: "📅", accent: "#c084fc", to: "/admin/applicants" },
-  { key: "hired",        label: "Hired",        icon: "✅", accent: "#4ade80", to: "/admin/applicants" },
+  { key: "applications", label: "Applications", icon: "📋", accent: "#818cf8", to: "/admin/applications" },
+  { key: "interviews",   label: "Interviews",   icon: "📅", accent: "#c084fc", to: "/admin/interviews" },
+  { key: "hired",        label: "Hired",        icon: "✅", accent: "#4ade80", to: "/admin/hired" },
 ];
 
-/** "3 minutes ago", "5h ago", "2d ago", then a plain date past a week. */
-const relativeTime = (iso) => {
-  if (!iso) return "";
-  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-};
-
+/** "3 minutes ago" — now imported from lib/format so both admin screens
+ *  describe elapsed time the same way. */
 function AdminDashboardHome() {
   const navigate = useNavigate();
   const { profile } = useAuth();

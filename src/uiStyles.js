@@ -276,6 +276,10 @@ export const STATUS_COLORS = {
   reviewed:            { bg: "rgba(26,115,232,0.2)",  fg: "#93c5fd" },
   interview_scheduled: { bg: "rgba(139,92,246,0.2)",  fg: "#c4b5fd" },
   interviewed:         { bg: "rgba(139,92,246,0.2)",  fg: "#c4b5fd" },
+  // interviews.status, distinct from an application reaching interview_scheduled.
+  // Without it the badge fell through to `pending`, painting a confirmed
+  // interview amber — the colour reserved for work still waiting.
+  scheduled:           { bg: "rgba(139,92,246,0.2)",  fg: "#c4b5fd" },
   accepted:            { bg: "rgba(34,197,94,0.2)",   fg: "#86efac" },
   hired:               { bg: "rgba(34,197,94,0.2)",   fg: "#86efac" },
   rejected:            { bg: "rgba(248,113,113,0.2)", fg: "#fca5a5" },

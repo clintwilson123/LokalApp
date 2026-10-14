@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
 import { radii, statusBadge, statusLabel, STATUS_COLORS } from "../uiStyles";
+import { formatDate, formatDateShort, formatTime } from "../lib/format";
 import { SkeletonCard } from "../components/Skeleton";
 
 /**
@@ -21,42 +22,6 @@ const latestInterview = (app) => {
       new Date(b.created_at || 0) - new Date(a.created_at || 0) ||
       (b.id || 0) - (a.id || 0)
   )[0];
-};
-
-/**
- * "2026-10-20" -> "Thursday, October 20, 2026".
- *
- * Parsed field by field on purpose. `new Date("2026-10-20")` is UTC midnight,
- * which in a timezone west of UTC renders as the 19th — the applicant would be
- * told to turn up a day early. Reading the parts and building a local date
- * sidesteps that entirely.
- */
-const formatDate = (iso) => {
-  if (!iso) return "";
-  const [y, m, d] = String(iso).split("-").map(Number);
-  if (!y || !m || !d) return String(iso);
-  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
-    weekday: "long", month: "long", day: "numeric", year: "numeric",
-  });
-};
-
-/** "2026-10-20" -> "Oct 20". Same timezone-safe parsing as formatDate. */
-const formatDateShort = (iso) => {
-  if (!iso) return "";
-  const [y, m, d] = String(iso).split("-").map(Number);
-  if (!y || !m || !d) return String(iso);
-  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
-    month: "short", day: "numeric",
-  });
-};
-
-/** "14:30:00" -> "2:30 PM". */
-const formatTime = (t) => {
-  if (!t) return "";
-  const [h, m] = String(t).split(":").map(Number);
-  if (Number.isNaN(h)) return String(t);
-  const h12 = ((h + 11) % 12) + 1;
-  return `${h12}:${String(m || 0).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
 };
 
 // statusLabel now comes from uiStyles, shared with the admin side.

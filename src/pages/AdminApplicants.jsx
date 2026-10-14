@@ -167,7 +167,7 @@ export default function AdminApplicants() {
         </select>
       </div>
 
-      {selectedJob && (
+      {selectedJob ? (
         <>
           <div style={jobInfo}>
             <strong style={{ color: "#fff" }}>{selectedJob.icon} {selectedJob.title}</strong>
@@ -242,10 +242,52 @@ export default function AdminApplicants() {
             </div>
           )}
         </>
+      ) : (
+        // Nothing chosen, so there is nothing to rank against — but the
+        // Applicants card on the dashboard still promises people. Without
+        // this the page ended at the dropdown and showed no names at all.
+        applicants.length === 0 ? (
+          <p style={rosterEmpty}>
+            No applicants registered yet.
+          </p>
+        ) : (
+          <div style={dashGrid}>
+            {applicants.map((a) => (
+              <div key={a.id} style={candidateCard} onClick={() => setSelectedApplicant(a)}>
+                <div style={candidateHeader}>
+                  <div style={avatarCircle}>{a.full_name?.[0] || "?"}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: "600", color: "#fff", fontSize: "14px" }}>
+                      {a.full_name || "Unnamed"}
+                    </div>
+                    <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)" }}>
+                      {a.location || "No location"}
+                    </div>
+                  </div>
+                </div>
+                {a.skills && (
+                  <div style={rosterSkills}>{a.skills}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        )
       )}
     </div>
   );
 }
+
+const rosterSkills = {
+  fontSize: "12px",
+  color: "rgba(255,255,255,0.6)",
+  marginTop: "10px",
+  lineHeight: "1.5",
+  display: "-webkit-box",
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: "vertical",
+  overflow: "hidden",
+};
+const rosterEmpty = { color: "rgba(255,255,255,0.5)", textAlign: "center", padding: "40px 20px" };
 
 const scoreCircle = (score) => ({
   width: "44px", height: "44px", borderRadius: "50%",
