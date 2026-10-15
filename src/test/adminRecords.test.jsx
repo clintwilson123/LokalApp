@@ -137,8 +137,33 @@ describe('AdminRecords — Applicants', () => {
 
     expect(await screen.findByText('Maria Santos')).toBeInTheDocument();
     expect(screen.getByText('Toledo City')).toBeInTheDocument();
-    expect(screen.getByText('React, SQL')).toBeInTheDocument();
+    // Skills are chips rather than one comma-joined string read across.
+    expect(screen.getByText('React')).toBeInTheDocument();
+    expect(screen.getByText('SQL')).toBeInTheDocument();
     expect(screen.queryByText('Site Admin')).toBeNull();
+  });
+
+  it('folds a long skill list away and says how many it is holding back', async () => {
+    h.rows.profiles = [
+      { id: 'u3', full_name: 'Juan Dela Cruz', location: 'Cebu',
+        skills: 'Excel, Word, Photoshop, SEO, React, SQL, Docker, Kubernetes',
+        created_at: '2026-10-14T08:00:00Z', role: 'applicant' },
+    ];
+    render(<AdminRecords view="applicants" />);
+
+    await screen.findByText('Juan Dela Cruz');
+    // Four chips, then the rest held back — never eight dumped at once.
+    expect(screen.getByText('Excel')).toBeInTheDocument();
+    expect(screen.getByText('SEO')).toBeInTheDocument();
+    expect(screen.queryByText('Docker')).toBeNull();
+
+    const toggle = screen.getByRole('button', { name: 'Show 4 more skills' });
+    expect(toggle).toHaveTextContent('+4 more');
+    fireEvent.click(toggle);
+
+    expect(screen.getByText('Docker')).toBeInTheDocument();
+    expect(screen.getByText('Kubernetes')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show fewer skills' })).toHaveTextContent('Show less');
   });
 
   it('reads profiles restricted to role = applicant', async () => {

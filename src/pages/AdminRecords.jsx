@@ -106,6 +106,12 @@ export default function AdminRecords({ view, variant = "page", onClose }) {
   }, [view]);
 
   const noun = meta.noun;
+  // The dropdown panel is already a card — border, fill and 18px of padding.
+  // Wrapping its table in dashTable put a second card inside it with another
+  // 16px of padding, which is why the list read as cramped and boxed-in. The
+  // page variant keeps the framed table; the dropdown goes flush to the panel.
+  const cell = isDropdown ? dropdownTd : dashTd;
+  const rowStyle = isDropdown ? dropdownRow : dashRow;
 
   if (loading) {
     return (
@@ -138,62 +144,77 @@ export default function AdminRecords({ view, variant = "page", onClose }) {
       {!error && rows.length === 0 && <p style={emptyText}>{meta.empty}</p>}
 
       {!error && rows.length > 0 && (
-        <div style={tableWrap}>
-          <table style={dashTable}>
+        <div style={isDropdown ? dropdownTableWrap : tableWrap}>
+          <table style={isDropdown ? dropdownTable : dashTable}>
             <thead>
               <tr>
                 {meta.columns.map((c) => (
-                  <th key={c} style={dashTh}>{c}</th>
+                  <th key={c} style={isDropdown ? dropdownTh : dashTh}>{c}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={row.id} style={dashRow}>
+                <tr key={row.id} style={rowStyle}>
                   {view === "applicants" ? (
                     <>
-                      <td style={dashTd}>
-                        <span style={primary}>{row.full_name || "Unnamed"}</span>
+                      <td style={cell}>
+                        {/* Initial, name and when they joined — a person, not a
+                            bare string in a table cell. */}
+                        <div style={personCell}>
+                          <span style={personAvatar} aria-hidden="true">
+                            {(row.full_name || "?").trim().charAt(0).toUpperCase() || "?"}
+                          </span>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={primary}>{row.full_name || "Unnamed"}</div>
+                            {formatDateShort(row.created_at) && (
+                              <div style={micro}>Joined {formatDateShort(row.created_at)}</div>
+                            )}
+                          </div>
+                        </div>
                       </td>
-                      <td style={dashTd}>{row.location || "No location"}</td>
-                      <td style={dashTd}>
-                        <span style={subtle}>{row.skills || "Not set"}</span>
+                      <td style={cell}>
+                        <span style={pin} aria-hidden="true">📍</span>
+                        <span>{row.location || "No location"}</span>
+                      </td>
+                      <td style={cell}>
+                        <SkillCell skills={row.skills} />
                       </td>
                     </>
                   ) : view === "interviews" ? (
                     <>
-                      <td style={dashTd}>
+                      <td style={cell}>
                         <span style={primary}>
                           {row.applications?.profiles?.full_name || "Unknown applicant"}
                         </span>
                       </td>
-                      <td style={dashTd}>
+                      <td style={cell}>
                         <JobCell job={row.applications?.jobs} />
                       </td>
-                      <td style={dashTd}>
+                      <td style={cell}>
                         <div style={primary}>{formatDateShort(row.date) || "No date"}</div>
                         {row.time && <div style={subtle}>{formatTime(row.time)}</div>}
                       </td>
-                      <td style={dashTd}>{row.location || "To be confirmed"}</td>
-                      <td style={dashTd}>
+                      <td style={cell}>{row.location || "To be confirmed"}</td>
+                      <td style={cell}>
                         <span style={statusBadge(row.status)}>{statusLabel(row.status)}</span>
                       </td>
                     </>
                   ) : (
                     <>
-                      <td style={dashTd}>
+                      <td style={cell}>
                         <span style={primary}>{row.profiles?.full_name || "Unknown applicant"}</span>
                       </td>
-                      <td style={dashTd}>
+                      <td style={cell}>
                         <JobCell job={row.jobs} />
                       </td>
-                      <td style={dashTd}>
+                      <td style={cell}>
                         {row.score === null || row.score === undefined ? "—" : `${row.score}%`}
                       </td>
-                      <td style={dashTd}>
+                      <td style={cell}>
                         <span style={statusBadge(row.status)}>{statusLabel(row.status)}</span>
                       </td>
-                      <td style={dashTd}>{relativeTime(row.created_at)}</td>
+                      <td style={cell}>{relativeTime(row.created_at)}</td>
                     </>
                   )}
                 </tr>
@@ -218,6 +239,48 @@ function JobCell({ job }) {
       {job.icon && <span style={jobIcon} aria-hidden="true">{job.icon}</span>}
       <span style={{ color: "#fff" }}>{job.title}</span>
     </>
+  );
+}
+
+/**
+ * Skills as chips, with anything past the first few folded away.
+ *
+ * The applicant's skills arrive as one comma-joined string — which is fine
+ * for two and unreadable for fifteen, the length of CJLink's catalog. Chips
+ * are scannable, but fifteen chips are no better than fifteen words, so four
+ * show by default and the rest wait behind a button that says how many it is
+ * holding back.
+ */
+const SKILL_CHIP_LIMIT = 4;
+
+function SkillCell({ skills }) {
+  const [open, setOpen] = useState(false);
+  const parts = String(skills || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (parts.length === 0) return <span style={muted}>Not set</span>;
+
+  const hidden = parts.length - SKILL_CHIP_LIMIT;
+  const shown = open || hidden <= 0 ? parts : parts.slice(0, SKILL_CHIP_LIMIT);
+
+  return (
+    <div style={chipWrap}>
+      {shown.map((s) => (
+        <span key={s} style={chip}>{s}</span>
+      ))}
+      {hidden > 0 && (
+        <button
+          type="button"
+          onClick={() => setOpen((was) => !was)}
+          aria-label={open ? "Show fewer skills" : `Show ${hidden} more skills`}
+          style={chipMore}
+        >
+          {open ? "Show less" : `+${hidden} more`}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -251,4 +314,52 @@ const emptyText = { color: "rgba(255,255,255,0.5)", textAlign: "center", padding
 const tableWrap = { overflowX: "auto" };
 const primary = { color: "#fff", fontWeight: "600" };
 const subtle = { color: "rgba(255,255,255,0.6)" };
+const muted = { color: "rgba(255,255,255,0.38)", fontStyle: "italic" };
 const jobIcon = { marginRight: "6px" };
+
+/* ── Dropdown table: no second card, no second 16px of padding ───── */
+const dropdownTableWrap = { overflowX: "auto", margin: "0 -4px" };
+const dropdownTable = { width: "100%", borderCollapse: "collapse" };
+const dropdownTh = {
+  padding: "6px 8px 9px",
+  color: "rgba(255,255,255,0.42)",
+  fontSize: "10.5px",
+  fontWeight: "800",
+  letterSpacing: "0.7px",
+  textTransform: "uppercase",
+  textAlign: "left",
+  whiteSpace: "nowrap",
+  borderBottom: "1px solid rgba(255,255,255,0.1)",
+};
+const dropdownTd = {
+  padding: "12px 8px",
+  fontSize: "13px",
+  color: "rgba(255,255,255,0.85)",
+  verticalAlign: "top",
+};
+const dropdownRow = { borderBottom: "1px solid rgba(255,255,255,0.055)" };
+
+/* ── Who this person is ─────────────────────────────────────────── */
+const personCell = { display: "flex", alignItems: "center", gap: "10px", minWidth: 0 };
+const personAvatar = {
+  width: "32px", height: "32px", borderRadius: "50%", flexShrink: 0,
+  background: "linear-gradient(135deg, #2dd4bf, #0d9488)", color: "#04302c",
+  display: "flex", alignItems: "center", justifyContent: "center",
+  fontWeight: "800", fontSize: "13px",
+};
+const micro = { fontSize: "11px", color: "rgba(255,255,255,0.38)", marginTop: "2px" };
+const pin = { marginRight: "6px", fontSize: "12px", opacity: 0.75 };
+
+/* ── Skills ─────────────────────────────────────────────────────── */
+const chipWrap = { display: "flex", flexWrap: "wrap", gap: "5px", alignItems: "center" };
+const chip = {
+  fontSize: "11px", fontWeight: "600", padding: "3px 8px", borderRadius: "10px",
+  backgroundColor: "rgba(45,212,191,0.11)", border: "1px solid rgba(45,212,191,0.22)",
+  color: "#99f6e4", whiteSpace: "nowrap", lineHeight: "1.4",
+};
+const chipMore = {
+  fontSize: "11px", fontWeight: "700", padding: "3px 8px", borderRadius: "10px",
+  backgroundColor: "rgba(255,255,255,0.06)", border: "1px dashed rgba(255,255,255,0.22)",
+  color: "rgba(255,255,255,0.6)", cursor: "pointer", whiteSpace: "nowrap",
+  lineHeight: "1.4", fontFamily: "inherit",
+};
