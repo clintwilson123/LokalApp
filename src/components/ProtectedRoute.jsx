@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { isEmailVerified } from "../lib/authFlow";
@@ -7,7 +8,30 @@ import { SkeletonLine } from "./Skeleton";
 export default function ProtectedRoute({ children, allowedRoles, requireVerification = true }) {
   const { user, profile, loading } = useAuth();
 
-  if (loading) {
+  /**
+   * Auth events are not evidence that the visitor has gone anywhere.
+   *
+   * Opening a second tab makes Supabase announce itself over its
+   * BroadcastChannel, and every access-token refresh announces itself too —
+   * AuthContext answers both by putting `loading` back to true while it
+   * re-reads the profile. Treating each of those blips as "not ready" swapped
+   * the page for this skeleton, and React does not keep a subtree alive
+   * across a change of element type: the page unmounted and was rebuilt from
+   * empty state. The visitor saw the site refresh itself and lost every
+   * half-typed form on it.
+   *
+   * So the skeleton is only owed where there is nothing on screen to protect —
+   * the very first resolve, or a DIFFERENT person than the one already
+   * rendered. A re-read of the same person leaves the page mounted, and every
+   * guard below still runs against the values this render resolved to, so
+   * sign-out, suspension, consent and wrong-role redirects are untouched.
+   */
+  const [settledFor, setSettledFor] = useState(null);
+  useEffect(() => {
+    if (!loading && user && profile) setSettledFor(user.id);
+  }, [loading, user, profile]);
+
+  if (loading && settledFor !== user?.id) {
     return (
       <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", height: "100vh", gap: "12px", padding: "20px" }}>
         <div style={{ width: "200px" }}><SkeletonLine width="100%" height="16px" /></div>

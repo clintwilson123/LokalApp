@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { useState } from 'react';
 
 // Protected access must stay fail-closed: an unverified (or profile-less)
 // applicant never reaches a protected page, while admin behaviour is intact.
@@ -55,6 +56,49 @@ const applicant = (overrides = {}) => ({
   consent_accepted: true,
   ...overrides,
 });
+
+/** Same routes as renderProtected, but with a page that holds its own state. */
+function probeTree() {
+  return (
+    <MemoryRouter initialEntries={['/find-jobs']}>
+      <Routes>
+        <Route
+          path="/find-jobs"
+          element={
+            <ProtectedRoute>
+              <PageProbe />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="/verify-email" element={<div>VERIFY_EMAIL_PAGE</div>} />
+        <Route path="/login" element={<LoginProbe />} />
+        <Route path="/" element={<div>HOME_PAGE</div>} />
+      </Routes>
+    </MemoryRouter>
+  );
+}
+
+/** A confirmed applicant, so the route resolves to the page and not a redirect. */
+const signedInUser = (id = 'u1') => ({ id, email_confirmed_at: '2026-01-01T00:00:00Z' });
+
+/**
+ * A protected page with something half-typed into it.
+ *
+ * Mount state only exists while the component is mounted, so this is how the
+ * regression below is measured: if ProtectedRoute ever unmounts it, the value
+ * is gone — which is exactly what the visitor experienced as "the site
+ * refreshed and I lost what I was writing".
+ */
+function PageProbe() {
+  const [typed, setTyped] = useState('');
+  return (
+    <div>
+      <div>PROTECTED_CONTENT</div>
+      <input aria-label="phone" value={typed} onChange={(e) => setTyped(e.target.value)} />
+      <div data-testid="typed">{typed}</div>
+    </div>
+  );
+}
 
 beforeEach(() => {
   h.auth = { user: null, profile: null, loading: false };
@@ -164,6 +208,46 @@ describe('ProtectedRoute', () => {
     renderProtected();
     expect(screen.queryByText('HOME_PAGE')).toBeNull();
     expect(screen.queryByText('LOGIN_PAGE')).toBeNull();
+    expect(screen.queryByText('PROTECTED_CONTENT')).toBeNull();
+  });
+
+  it('keeps the page mounted when auth re-reads the profile in the background', () => {
+    // Opening a second tab makes Supabase announce itself over its
+    // BroadcastChannel, and every access-token refresh announces itself too —
+    // AuthContext answers both by setting loading true again. Rendering the
+    // skeleton for that blip unmounted the page and rebuilt it from empty
+    // state: the applicant lost whatever they were halfway through typing,
+    // and saw it as the site refreshing itself.
+    h.auth = { user: signedInUser(), profile: applicant(), loading: false };
+    const view = render(probeTree());
+    expect(screen.getByText('PROTECTED_CONTENT')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('phone'), { target: { value: '09171234567' } });
+    expect(screen.getByTestId('typed').textContent).toBe('09171234567');
+
+    // A token refresh, or another tab announcing itself.
+    h.auth = { user: signedInUser(), profile: applicant(), loading: true };
+    view.rerender(probeTree());
+    expect(screen.getByText('PROTECTED_CONTENT')).toBeInTheDocument();
+    expect(screen.getByTestId('typed').textContent).toBe('09171234567');
+
+    // ...and it settles again, having never left the page.
+    h.auth = { user: signedInUser(), profile: applicant(), loading: false };
+    view.rerender(probeTree());
+    expect(screen.getByText('PROTECTED_CONTENT')).toBeInTheDocument();
+    expect(screen.getByTestId('typed').textContent).toBe('09171234567');
+  });
+
+  it('still withholds the page while a DIFFERENT person is being resolved', () => {
+    // The other half of the same rule: a re-read of the same person keeps the
+    // page, but a new person must never inherit what was on screen under the
+    // previous session's profile.
+    h.auth = { user: signedInUser(), profile: applicant(), loading: false };
+    const view = render(probeTree());
+    expect(screen.getByText('PROTECTED_CONTENT')).toBeInTheDocument();
+
+    h.auth = { user: signedInUser('u2'), profile: applicant({ id: 'u2' }), loading: true };
+    view.rerender(probeTree());
     expect(screen.queryByText('PROTECTED_CONTENT')).toBeNull();
   });
 
