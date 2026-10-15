@@ -1,9 +1,10 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
 import { radii, statusBadge, statusLabel, STATUS_COLORS } from "../uiStyles";
 import { formatDate, formatDateShort, formatTime } from "../lib/format";
 import { SkeletonCard } from "../components/Skeleton";
+import SkillChips from "../components/SkillChips";
 
 /**
  * The current interview for an application.
@@ -95,14 +96,18 @@ export default function MyApplications() {
    * `interviewed` was missing from the old timeline, so an application that
    * had actually been interviewed rendered with the current marker sitting
    * on the step *before* it.
+   *
+   * No per-step sentence: six of them was six lines of prose standing
+   * between the applicant and everything below, saying what the status panel
+   * directly above already says once.
    */
   const PROGRESS_STEPS = [
-    { key: "pending",             label: "Application Submitted", note: "We have your application." },
-    { key: "reviewed",            label: "Under Review",          note: "An employer is looking it over." },
-    { key: "interview_scheduled", label: "Interview Scheduled",   note: "A date, time and place are set." },
-    { key: "interviewed",         label: "Interviewed",           note: "Thanks for coming in." },
-    { key: "accepted",            label: "Accepted",              note: "You were selected for the role." },
-    { key: "hired",               label: "Hired",                 note: "Welcome aboard." },
+    { key: "pending",             label: "Application Submitted" },
+    { key: "reviewed",            label: "Under Review" },
+    { key: "interview_scheduled", label: "Interview Scheduled" },
+    { key: "interviewed",         label: "Interviewed" },
+    { key: "accepted",            label: "Accepted" },
+    { key: "hired",               label: "Hired" },
   ];
 
   const STATUS_ICON = {
@@ -160,63 +165,74 @@ export default function MyApplications() {
   };
 
   /**
-   * Vertical, so it can never wrap.
+   * Horizontal: the whole ladder in one row, left to right.
    *
-   * The old one laid its steps out horizontally with flexWrap, so on a
-   * narrow screen the connector lines broke across lines and the progression
-   * stopped reading as a progression. Every completed step was the same blue
-   * as every other one too — only a 2px border marked the current step,
-   * which at that size is effectively invisible. Done, now and not-yet are
-   * three distinct states here.
+   * It used to be vertical — six rows of dot, label and a sentence each, the
+   * better part of 400px of card for a progress bar, and most of what the
+   * applicant had to scroll past to reach anything else. The three states are
+   * kept (done, here, still to come), and the labels are still whole words
+   * sitting under their own dots.
+   *
+   * Cells stop shrinking at 84px — the width at which "Application" and
+   * "Scheduled" still fit on one line — so a narrower card scrolls the row
+   * instead of breaking a word in half, and the row is scrolled to wherever
+   * the applicant actually is so "Now" is never the part they cannot see.
+   * The connector is drawn from each cell's centre back to the previous
+   * one's, and a row that never wraps is a line that never breaks: the reason
+   * the old horizontal version was abandoned still holds, it just no longer
+   * forces the whole ladder to stand on end.
    */
   const StatusProgress = ({ status }) => {
     const currentIndex = PROGRESS_STEPS.findIndex((s) => s.key === status);
+    const trackRef = useRef(null);
+
+    useEffect(() => {
+      const track = trackRef.current;
+      const cell = track?.children[currentIndex];
+      if (!cell) return;
+      const target = cell.offsetLeft - (track.clientWidth - cell.offsetWidth) / 2;
+      if (target > 0) track.scrollLeft = target;
+    }, [currentIndex]);
+
     return (
-      <ol style={progressList}>
+      <ol style={progressTrack} ref={trackRef}>
         {PROGRESS_STEPS.map((step, i) => {
           const done = i < currentIndex;
           const current = i === currentIndex;
           const future = i > currentIndex;
           const accent = (STATUS_COLORS[step.key] || STATUS_COLORS.pending).fg;
           return (
-            <li key={step.key} style={progressItem}>
-              <div style={{ position: "relative", width: "26px", flexShrink: 0 }}>
-                <span style={{
-                  ...progressDot,
-                  backgroundColor: done || current ? accent : "rgba(255,255,255,0.05)",
-                  border: done || current ? "none" : "2px solid rgba(255,255,255,0.16)",
-                  color: done || current ? "#0f172a" : "rgba(255,255,255,0.42)",
-                  boxShadow: current ? `0 0 0 4px ${accent}30` : "none",
-                }}>
-                  {done ? "✓" : current ? "●" : i + 1}
-                </span>
-                {i < PROGRESS_STEPS.length - 1 && (
-                  <span style={{
-                    ...progressLine,
-                    backgroundColor: done ? accent : "rgba(255,255,255,0.12)",
-                  }} />
-                )}
-              </div>
-              <div style={{ flex: 1, minWidth: 0, paddingTop: "2px", paddingBottom: i === PROGRESS_STEPS.length - 1 ? 0 : "16px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                  <span style={{
-                    fontSize: current ? "14px" : "13px",
-                    fontWeight: current ? "700" : "600",
-                    color: future ? "rgba(255,255,255,0.4)" : "#fff",
-                  }}>
-                    {step.label}
-                  </span>
-                  {current && (
-                    <span style={{ ...nowPill, backgroundColor: `${accent}26`, color: accent }}>Now</span>
-                  )}
-                </div>
-                <div style={{
-                  fontSize: "12px", lineHeight: "1.45", marginTop: "2px",
-                  color: future ? "rgba(255,255,255,0.32)" : "rgba(255,255,255,0.55)",
-                }}>
-                  {step.note}
-                </div>
-              </div>
+            <li key={step.key} style={progressStep}>
+              {i > 0 && (
+                <span
+                  style={{
+                    ...progressLink,
+                    backgroundColor:
+                      i <= currentIndex
+                        ? (STATUS_COLORS[PROGRESS_STEPS[i - 1].key] || STATUS_COLORS.pending).fg
+                        : "rgba(255,255,255,0.12)",
+                  }}
+                />
+              )}
+              <span style={{
+                ...progressDot,
+                backgroundColor: done || current ? accent : "rgba(255,255,255,0.05)",
+                border: done || current ? "none" : "2px solid rgba(255,255,255,0.16)",
+                color: done || current ? "#0f172a" : "rgba(255,255,255,0.42)",
+                boxShadow: current ? `0 0 0 4px ${accent}30` : "none",
+              }}>
+                {done ? "✓" : current ? "●" : i + 1}
+              </span>
+              <span style={{
+                ...progressLabel,
+                fontWeight: current ? "700" : "600",
+                color: future ? "rgba(255,255,255,0.4)" : "#fff",
+              }}>
+                {step.label}
+              </span>
+              {current && (
+                <span style={{ ...nowPill, backgroundColor: `${accent}26`, color: accent }}>Now</span>
+              )}
             </li>
           );
         })}
@@ -263,16 +279,28 @@ export default function MyApplications() {
             <StatusProgress status={app.status} />
           )}
 
+          <h4 style={{ ...sectionHead, margin: "20px 0 12px" }}>About this role</h4>
+
+          {/* Label over value, the shape the interview card already used.
+              These were four `Salary: …` sentences of differing length, where
+              a one-word field and a paragraph of description looked equally
+              important and neither could be scanned. */}
           {job.salary && (
-            <div style={detailRow}><strong>Salary:</strong> {job.salary}</div>
+            <div style={fieldBlock}>
+              <span style={fieldLabel}>Salary</span>
+              <span style={salaryValue}>{job.salary}</span>
+            </div>
           )}
           {job.description && (
-            <div style={detailRow}><strong>Description:</strong> {job.description}</div>
+            <div style={fieldBlock}>
+              <span style={fieldLabel}>Description</span>
+              <p style={fieldBody}>{job.description}</p>
+            </div>
           )}
           {job.requirements && job.requirements.length > 0 && (
-            <div style={detailRow}>
-              <strong>Requirements:</strong>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "4px" }}>
+            <div style={fieldBlock}>
+              <span style={fieldLabel}>Requirements</span>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "7px" }}>
                 {job.requirements.map((r, i) => (
                   <span key={i} style={reqTag}>{r}</span>
                 ))}
@@ -283,9 +311,9 @@ export default function MyApplications() {
           <div style={divider} />
 
           {app.score && (
-            <div style={detailRow}>
-              <strong>Match Score:</strong>{" "}
-              <span style={{ color: "#93c5fd", fontWeight: "700" }}>{app.score}%</span>
+            <div style={fieldBlock}>
+              <span style={fieldLabel}>Match Score</span>
+              <span style={scoreValue}>{app.score}%</span>
             </div>
           )}
 
@@ -341,19 +369,27 @@ export default function MyApplications() {
 
           <div style={divider} />
 
-          <h4 style={{ color: "#fff", fontSize: "14px", fontWeight: "700", margin: "0 0 12px" }}>Your Profile</h4>
-          <div style={detailRow}>
-            <strong>Skills:</strong> {profile?.skills || "Not set"}
+          <h4 style={sectionHead}>Your Profile</h4>
+          <div style={fieldBlock}>
+            <span style={fieldLabel}>Skills</span>
+            <div style={{ marginTop: "7px" }}>
+              <SkillChips skills={profile?.skills} />
+            </div>
           </div>
-          <div style={detailRow}>
-            <strong>Bio:</strong> {profile?.bio || "Not set"}
+          <div style={fieldBlock}>
+            <span style={fieldLabel}>Bio</span>
+            <p style={{ ...fieldBody, ...(profile?.bio ? null : fieldEmpty) }}>
+              {profile?.bio || "Not set"}
+            </p>
           </div>
           {profile?.resume_url && (
-            <div style={detailRow}>
-              <strong>Resume:</strong>{" "}
-              <a href={profile.resume_url} target="_blank" rel="noreferrer" style={resumeLink}>
-                📄 View Resume ↗
-              </a>
+            <div style={fieldBlock}>
+              <span style={fieldLabel}>Resume</span>
+              <div style={{ marginTop: "5px" }}>
+                <a href={profile.resume_url} target="_blank" rel="noreferrer" style={resumeLink}>
+                  📄 View Resume ↗
+                </a>
+              </div>
             </div>
           )}
         </div>
@@ -450,10 +486,39 @@ const detailCard = {
   backgroundColor: "rgba(255,255,255,0.06)", borderRadius: radii.lg, padding: "24px",
   border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(12px)",
 };
-const detailRow = { fontSize: "13px", color: "rgba(255,255,255,0.85)", lineHeight: "1.6", marginBottom: "10px" };
 const divider = { height: "1px", backgroundColor: "rgba(255,255,255,0.08)", margin: "16px 0" };
 
 const sectionHead = { color: "#fff", fontSize: "14px", fontWeight: "700", margin: "0 0 12px" };
+
+/**
+ * One field, one look: a small uppercase name, then its value.
+ *
+ * Every block on this screen now reads on the same rhythm — salary,
+ * description, requirements, match score, skills, bio — instead of being a
+ * run of `Salary: …` sentences whose weight depended on how long the value
+ * happened to be.
+ */
+const fieldBlock = {
+  backgroundColor: "rgba(255,255,255,0.04)",
+  border: "1px solid rgba(255,255,255,0.07)",
+  borderRadius: radii.md, padding: "11px 14px", marginBottom: "10px",
+};
+const fieldLabel = {
+  display: "block", fontSize: "10px", fontWeight: "700", letterSpacing: "0.06em",
+  textTransform: "uppercase", color: "rgba(255,255,255,0.45)",
+};
+const fieldValue = {
+  display: "block", fontSize: "14px", fontWeight: "700", color: "#fff",
+  marginTop: "3px", lineHeight: "1.4",
+};
+const fieldBody = {
+  margin: "5px 0 0", fontSize: "13px", lineHeight: "1.65",
+  color: "rgba(255,255,255,0.78)", whiteSpace: "pre-wrap",
+};
+const fieldEmpty = { color: "rgba(255,255,255,0.38)", fontStyle: "italic" };
+// The number the applicant scans for, given the room a 14px value does not.
+const salaryValue = { ...fieldValue, fontSize: "17px", marginTop: "5px", letterSpacing: "-0.01em" };
+const scoreValue = { ...fieldValue, fontSize: "16px", color: "#93c5fd" };
 
 // The status panel. Deliberately the largest thing on the detail card — it
 // is the question the applicant opened this screen to ask.
@@ -475,24 +540,39 @@ const rejectionNote = {
   margin: "0 0 18px", fontSize: "13px", lineHeight: "1.55", color: "rgba(255,255,255,0.6)",
 };
 
-// Vertical so the connectors can never break across lines. Each step is one
-// row: dot, label, and what that step actually means.
-const progressList = { listStyle: "none", margin: "0 0 18px", padding: "0" };
-const progressItem = { display: "flex", alignItems: "stretch", gap: "13px" };
+// Horizontal so the ladder is one row instead of six. Equal cells, the dot
+// centred in each, and a connector from this cell's centre back to the
+// previous one's (`left: -50%` is one cell to the left) — so it lands exactly
+// on the dot whatever the label underneath wraps to.
+const progressTrack = {
+  display: "flex", alignItems: "flex-start", listStyle: "none",
+  // The bottom padding is a gutter for the scrollbar: it is drawn inside the
+  // padding box, and it must not land on top of the last line of a label.
+  margin: "0 0 18px", padding: "4px 6px 16px",
+  overflowX: "auto", overflowY: "hidden", scrollbarWidth: "thin",
+};
+const progressStep = {
+  position: "relative", flex: "1 0 84px", minWidth: "84px",
+  display: "flex", flexDirection: "column", alignItems: "center",
+  textAlign: "center", paddingTop: "4px",
+};
+const progressLink = {
+  position: "absolute", top: "16px", left: "-50%", width: "100%",
+  height: "2px", borderRadius: "2px",
+};
 const progressDot = {
   position: "relative", zIndex: 1, width: "26px", height: "26px", borderRadius: "50%",
   display: "flex", alignItems: "center", justifyContent: "center",
   fontSize: "12px", fontWeight: "800", boxSizing: "border-box",
   transition: "background-color 0.2s, box-shadow 0.2s",
 };
-// The column stretches with the row, so `bottom: 0` lands exactly on the
-// next dot however tall the label and note turn out to be.
-const progressLine = {
-  position: "absolute", left: "12px", top: "26px", bottom: "0", width: "2px", borderRadius: "2px",
+const progressLabel = {
+  display: "block", width: "100%", marginTop: "8px",
+  fontSize: "11px", lineHeight: "1.35", overflowWrap: "break-word",
 };
 const nowPill = {
   fontSize: "10px", fontWeight: "800", letterSpacing: "0.06em", textTransform: "uppercase",
-  padding: "2px 7px", borderRadius: "20px", flexShrink: 0,
+  padding: "2px 7px", borderRadius: "20px", flexShrink: 0, marginTop: "7px",
 };
 const reqTag = {
   fontSize: "11px", padding: "3px 8px", borderRadius: "6px",
@@ -522,14 +602,10 @@ const interviewGrid = {
   gap: "12px",
 };
 const interviewField = { minWidth: 0 };
-const interviewLabel = {
-  display: "block", fontSize: "10px", fontWeight: "700", letterSpacing: "0.06em",
-  textTransform: "uppercase", color: "rgba(255,255,255,0.45)",
-};
-const interviewValue = {
-  display: "block", fontSize: "14px", fontWeight: "700", color: "#fff",
-  marginTop: "3px", lineHeight: "1.4",
-};
+// Same label-over-value shape as every other field on this screen; named at
+// their call sites because inside this card they describe an appointment.
+const interviewLabel = fieldLabel;
+const interviewValue = fieldValue;
 const interviewChip = {
   fontSize: "11px", fontWeight: "700", padding: "3px 8px", borderRadius: "12px",
   backgroundColor: "rgba(139,92,246,0.2)", color: "#c4b5fd", whiteSpace: "nowrap",

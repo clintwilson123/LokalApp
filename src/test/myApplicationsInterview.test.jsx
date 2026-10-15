@@ -8,7 +8,10 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 // applicant's View Details screen said an interview existed and showed nothing.
 // RLS already let them read it; nothing fetched it.
 
-const h = vi.hoisted(() => ({ apps: [] }));
+const h = vi.hoisted(() => ({
+  apps: [],
+  profile: { skills: 'Excel', bio: '', resume_url: null },
+}));
 
 vi.mock('../lib/supabaseClient', () => ({
   supabase: {
@@ -31,7 +34,7 @@ vi.mock('../lib/supabaseClient', () => ({
 vi.mock('../context/AuthContext', () => ({
   useAuth: () => ({
     user: { id: 'u1' },
-    profile: { skills: 'Excel', bio: '', resume_url: null },
+    profile: h.profile,
   }),
 }));
 
@@ -68,6 +71,7 @@ const makeApp = (overrides = {}) => ({
 
 beforeEach(() => {
   h.apps = [makeApp()];
+  h.profile = { skills: 'Excel', bio: '', resume_url: null };
 });
 
 describe('My Applications — the interview schedule the applicant can actually read', () => {
@@ -234,6 +238,50 @@ describe('My Applications — the status is actually readable', () => {
     // rested on the step before it.
     expect(screen.getAllByText('Interviewed')).toHaveLength(2);
     expect(screen.getByText('Now')).toBeInTheDocument();
+  });
+
+  it('lays the ladder out as one horizontal row, not six stacked ones', async () => {
+    // Six rows of dot + label + sentence ate the better part of 400px of
+    // card, pushing everything the applicant came for below the fold. The
+    // same six steps now share a single line.
+    render(<MyApplications />);
+    await waitFor(() => expect(screen.getByText(/1 application submitted/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /View Details/ }));
+
+    await screen.findByText('Where you are');
+    const list = screen.getByRole('list');
+    expect(list.style.display).toBe('flex');
+    expect(list.style.flexDirection).not.toBe('column');
+    expect(list.children).toHaveLength(6);
+    expect(screen.getAllByRole('listitem')).toHaveLength(6);
+    // Still exactly one marker on the step the applicant is actually on.
+    expect(screen.getByText('Now')).toBeInTheDocument();
+    // The six sentences that sat under the labels are gone: the status panel
+    // directly above already says what the current step means, once.
+    expect(screen.queryByText('We have your application.')).toBeNull();
+    expect(screen.queryByText('A date, time and place are set.')).toBeNull();
+  });
+
+  it('folds a long skills list in the profile rather than dumping it', async () => {
+    h.profile = {
+      skills: 'Word, PowerPoint, Outlook, SQL, React, Node.js, Git, Figma',
+      bio: '',
+      resume_url: null,
+    };
+    render(<MyApplications />);
+    await waitFor(() => expect(screen.getByText(/1 application submitted/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /View Details/ }));
+
+    await screen.findByText('Skills');
+    expect(screen.getByText('Word')).toBeInTheDocument();
+    expect(screen.queryByText('Git')).toBeNull();
+
+    const toggle = screen.getByRole('button', { name: 'Show 4 more skills' });
+    expect(toggle).toHaveTextContent('+4 more');
+    fireEvent.click(toggle);
+
+    expect(screen.getByText('Git')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show fewer skills' })).toHaveTextContent('Show less');
   });
 
   it('does not show a rejected applicant a ladder of what they did not reach', async () => {
