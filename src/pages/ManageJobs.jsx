@@ -91,6 +91,16 @@ export default function ManageJobs() {
       .select("id, full_name, skills, location, phone_number, resume_url, bio")
       .in("id", userIds);
 
+    // Email is not a profiles column — auth.users is never readable from the
+    // browser, so this admin-gated SECURITY DEFINER function is the only
+    // client-side path to it. It is the same call Manage Users already
+    // makes; if it ever fails, the applicant just shows no address.
+    const { data: emailRows } = await supabase.rpc("get_profiles_with_email");
+    const emails = {};
+    (emailRows || []).forEach((r) => {
+      if (r && r.id) emails[r.id] = r.email;
+    });
+
     const job = jobs.find((j) => j.id === jobId);
     const requirements = job?.requirements || [];
     const title = job?.title || "";
@@ -105,7 +115,7 @@ export default function ManageJobs() {
       setAnalyzeProgress({ current: i + 1, total: list.length, name: p.full_name || "Unnamed" });
 
       const app = apps.find((a) => a.user_id === p.id);
-      ranked.push({ ...p, application: app, match: await aiSkillMatch(p.skills, requirements, title) });
+      ranked.push({ ...p, email: emails[p.id] || "", application: app, match: await aiSkillMatch(p.skills, requirements, title) });
       ranked.sort((a, b) => b.match.score - a.match.score);
       setApplicants([...ranked]);
     }
@@ -325,30 +335,15 @@ export default function ManageJobs() {
           ← Back to Jobs
         </button>
 
-        {/* The posting itself, kept on screen while its applicants are
-            reviewed — the requirements are what each card is scored against,
-            so they belong beside them rather than a click away. */}
-        <div style={jobBanner}>
-          <div style={jobBannerIcon} aria-hidden="true">{job.icon}</div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={jobBannerTitle}>{job.title}</div>
-            <div style={jobBannerMeta}>
-              {job.company}
-              {job.location ? ` • ${job.location}` : ""}
-            </div>
-            {job.requirements?.length > 0 && (
-              <div style={jobBannerReqs}>
-                <span style={jobBannerReqsKey}>Asks for</span>
-                {job.requirements.map((r) => (
-                  <span key={r} style={reqChip}>{r}</span>
-                ))}
-              </div>
-            )}
-          </div>
-          <span style={countChip}>
-            {applicants.length} {applicants.length === 1 ? "applicant" : "applicants"}
-          </span>
-        </div>
+        <h2 style={{ fontSize: "20px", color: "#fff", fontWeight: "800", margin: "16px 0 4px" }}>
+          {job.icon} {job.title}
+        </h2>
+        <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)", margin: "0 0 4px" }}>
+          {job.company} • {job.location}
+        </p>
+        <p style={{ fontSize: "12px", color: "rgba(255,255,255,0.4)", margin: "0 0 16px" }}>
+          Requirements: {job.requirements?.join(", ") || "None"}
+        </p>
 
         {analyzing ? (
           <div style={analyzingOverlay}>
@@ -371,15 +366,9 @@ export default function ManageJobs() {
             </div>
           </div>
         ) : applicants.length === 0 ? (
-          <div style={emptyPanel}>
-            <span style={{ fontSize: "30px" }}>👥</span>
-            <p style={{ color: "rgba(255,255,255,0.6)", fontWeight: "700", margin: "8px 0 2px" }}>
-              No applicants for this job yet.
-            </p>
-            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "13px", margin: 0 }}>
-              It will appear here the moment someone applies.
-            </p>
-          </div>
+          <p style={{ color: "rgba(255,255,255,0.5)", textAlign: "center", padding: "40px" }}>
+            No applicants for this job yet.
+          </p>
         ) : (
           <div style={dashGrid}>
             {applicants.map((a) => (
@@ -530,19 +519,6 @@ export default function ManageJobs() {
       ...matched.map((s) => ({ name: s, has: true })),
       ...missing.map((s) => ({ name: s, has: false })),
     ];
-    // Stated in the employer's words rather than as two numbers they have to
-    // subtract. Deliberately does not repeat the applicant's name: the name
-    // belongs to the header, and the interview modal adds a second copy.
-    const fitSummary =
-      matchTotal === 0
-        ? "This job lists no requirements, so there is nothing to score the application against."
-        : matched.length === matchTotal
-          ? "Meets every requirement this job asks for."
-          : matched.length === 0
-            ? `Matches none of the ${matchTotal} requirement${matchTotal === 1 ? "" : "s"} this job asks for.`
-            : `Meets ${matched.length} of the ${matchTotal} requirements — ${missing
-                .slice(0, 3)
-                .join(", ")} ${missing.length === 1 ? "is" : "are"} the gap.`;
 
     return (
       <div style={container}>
@@ -605,23 +581,19 @@ export default function ManageJobs() {
 
           {viewingJob?.description && <p style={jobDesc}>{viewingJob.description}</p>}
 
-          <div style={fitRow}>
-            <span style={fitIcon} aria-hidden="true">
-              🔍
-            </span>
-            <p style={fitText}>{fitSummary}</p>
-          </div>
-
           {checklist.length > 0 && (
-            <div style={checkList}>
-              {checklist.map((r) => (
-                <div key={r.name} style={checkItem(r.has)}>
-                  <span style={checkMark(r.has)} aria-hidden="true">
-                    {r.has ? "✓" : "✗"}
-                  </span>
-                  <span>{r.name}</span>
-                </div>
-              ))}
+            <div>
+              <div style={sectionLabel}>Requirements this job asks for</div>
+              <div style={checkList}>
+                {checklist.map((r) => (
+                  <div key={r.name} style={checkItem(r.has)}>
+                    <span style={checkMark(r.has)} aria-hidden="true">
+                      {r.has ? "✓" : "✗"}
+                    </span>
+                    <span>{r.name}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -649,6 +621,14 @@ export default function ManageJobs() {
           <div style={sectionLabel}>About this applicant</div>
 
           <div style={aboutList}>
+          {a.email && (
+            <div style={aboutRow}>
+              <span style={aboutKey}>Gmail</span>
+              <div style={aboutValue}>
+                <a href={`mailto:${a.email}`} style={emailLink}>{a.email}</a>
+              </div>
+            </div>
+          )}
           {a.skills && (
             <div style={aboutRow}>
               <span style={aboutKey}>Skills</span>
@@ -753,7 +733,7 @@ export default function ManageJobs() {
   }
 
   if (loading) {
-    return <div style={{ padding: "5px" }}><SkeletonTable rows={4} cols={5} /></div>;
+    return <div style={{ padding: "5px" }}><SkeletonTable rows={4} cols={7} /></div>;
   }
 
   return (
@@ -761,23 +741,11 @@ export default function ManageJobs() {
       {interviewModal}
 
       <div style={headerRow}>
-        <div style={{ minWidth: 0 }}>
-          <div style={pageTitleRow}>
-            <span style={pageIcon} aria-hidden="true">📋</span>
-            <div>
-              <h2 style={pageTitle}>Manage Jobs</h2>
-              <p style={pageSub}>
-                Post, close and review CJLink listings — every applicant is one click away.
-              </p>
-            </div>
-          </div>
+        <div>
+          <h2 style={{ fontSize: "20px", color: "#fff", fontWeight: "800", margin: "0 0 4px" }}>Manage Jobs</h2>
+          <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)", margin: 0 }}>{jobs.length} job{jobs.length !== 1 ? "s" : ""} listed</p>
         </div>
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-          <span style={countChip}>
-            {jobs.length} {jobs.length === 1 ? "job" : "jobs"}
-          </span>
-          <button style={addBtn} onClick={() => { resetForm(); setShowForm(true); }}>+ New Job</button>
-        </div>
+        <button style={addBtn} onClick={() => { resetForm(); setShowForm(true); }}>+ New Job</button>
       </div>
 
       {message && <p style={msg(message)}>{message}</p>}
@@ -878,24 +846,21 @@ export default function ManageJobs() {
         <table style={tableStyle}>
           <thead>
             <tr style={dashRow}>
-              <th style={dashTh}>Job</th>
+              <th style={dashTh}>Icon</th>
+              <th style={dashTh}>Title</th>
               <th style={dashTh}>Status</th>
+              <th style={dashTh}>Company</th>
+              <th style={dashTh}>Location</th>
               <th style={dashTh}>Salary</th>
-              <th style={{ ...dashTh, textAlign: "center" }}>Applicants</th>
+              <th style={dashTh}>Applicants</th>
               <th style={dashTh}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {jobs.length === 0 ? (
               <tr>
-                <td colSpan={5} style={{ textAlign: "center", padding: "40px 20px" }}>
-                  <div style={{ fontSize: "28px", opacity: 0.6 }}>🗂️</div>
-                  <p style={{ color: "rgba(255,255,255,0.6)", fontWeight: "700", margin: "8px 0 2px" }}>
-                    Nothing posted yet.
-                  </p>
-                  <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "13px", margin: 0 }}>
-                    Click “+ New Job” to write your first listing.
-                  </p>
+                <td colSpan={8} style={{ textAlign: "center", padding: "30px", color: "rgba(255,255,255,0.5)" }}>
+                  No jobs yet. Click "+ New Job" to create one.
                 </td>
               </tr>
             ) : (
@@ -931,34 +896,13 @@ function JobRow({ job, onEdit, onToggleStatus, onViewApplicants }) {
 
   return (
     <tr style={{ ...dashRow, opacity: status === "draft" ? 0.6 : 1 }}>
-      {/* Icon, title, who it is for and what it needs all sit in one cell —
-          three of the old eight columns repeated what the identity already
-          said, and pushed Actions off a 700px table. */}
-      <td style={{ ...dashTd, verticalAlign: "top" }}>
-        <div style={titleCell}>
-          <span style={rowIcon} aria-hidden="true">{job.icon || "💼"}</span>
-          <div style={{ minWidth: 0 }}>
-            <div style={rowTitle}>{job.title}</div>
-            <div style={rowSub}>
-              {job.company}
-              {job.location ? ` • ${job.location}` : ""}
-            </div>
-            {job.requirements?.length > 0 && (
-              <div style={rowReqs}>
-                {job.requirements.slice(0, 3).map((r) => (
-                  <span key={r} style={reqChip}>{r}</span>
-                ))}
-                {job.requirements.length > 3 && (
-                  <span style={reqChipMore}>+{job.requirements.length - 3} more</span>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </td>
+      <td style={dashTd}><span style={{ fontSize: "20px" }}>{job.icon || "💼"}</span></td>
+      <td style={{ ...dashTd, fontWeight: "600" }}>{job.title}</td>
       <td style={dashTd}><span style={statusChip(status)}>{status}</span></td>
+      <td style={dashTd}>{job.company}</td>
+      <td style={dashTd}>{job.location}</td>
       <td style={{ ...dashTd, fontSize: "12px" }}>{job.salary || "—"}</td>
-      <td style={{ ...dashTd, textAlign: "center", verticalAlign: "middle" }}>
+      <td style={{ ...dashTd, textAlign: "center" }}>
         {maxApps > 0 ? (
           <span style={{
             fontSize: "12px", fontWeight: "600",
@@ -968,7 +912,7 @@ function JobRow({ job, onEdit, onToggleStatus, onViewApplicants }) {
           </span>
         ) : (filled ?? "—")}
       </td>
-      <td style={{ ...dashTd, verticalAlign: "middle" }}>
+      <td style={dashTd}>
         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
           <button style={viewBtn} onClick={() => onViewApplicants(job)}>Applicants</button>
           <button style={editBtn} onClick={() => onEdit(job)}>Edit</button>
@@ -1096,31 +1040,6 @@ const aiBadge = { fontSize: "9px", fontWeight: "800", padding: "2px 5px", border
 const analyzingOverlay = { display: "flex", justifyContent: "center", padding: "60px 20px" };
 const analyzingContent = { textAlign: "center" };
 
-/* ── Page chrome ─────────────────────────────────────────────────── */
-const pageTitleRow = { display: "flex", alignItems: "center", gap: "12px" };
-const pageIcon = { width: "40px", height: "40px", borderRadius: "12px", background: "linear-gradient(135deg, #4a90e2, #1a73e8)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "19px", flexShrink: 0 };
-const pageTitle = { fontSize: "20px", color: "#fff", fontWeight: "800", margin: "0 0 2px" };
-const pageSub = { fontSize: "13px", color: "rgba(255,255,255,0.5)", margin: 0 };
-const countChip = { fontSize: "12px", fontWeight: "700", padding: "5px 11px", borderRadius: "20px", backgroundColor: "rgba(74,144,226,0.15)", color: "#93c5fd", border: "1px solid rgba(74,144,226,0.28)", whiteSpace: "nowrap" };
-
-/* ── Jobs table ─────────────────────────────────────────────────── */
-const titleCell = { display: "flex", gap: "10px", alignItems: "flex-start" };
-const rowIcon = { width: "34px", height: "34px", borderRadius: "9px", backgroundColor: "rgba(74,144,226,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "17px", flexShrink: 0 };
-const rowTitle = { fontWeight: "700", color: "#fff", fontSize: "14px", lineHeight: 1.3 };
-const rowSub = { fontSize: "12px", color: "rgba(255,255,255,0.5)", marginTop: "2px", lineHeight: 1.4 };
-const rowReqs = { display: "flex", gap: "5px", flexWrap: "wrap", marginTop: "7px" };
-const reqChip = { fontSize: "11px", fontWeight: "600", padding: "3px 8px", borderRadius: "10px", backgroundColor: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.65)", whiteSpace: "nowrap" };
-const reqChipMore = { ...reqChip, backgroundColor: "transparent", borderStyle: "dashed", color: "rgba(255,255,255,0.45)" };
-
-/* ── Applicants for one job ─────────────────────────────────────── */
-const jobBanner = { display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap", backgroundColor: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: radii.lg, padding: "16px 18px", margin: "16px 0" };
-const jobBannerIcon = { width: "42px", height: "42px", borderRadius: "11px", backgroundColor: "rgba(74,144,226,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "21px", flexShrink: 0 };
-const jobBannerTitle = { color: "#fff", fontSize: "17px", fontWeight: "800", lineHeight: 1.3 };
-const jobBannerMeta = { fontSize: "12px", color: "rgba(255,255,255,0.5)", marginTop: "2px" };
-const jobBannerReqs = { display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center", marginTop: "9px" };
-const jobBannerReqsKey = { fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.7px", color: "rgba(255,255,255,0.4)", marginRight: "2px" };
-const emptyPanel = { textAlign: "center", padding: "44px 20px", backgroundColor: "rgba(255,255,255,0.04)", border: "1px dashed rgba(255,255,255,0.14)", borderRadius: radii.lg };
-
 /* ── Applicant detail ──────────────────────────────────────────────
    The old view was one card with eight label:value rows at the same
    weight: the score, the person and the decision all ran together, and
@@ -1159,12 +1078,7 @@ const jobMeta = { fontSize: "12px", color: "rgba(255,255,255,0.5)", marginTop: "
 // context without pushing the verdict they are here to read off screen.
 const jobDesc = { fontSize: "13px", color: "rgba(255,255,255,0.7)", lineHeight: 1.6, margin: "0 0 14px", whiteSpace: "pre-wrap", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 4, overflow: "hidden" };
 
-// The verdict, in the employer's words instead of two numbers to subtract.
-const fitRow = { display: "flex", gap: "10px", alignItems: "flex-start", backgroundColor: "rgba(74,144,226,0.1)", border: "1px solid rgba(74,144,226,0.22)", borderRadius: "10px", padding: "12px 14px", marginBottom: "14px" };
-const fitIcon = { fontSize: "15px", lineHeight: "1.4", flexShrink: 0 };
-const fitText = { margin: 0, fontSize: "13px", color: "rgba(255,255,255,0.9)", lineHeight: 1.55, fontWeight: "600" };
-
-// Requirement-by-requirement, so the gap is visible rather than implied.
+// The requirements, ticked or crossed one by one.
 const checkList = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "8px", marginBottom: "14px" };
 const checkItem = (has) => ({
   display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", fontWeight: "600",
@@ -1187,4 +1101,5 @@ const aboutChips = { display: "flex", gap: "6px", flexWrap: "wrap", flex: 1, min
 const skillChip = { fontSize: "12px", fontWeight: "600", padding: "4px 10px", borderRadius: "12px", backgroundColor: "rgba(74,144,226,0.15)", color: "#93c5fd", border: "1px solid rgba(74,144,226,0.25)" };
 const aboutBio = { margin: 0, color: "rgba(255,255,255,0.85)", lineHeight: 1.65, flex: 1, minWidth: 0 };
 const aboutValue = { color: "rgba(255,255,255,0.85)", lineHeight: 1.6, minWidth: 0 };
+const emailLink = { color: "#93c5fd", fontWeight: "600", textDecoration: "none", wordBreak: "break-all" };
 const closedText = { fontSize: "13px", color: "rgba(255,255,255,0.5)", margin: "4px 0 0", fontStyle: "italic" };
