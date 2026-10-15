@@ -71,9 +71,6 @@ function renderDashboard() {
         <Route path="/admin" element={<><AdminDashboard /><CurrentPath /></>} />
         <Route path="/admin/jobs" element={<><div>JOBS PAGE</div><CurrentPath /></>} />
         <Route path="/admin/applicants" element={<><div>APPLICANTS PAGE</div><CurrentPath /></>} />
-        <Route path="/admin/applications" element={<><div>APPLICATIONS PAGE</div><CurrentPath /></>} />
-        <Route path="/admin/interviews" element={<><div>INTERVIEWS PAGE</div><CurrentPath /></>} />
-        <Route path="/admin/hired" element={<><div>HIRED PAGE</div><CurrentPath /></>} />
         <Route path="/admin/users" element={<><div>USERS PAGE</div><CurrentPath /></>} />
       </Routes>
     </MemoryRouter>
@@ -121,11 +118,12 @@ describe('Dashboard Overview — hierarchy', () => {
     await screen.findByText('Needs your attention');
 
     // Scope to the stat cards: the sidebar also says "Jobs" and "Applicants",
-    // and the pipeline also says "Hired". Only the stat cards carry the arrow.
+    // and the pipeline also says "Hired". Only the stat cards carry a caret
+    // (they expand) or an arrow (Jobs navigates).
     const statValue = (label) => {
       const card = screen
         .getAllByRole('button')
-        .find((b) => b.textContent.includes('→') && b.textContent.includes(label));
+        .find((b) => /[→▾▴]/.test(b.textContent) && b.textContent.includes(label));
       return card ? card.textContent : '';
     };
 
@@ -239,32 +237,75 @@ describe('Dashboard Overview — every number is a way in', () => {
 
 // Regression: all four cards pointed at /admin/applicants, so "Interviews: 4"
 // opened a skill-match page with no interviews on it — and no way to tell
-// which number had been clicked. Each card now has a route of its own.
-describe('Dashboard Overview — each card lands on its own rows', () => {
+// which number had been clicked. Each card now drops its own rows down
+// beneath itself, without leaving the overview.
+describe('Dashboard Overview — each card opens its own rows in place', () => {
   const statCard = (label) =>
     screen
       .getAllByRole('button')
-      .find((b) => b.textContent.includes('→') && b.textContent.includes(label));
+      .find((b) => /[→▾▴]/.test(b.textContent) && b.textContent.includes(label));
 
   [
-    ['Applicants',   '/admin/applicants'],
-    ['Applications', '/admin/applications'],
-    ['Interviews',   '/admin/interviews'],
-    ['Hired',        '/admin/hired'],
-  ].forEach(([label, path]) => {
-    it(`sends the ${label} card to ${path}`, async () => {
+    ['Applicants',   'applicants'],
+    ['Applications', 'applications'],
+    ['Interviews',   'interviews'],
+    ['Hired',        'hired'],
+  ].forEach(([label, view]) => {
+    it(`drops the ${label} list under the card and stays on the overview`, async () => {
       renderDashboard();
       await screen.findByText('Needs your attention');
 
       const card = statCard(label);
       expect(card).toBeDefined();
       fireEvent.click(card);
-      await waitFor(() => expect(screen.getByTestId('path')).toHaveTextContent(path));
+
+      expect(await screen.findByText(`RECORDS ${view}`)).toBeInTheDocument();
+      // Still the overview: the rest of it is on screen and no route was taken.
+      expect(screen.getByText('Hiring pipeline')).toBeInTheDocument();
+      expect(screen.getByTestId('path')).toHaveTextContent(/^\/admin$/);
     });
   });
 
-  it('the three new routes are genuinely different from one another', () => {
-    const targets = ['/admin/applicants', '/admin/applications', '/admin/interviews', '/admin/hired'];
-    expect(new Set(targets).size).toBe(targets.length);
+  it('clicking the open card again closes it', async () => {
+    renderDashboard();
+    await screen.findByText('Needs your attention');
+
+    fireEvent.click(statCard('Interviews'));
+    await screen.findByText('RECORDS interviews');
+
+    fireEvent.click(statCard('Interviews'));
+    await waitFor(() => expect(screen.queryByText('RECORDS interviews')).toBeNull());
+    expect(screen.getByText('Hiring pipeline')).toBeInTheDocument();
+  });
+
+  it('only one list is open at a time', async () => {
+    renderDashboard();
+    await screen.findByText('Needs your attention');
+
+    fireEvent.click(statCard('Applicants'));
+    await screen.findByText('RECORDS applicants');
+
+    fireEvent.click(statCard('Hired'));
+    expect(await screen.findByText('RECORDS hired')).toBeInTheDocument();
+    expect(screen.queryByText('RECORDS applicants')).toBeNull();
+  });
+
+  it('the caret tells you which card is open', async () => {
+    renderDashboard();
+    await screen.findByText('Needs your attention');
+
+    expect(statCard('Interviews').textContent).toContain('▾');
+
+    fireEvent.click(statCard('Interviews'));
+    await screen.findByText('RECORDS interviews');
+    expect(statCard('Interviews').textContent).toContain('▴');
+  });
+
+  it('Jobs is still a destination, not a dropdown — it goes somewhere', async () => {
+    renderDashboard();
+    await screen.findByText('Needs your attention');
+
+    fireEvent.click(statCard('Jobs'));
+    await waitFor(() => expect(screen.getByTestId('path')).toHaveTextContent('/admin/jobs'));
   });
 });

@@ -12,6 +12,10 @@ export default function AdminApplicants() {
   const [loading, setLoading] = useState(true);
   const [rankedApplicants, setRankedApplicants] = useState([]);
   const [analyzing, setAnalyzing] = useState(false);
+  // Distinguishes "ranking this job has not run yet" from "it ran and found
+  // nobody" — otherwise the frame before the effect fires tells you there are
+  // no applicants, which is not what it means.
+  const [hasRanked, setHasRanked] = useState(false);
   const [analyzeProgress, setAnalyzeProgress] = useState({ current: 0, total: 0, name: "" });
 
   useEffect(() => {
@@ -31,11 +35,12 @@ export default function AdminApplicants() {
   const selectedJob = jobs.find((j) => j.id === selectedJobId);
 
   useEffect(() => {
-    if (!selectedJob) { setRankedApplicants([]); return; }
+    if (!selectedJob) { setRankedApplicants([]); setHasRanked(false); return; }
     const requirements = selectedJob.requirements || [];
     const title = selectedJob.title || "";
 
     setAnalyzing(true);
+    setHasRanked(false);
     setRankedApplicants([]);
 
     (async () => {
@@ -48,6 +53,7 @@ export default function AdminApplicants() {
         setRankedApplicants([...ranked]);
       }
       setAnalyzing(false);
+      setHasRanked(true);
     })();
   }, [selectedJobId, applicants, selectedJob]);
 
@@ -141,39 +147,83 @@ export default function AdminApplicants() {
 
   return (
     <div style={container}>
-      <h2 style={{ fontSize: "20px", color: "#fff", fontWeight: "800", margin: "0 0 4px" }}>
-        Applicants
-      </h2>
-      <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)", margin: "0 0 20px" }}>
-        {applicants.length} applicant{applicants.length !== 1 ? "s" : ""} registered
-      </p>
-
-      <div style={fieldGroup}>
-        <label style={label}>Select a job to rank applicants by skill match:</label>
-        <select
-          style={select}
-          value={selectedJobId || ""}
-          onChange={(e) => {
-            setSelectedJobId(e.target.value ? parseInt(e.target.value) : null);
-            setSelectedApplicant(null);
-          }}
-        >
-          <option value="">-- Choose a job --</option>
-          {jobs.map((job) => (
-            <option key={job.id} value={job.id} style={{ color: "#1e293b", background: "#fff" }}>
-              {job.icon} {job.title}
-            </option>
-          ))}
-        </select>
+      <div style={pageHead}>
+        <div style={{ minWidth: 0 }}>
+          <h2 style={pageTitle}>Applicants</h2>
+          <p style={pageSub}>
+            Scored against a job's requirements — matched skills, missing skills and an
+            overall percentage.
+          </p>
+        </div>
+        <span style={countChip}>
+          <strong style={{ color: "#fff" }}>{applicants.length}</strong>{" "}
+          registered
+        </span>
       </div>
 
-      {selectedJob ? (
+      <div style={fieldGroup}>
+        <label style={label} htmlFor="rank-job">
+          Rank applicants against a job
+        </label>
+        <div style={selectWrap}>
+          <span style={selectIcon} aria-hidden="true">🎯</span>
+          <select
+            id="rank-job"
+            style={select}
+            value={selectedJobId || ""}
+            onChange={(e) => {
+              setSelectedJobId(e.target.value ? parseInt(e.target.value) : null);
+              setSelectedApplicant(null);
+            }}
+          >
+            <option value="">Choose a job…</option>
+            {jobs.map((job) => (
+              <option key={job.id} value={job.id} style={{ color: "#1e293b", background: "#fff" }}>
+                {job.icon} {job.title}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Nothing ranked until a job is chosen, and an empty page says why
+            nothing is there without saying what to do about it. */}
+        {!selectedJob && (
+          <div style={guideCard}>
+            <span style={guideIcon} aria-hidden="true">📊</span>
+            <div style={{ minWidth: 0 }}>
+              <div style={guideTitle}>Pick a job to start ranking</div>
+              <div style={guideText}>
+                Every registered applicant is scored against that job's requirements, so
+                the strongest matches rise to the top.
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {selectedJob && (
         <>
           <div style={jobInfo}>
-            <strong style={{ color: "#fff" }}>{selectedJob.icon} {selectedJob.title}</strong>
-            <span style={{ color: "rgba(255,255,255,0.5)" }}> — {selectedJob.company}, {selectedJob.location}</span>
-            <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.4)", marginTop: "4px" }}>
-              Requirements: {selectedJob.requirements?.join(", ") || "None"}
+            <div style={jobInfoHead}>
+              <span style={jobInfoIcon} aria-hidden="true">{selectedJob.icon}</span>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <strong style={jobInfoTitle}>{selectedJob.title}</strong>
+                <div style={jobInfoMeta}>
+                  {selectedJob.company} · {selectedJob.location}
+                </div>
+              </div>
+            </div>
+            <div style={reqRow}>
+              <span style={reqLabel}>Requirements</span>
+              <div style={reqChips}>
+                {(selectedJob.requirements || []).length === 0 ? (
+                  <span style={reqChipMuted}>None listed</span>
+                ) : (
+                  selectedJob.requirements.map((r) => (
+                    <span key={r} style={reqChip}>{r}</span>
+                  ))
+                )}
+              </div>
             </div>
           </div>
 
@@ -197,17 +247,42 @@ export default function AdminApplicants() {
                 </div>
               </div>
             </div>
+          ) : !hasRanked ? (
+            <div style={{ ...guideCard, marginTop: "4px" }}>
+              <span style={guideIcon} aria-hidden="true">⏳</span>
+              <div style={{ minWidth: 0 }}>
+                <div style={guideTitle}>Preparing the ranking…</div>
+                <div style={guideText}>
+                  Matching every applicant against the requirements listed above.
+                </div>
+              </div>
+            </div>
           ) : rankedApplicants.length === 0 ? (
-            <p style={{ color: "rgba(255,255,255,0.5)", textAlign: "center", padding: "40px" }}>
-              No applicants with skills found.
-            </p>
+            <div style={{ ...guideCard, marginTop: "4px" }}>
+              <span style={guideIcon} aria-hidden="true">🧩</span>
+              <div style={{ minWidth: 0 }}>
+                <div style={guideTitle}>No applicants with skills found</div>
+                <div style={guideText}>
+                  Nobody registered yet has set the skills this job asks for.
+                </div>
+              </div>
+            </div>
           ) : (
+            <div style={resultsHead}>
+              <span style={resultsTitle}>Ranked results</span>
+              <span style={resultsMeta}>
+                {rankedApplicants.length} applicant{rankedApplicants.length === 1 ? "" : "s"}
+              </span>
+            </div>
+          )}
+
+          {!analyzing && hasRanked && rankedApplicants.length > 0 && (
             <div style={dashGrid}>
               {rankedApplicants.map((a) => (
                 <div key={a.id} style={candidateCard} onClick={() => setSelectedApplicant(a)}>
                   <div style={candidateHeader}>
                     <div style={avatarCircle}>{a.full_name?.[0] || "?"}</div>
-                    <div style={{ flex: 1 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: "600", color: "#fff", fontSize: "14px" }}>
                         {a.full_name || "Unnamed"}
                       </div>
@@ -242,52 +317,10 @@ export default function AdminApplicants() {
             </div>
           )}
         </>
-      ) : (
-        // Nothing chosen, so there is nothing to rank against — but the
-        // Applicants card on the dashboard still promises people. Without
-        // this the page ended at the dropdown and showed no names at all.
-        applicants.length === 0 ? (
-          <p style={rosterEmpty}>
-            No applicants registered yet.
-          </p>
-        ) : (
-          <div style={dashGrid}>
-            {applicants.map((a) => (
-              <div key={a.id} style={candidateCard} onClick={() => setSelectedApplicant(a)}>
-                <div style={candidateHeader}>
-                  <div style={avatarCircle}>{a.full_name?.[0] || "?"}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: "600", color: "#fff", fontSize: "14px" }}>
-                      {a.full_name || "Unnamed"}
-                    </div>
-                    <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)" }}>
-                      {a.location || "No location"}
-                    </div>
-                  </div>
-                </div>
-                {a.skills && (
-                  <div style={rosterSkills}>{a.skills}</div>
-                )}
-              </div>
-            ))}
-          </div>
-        )
       )}
     </div>
   );
 }
-
-const rosterSkills = {
-  fontSize: "12px",
-  color: "rgba(255,255,255,0.6)",
-  marginTop: "10px",
-  lineHeight: "1.5",
-  display: "-webkit-box",
-  WebkitLineClamp: 2,
-  WebkitBoxOrient: "vertical",
-  overflow: "hidden",
-};
-const rosterEmpty = { color: "rgba(255,255,255,0.5)", textAlign: "center", padding: "40px 20px" };
 
 const scoreCircle = (score) => ({
   width: "44px", height: "44px", borderRadius: "50%",
@@ -300,15 +333,81 @@ const scoreCircle = (score) => ({
 
 const container = { padding: "5px" };
 const fieldGroup = { marginBottom: "16px" };
-const label = { display: "block", fontSize: "12px", color: "rgba(255,255,255,0.5)", marginBottom: "4px", fontWeight: "500" };
-const select = {
-  width: "100%", padding: "10px 12px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.15)",
-  fontSize: "14px", outline: "none", backgroundColor: "rgba(255,255,255,0.06)", color: "#fff", cursor: "pointer",
+const label = { display: "block", fontSize: "12px", color: "rgba(255,255,255,0.5)", marginBottom: "6px", fontWeight: "600", letterSpacing: "0.3px" };
+
+const pageHead = {
+  display: "flex", alignItems: "flex-start", justifyContent: "space-between",
+  gap: "12px", margin: "0 0 20px",
 };
+const pageTitle = { fontSize: "20px", color: "#fff", fontWeight: "800", margin: "0 0 4px" };
+const pageSub = { fontSize: "13px", color: "rgba(255,255,255,0.5)", margin: 0, lineHeight: "1.5" };
+const countChip = {
+  flexShrink: 0, fontSize: "12px", color: "rgba(255,255,255,0.6)",
+  backgroundColor: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
+  borderRadius: "20px", padding: "6px 12px", whiteSpace: "nowrap",
+};
+
+const selectWrap = {
+  display: "flex", alignItems: "center", gap: "8px",
+  backgroundColor: "rgba(255,255,255,0.06)",
+  border: "1px solid rgba(255,255,255,0.15)",
+  borderRadius: "10px", padding: "2px 12px",
+};
+const selectIcon = { fontSize: "15px", flexShrink: 0 };
+const select = {
+  flex: 1, minWidth: 0, padding: "10px 0", border: "none",
+  fontSize: "14px", outline: "none", backgroundColor: "transparent",
+  color: "#fff", cursor: "pointer",
+};
+
+/**
+ * What to do next, when there is nothing to show yet. An empty page that
+ * only reports its own emptiness leaves the reader stuck at the same
+ * question they arrived with.
+ */
+const guideCard = {
+  display: "flex", alignItems: "flex-start", gap: "12px",
+  marginTop: "16px", padding: "16px",
+  backgroundColor: "rgba(255,255,255,0.04)",
+  border: "1px dashed rgba(255,255,255,0.16)",
+  borderRadius: radii.md,
+};
+const guideIcon = { fontSize: "20px", flexShrink: 0, lineHeight: 1.2 };
+const guideTitle = { color: "#fff", fontWeight: "700", fontSize: "14px", marginBottom: "4px" };
+const guideText = { color: "rgba(255,255,255,0.55)", fontSize: "13px", lineHeight: "1.55" };
+
 const jobInfo = {
-  backgroundColor: "rgba(255,255,255,0.06)", padding: "14px 16px", borderRadius: radii.md,
+  backgroundColor: "rgba(255,255,255,0.06)", padding: "16px", borderRadius: radii.md,
   marginBottom: "20px", border: "1px solid rgba(255,255,255,0.1)", fontSize: "14px",
 };
+const jobInfoHead = { display: "flex", alignItems: "center", gap: "12px" };
+const jobInfoIcon = {
+  width: "38px", height: "38px", borderRadius: "10px", flexShrink: 0,
+  display: "flex", alignItems: "center", justifyContent: "center",
+  fontSize: "18px", backgroundColor: "rgba(96,165,250,0.16)",
+  border: "1px solid rgba(96,165,250,0.28)",
+};
+const jobInfoTitle = { color: "#fff", fontSize: "15px", fontWeight: "700", display: "block" };
+const jobInfoMeta = { color: "rgba(255,255,255,0.5)", fontSize: "12.5px", marginTop: "2px" };
+const reqRow = { display: "flex", alignItems: "baseline", gap: "10px", marginTop: "14px", flexWrap: "wrap" };
+const reqLabel = {
+  fontSize: "11px", color: "rgba(255,255,255,0.45)", fontWeight: "700",
+  textTransform: "uppercase", letterSpacing: "0.6px",
+};
+const reqChips = { display: "flex", gap: "6px", flexWrap: "wrap" };
+const reqChip = {
+  fontSize: "11.5px", padding: "3px 9px", borderRadius: "12px",
+  backgroundColor: "rgba(74,144,226,0.16)", color: "#93c5fd",
+  border: "1px solid rgba(74,144,226,0.28)", fontWeight: "600",
+};
+const reqChipMuted = { fontSize: "11.5px", color: "rgba(255,255,255,0.45)", fontStyle: "italic" };
+
+const resultsHead = {
+  display: "flex", alignItems: "baseline", justifyContent: "space-between",
+  gap: "10px", margin: "0 0 12px",
+};
+const resultsTitle = { color: "#fff", fontSize: "14px", fontWeight: "700" };
+const resultsMeta = { color: "rgba(255,255,255,0.45)", fontSize: "12px" };
 const candidateCard = {
   backgroundColor: "rgba(255,255,255,0.06)", borderRadius: radii.md, padding: "16px",
   cursor: "pointer", border: "1px solid rgba(255,255,255,0.1)",

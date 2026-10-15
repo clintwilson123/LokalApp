@@ -16,20 +16,6 @@ const menuItems = [
   { name: "Users", path: "/admin/users", icon: "👥", desc: "Manage" },
 ];
 
-/**
- * Routes that are real destinations without being menu entries.
- *
- * The three overview cards need somewhere specific to land, but they are
- * reached from the dashboard rather than from the sidebar — adding them there
- * too would triple a four-item menu. Without this map they fell through to
- * `|| "Dashboard"` and the header called them all "Dashboard".
- */
-const ROUTE_TITLES = {
-  "/admin/applications": "Applications",
-  "/admin/interviews": "Interviews",
-  "/admin/hired": "Hired",
-};
-
 export default function AdminDashboard() {
   const location = useLocation();
   const { signOut, profile } = useAuth();
@@ -40,9 +26,6 @@ export default function AdminDashboard() {
       case "/admin": return <AdminDashboardHome />;
       case "/admin/jobs": return <ManageJobs />;
       case "/admin/applicants": return <AdminApplicants />;
-      case "/admin/applications": return <AdminRecords view="applications" />;
-      case "/admin/interviews": return <AdminRecords view="interviews" />;
-      case "/admin/hired": return <AdminRecords view="hired" />;
       case "/admin/users": return <Users />;
       case "/admin/email-settings": return <AdminDashboardHome />;
       default: return <AdminDashboardHome />;
@@ -54,7 +37,7 @@ export default function AdminDashboard() {
   }
 
   const currentItem = menuItems.find((item) => item.path === location.pathname);
-  const displayTitle = currentItem?.name || ROUTE_TITLES[location.pathname] || "Dashboard";
+  const displayTitle = currentItem?.name || "Dashboard";
 
   return (
     <div style={dashboardLayout}>
@@ -138,17 +121,20 @@ const PIPELINE = [
 ];
 
 /**
- * Every card links to the rows it counted — Applications to the applications,
- * Interviews to the interviews, Hired to the hired. All four used to point at
- * /admin/applicants, so "Interviews: 4" opened a skill-match page with no
- * interviews on it and no way to tell which number you had clicked.
+ * Four of these cards open the rows behind their number directly beneath
+ * themselves instead of navigating away: "Interviews: 4" drops the four
+ * interviews down under the card, so the count is read where the people are
+ * read. A card carrying `view` expands; a card carrying `to` navigates.
+ *
+ * Jobs is the exception — a list of jobs is somewhere you work (post, edit,
+ * close), so it still goes to /admin/jobs.
  */
 const STAT_META = [
   { key: "jobs",         label: "Jobs",         icon: "💼", accent: "#60a5fa", to: "/admin/jobs" },
-  { key: "applicants",   label: "Applicants",   icon: "👤", accent: "#2dd4bf", to: "/admin/applicants" },
-  { key: "applications", label: "Applications", icon: "📋", accent: "#818cf8", to: "/admin/applications" },
-  { key: "interviews",   label: "Interviews",   icon: "📅", accent: "#c084fc", to: "/admin/interviews" },
-  { key: "hired",        label: "Hired",        icon: "✅", accent: "#4ade80", to: "/admin/hired" },
+  { key: "applicants",   label: "Applicants",   icon: "👤", accent: "#2dd4bf", view: "applicants" },
+  { key: "applications", label: "Applications", icon: "📋", accent: "#818cf8", view: "applications" },
+  { key: "interviews",   label: "Interviews",   icon: "📅", accent: "#c084fc", view: "interviews" },
+  { key: "hired",        label: "Hired",        icon: "✅", accent: "#4ade80", view: "hired" },
 ];
 
 /** "3 minutes ago" — now imported from lib/format so both admin screens
@@ -164,6 +150,10 @@ function AdminDashboardHome() {
   const [topJobs, setTopJobs] = React.useState([]);
   const [recent, setRecent] = React.useState([]);
   const [loaded, setLoaded] = React.useState(false);
+  // Which of the four cards is showing its rows. One at a time: an accordion
+  // that allows several open panels buries the pipeline and the panels below
+  // it, and the four lists are each a table.
+  const [openStat, setOpenStat] = React.useState(null);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -280,12 +270,17 @@ function AdminDashboardHome() {
         </button>
       </div>
 
-      {/* Every card is a link. A number you cannot act on is trivia. */}
+      {/* Every card is a way in. A number you cannot act on is trivia. */}
       <div style={statRow}>
         {STAT_META.map((s) => (
           <button
             key={s.key}
-            onClick={() => navigate(s.to)}
+            onClick={() =>
+              s.view
+                ? setOpenStat(openStat === s.view ? null : s.view)
+                : navigate(s.to)
+            }
+            aria-expanded={s.view ? openStat === s.view : undefined}
             style={{ ...statCard, borderColor: `${s.accent}33` }}
           >
             <span style={{ ...statTile, background: `${s.accent}1f`, color: s.accent }}>{s.icon}</span>
@@ -293,10 +288,23 @@ function AdminDashboardHome() {
               <div style={statNum}>{stats[s.key]}</div>
               <div style={statLabel}>{s.label}</div>
             </div>
-            <span style={{ ...statArrow, color: s.accent }}>→</span>
+            {/* A caret says "this opens here"; an arrow says "this goes
+                somewhere". Only Jobs goes somewhere. */}
+            <span style={{ ...statArrow, color: s.accent }}>
+              {s.view ? (openStat === s.view ? "▴" : "▾") : "→"}
+            </span>
           </button>
         ))}
       </div>
+
+      {openStat && (
+        <AdminRecords
+          key={openStat}
+          view={openStat}
+          variant="dropdown"
+          onClose={() => setOpenStat(null)}
+        />
+      )}
 
       <div style={panel}>
         <div style={panelHead}>
