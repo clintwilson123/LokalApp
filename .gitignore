@@ -31,3 +31,5 @@ supabase/.temp/
 *.docx
 USER_GUIDE.md
 TechFolio_*.md
+.vercel
+.env*

@@ -128,8 +128,7 @@ serve(async (req: Request) => {
       }, 409);
     }
 
-    // Delete verification codes first (FK-safe), then profile rows, then auth user
-    await supabase.from("verification_codes").delete().eq("user_id", user.id);
+    // Delete profile rows and notifications, then auth user
     await supabase.from("notifications").delete().eq("user_id", user.id);
     await supabase.from("profiles").delete().eq("id", user.id);
 

@@ -286,32 +286,6 @@ CREATE TABLE IF NOT EXISTS public.hiring_policy_acknowledgments (
   UNIQUE(user_id, policy_id)
 );
 
--- OTP table (used by send-verification-code / verify-otp-code /
--- cleanup-unverified-signup). A bad earlier script may have dropped it.
-CREATE TABLE IF NOT EXISTS public.verification_codes (
-  id SERIAL PRIMARY KEY,
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-  code TEXT NOT NULL,
-  purpose TEXT NOT NULL DEFAULT 'signup' CHECK (purpose IN ('signup', 'password_reset')),
-  used BOOLEAN DEFAULT FALSE,
-  attempts INT NOT NULL DEFAULT 0,
-  expires_at TIMESTAMPTZ NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_verification_codes_user ON public.verification_codes(user_id);
-CREATE INDEX IF NOT EXISTS idx_verification_codes_code ON public.verification_codes(code);
-
-ALTER TABLE public.verification_codes ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Users can read own verification codes" ON public.verification_codes;
-DROP POLICY IF EXISTS "System can insert verification codes" ON public.verification_codes;
-DROP POLICY IF EXISTS "System can update verification codes" ON public.verification_codes;
-
--- LOCKDOWN: no client access — only edge functions (service role) may touch codes
-REVOKE ALL ON public.verification_codes FROM anon, authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.verification_codes TO service_role;
-
 
 -- =============================================
 -- 6. RESTORE THE ADMIN PROFILE ROW

@@ -154,6 +154,10 @@ BEGIN
 END;
 $$;
 
+-- Drop first: the live DB may have a different return signature, and
+-- CREATE OR REPLACE cannot change a function's return type (SQLSTATE 42P13).
+DROP FUNCTION IF EXISTS get_profiles_with_email();
+
 CREATE OR REPLACE FUNCTION get_profiles_with_email()
 RETURNS TABLE (
   id UUID,

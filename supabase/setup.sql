@@ -7,7 +7,7 @@
 --   * NEVER drops a table, NEVER deletes a user or row
 --   * never removes the profiles_security_guard trigger
 --   * never removes RLS or weakens any policy
---   * verification_codes stays locked (service_role only)
+--   * OTP flow uses Supabase Auth Hook + EmailJS (no custom verification_codes table)
 --   * restores the admin profile non-destructively
 --   * finishes with NOTIFY pgrst, 'reload schema' to fix PGRST205
 --
@@ -717,8 +717,9 @@ CREATE POLICY "Users can delete their own files"
 --   reset_with_code() wrote auth.users.encrypted_password directly —
 --   that mechanism is prohibited in the current design. send_reset_code()
 --   stored OTPs in profiles.preferences, bypassing verification_codes
---   and its attempt counter. The current design is Supabase Auth email
---   recovery only, so these functions must not remain callable.
+--   and its attempt counter. The current design uses Supabase Auth
+--   email recovery (link-based) and the Send Email Hook + EmailJS for
+--   OTP signup verification, so these legacy functions must not remain.
 --
 -- NO COLUMNS ARE DROPPED. Obsolete security_question / security_answer
 -- columns, if present, are deliberately left in place and unused.
@@ -749,39 +750,6 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO anon, authenticated, service_role;
-
--- =============================================
--- 10b. VERIFICATION CODES LOCKDOWN
--- The section-10 grants above hit every table, so the OTP table is
--- re-tightened here: RLS on, no client policies, no client grants.
--- Only edge functions (service role, bypasses RLS) may touch codes.
--- =============================================
-
-CREATE TABLE IF NOT EXISTS verification_codes (
-  id SERIAL PRIMARY KEY,
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-  code TEXT NOT NULL,
-  purpose TEXT NOT NULL DEFAULT 'signup' CHECK (purpose IN ('signup', 'password_reset')),
-  used BOOLEAN DEFAULT FALSE,
-  attempts INT NOT NULL DEFAULT 0,
-  expires_at TIMESTAMPTZ NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Older installs may pre-date the attempt counter
-ALTER TABLE verification_codes ADD COLUMN IF NOT EXISTS attempts INT NOT NULL DEFAULT 0;
-
-CREATE INDEX IF NOT EXISTS idx_verification_codes_user ON verification_codes(user_id);
-CREATE INDEX IF NOT EXISTS idx_verification_codes_code ON verification_codes(code);
-
-ALTER TABLE verification_codes ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Users can read own verification codes" ON verification_codes;
-DROP POLICY IF EXISTS "System can insert verification codes" ON verification_codes;
-DROP POLICY IF EXISTS "System can update verification codes" ON verification_codes;
-
-REVOKE ALL ON verification_codes FROM anon, authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON verification_codes TO service_role;
 
 -- =============================================
 -- 10c. REFRESH THE PostgREST SCHEMA CACHE
@@ -832,14 +800,7 @@ ORDER BY policyname;
 SELECT t.tgname FROM pg_trigger t
 WHERE t.tgrelid = to_regclass('public.profiles') AND NOT t.tgisinternal;
 
--- 11g. verification_codes must exist, have RLS, and have NO client grants
-SELECT to_regclass('public.verification_codes') IS NOT NULL AS table_exists;
-SELECT grantee, privilege_type
-FROM information_schema.role_table_grants
-WHERE table_schema = 'public' AND table_name = 'verification_codes'
-  AND grantee IN ('anon', 'authenticated');
-
--- 11h. row counts (confirm nothing was deleted)
+-- 11g. row counts (confirm nothing was deleted)
 SELECT (SELECT count(*) FROM profiles)    AS profiles,
        (SELECT count(*) FROM jobs)        AS jobs,
        (SELECT count(*) FROM applications) AS applications,
