@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabaseClient";
 import { colors, radii, dashTable, dashTh, dashTd, dashRow, dashGrid, statusBadge, statusLabel } from "../uiStyles";
 import { SkeletonTable } from "../components/Skeleton";
 import { aiSkillMatch } from "../lib/aiSkillMatch";
+import { relativeTime } from "../lib/format";
 import SkillPicker from "../components/SkillPicker";
 import { loadSkillCatalog } from "../lib/skillCatalog";
 
@@ -324,15 +325,30 @@ export default function ManageJobs() {
           ← Back to Jobs
         </button>
 
-        <h2 style={{ fontSize: "20px", color: "#fff", fontWeight: "800", margin: "16px 0 4px" }}>
-          {job.icon} {job.title}
-        </h2>
-        <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)", margin: "0 0 4px" }}>
-          {job.company} • {job.location}
-        </p>
-        <p style={{ fontSize: "12px", color: "rgba(255,255,255,0.4)", margin: "0 0 16px" }}>
-          Requirements: {job.requirements?.join(", ") || "None"}
-        </p>
+        {/* The posting itself, kept on screen while its applicants are
+            reviewed — the requirements are what each card is scored against,
+            so they belong beside them rather than a click away. */}
+        <div style={jobBanner}>
+          <div style={jobBannerIcon} aria-hidden="true">{job.icon}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={jobBannerTitle}>{job.title}</div>
+            <div style={jobBannerMeta}>
+              {job.company}
+              {job.location ? ` • ${job.location}` : ""}
+            </div>
+            {job.requirements?.length > 0 && (
+              <div style={jobBannerReqs}>
+                <span style={jobBannerReqsKey}>Asks for</span>
+                {job.requirements.map((r) => (
+                  <span key={r} style={reqChip}>{r}</span>
+                ))}
+              </div>
+            )}
+          </div>
+          <span style={countChip}>
+            {applicants.length} {applicants.length === 1 ? "applicant" : "applicants"}
+          </span>
+        </div>
 
         {analyzing ? (
           <div style={analyzingOverlay}>
@@ -355,9 +371,15 @@ export default function ManageJobs() {
             </div>
           </div>
         ) : applicants.length === 0 ? (
-          <p style={{ color: "rgba(255,255,255,0.5)", textAlign: "center", padding: "40px" }}>
-            No applicants for this job yet.
-          </p>
+          <div style={emptyPanel}>
+            <span style={{ fontSize: "30px" }}>👥</span>
+            <p style={{ color: "rgba(255,255,255,0.6)", fontWeight: "700", margin: "8px 0 2px" }}>
+              No applicants for this job yet.
+            </p>
+            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "13px", margin: 0 }}>
+              It will appear here the moment someone applies.
+            </p>
+          </div>
         ) : (
           <div style={dashGrid}>
             {applicants.map((a) => (
@@ -497,6 +519,31 @@ export default function ManageJobs() {
 
   if (selectedApplicant) {
     const a = selectedApplicant;
+    const matchScore = a.match?.score || 0;
+    const matchTotal = a.match?.total || 0;
+    const matched = a.match?.matchedItems || [];
+    const missing = a.match?.missingItems || [];
+    // Both lists hold JOB requirements, not the applicant's own skills, so
+    // together they are the full checklist — which is what turns "he has
+    // Excel" into an answerable "why does he fit this job".
+    const checklist = [
+      ...matched.map((s) => ({ name: s, has: true })),
+      ...missing.map((s) => ({ name: s, has: false })),
+    ];
+    // Stated in the employer's words rather than as two numbers they have to
+    // subtract. Deliberately does not repeat the applicant's name: the name
+    // belongs to the header, and the interview modal adds a second copy.
+    const fitSummary =
+      matchTotal === 0
+        ? "This job lists no requirements, so there is nothing to score the application against."
+        : matched.length === matchTotal
+          ? "Meets every requirement this job asks for."
+          : matched.length === 0
+            ? `Matches none of the ${matchTotal} requirement${matchTotal === 1 ? "" : "s"} this job asks for.`
+            : `Meets ${matched.length} of the ${matchTotal} requirements — ${missing
+                .slice(0, 3)
+                .join(", ")} ${missing.length === 1 ? "is" : "are"} the gap.`;
+
     return (
       <div style={container}>
         {interviewModal}
@@ -511,17 +558,79 @@ export default function ManageJobs() {
             exactly as it had before. */}
         {message && <p style={msg(message)}>{message}</p>}
 
-        <div style={detailCard}>
-          <h3 style={{ color: "#fff", marginBottom: "8px" }}>{a.full_name || "Unnamed"}</h3>
-          <div style={scoreLarge}>
-            <span style={aiBadge}>AI</span>{" "}
-            Match: <strong>{(a.match?.score) || 0}%</strong> ({(a.match?.matched) || 0}/{(a.match?.total) || 0} skills)
+        {/* Who this is, and how they score — readable in one glance. The
+            name and the status each appear exactly once here; the interview
+            modal renders their own copy when it is open. */}
+        <div style={heroCard}>
+          <div style={heroTop}>
+            <span style={heroAvatar} aria-hidden="true">
+              {(a.full_name || "?").trim().charAt(0).toUpperCase() || "?"}
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <h3 style={heroName}>{a.full_name || "Unnamed"}</h3>
+              <div style={heroMeta}>{a.location || "No location set"}</div>
+            </div>
+            <div style={heroScore}>
+              <div style={scoreRing(matchScore)}>{matchScore}%</div>
+              <div style={heroScoreLabel}>skill match</div>
+            </div>
           </div>
-          {a.match?.explanation && (
-            <div style={aiExplanation}>
-              <strong>🤖 Gemini Analysis:</strong> {a.match.explanation}
+          <div style={heroFacts}>
+            <span style={statusBadge(a.application?.status || "pending")}>
+              {statusLabel(a.application?.status)}
+            </span>
+            <span style={heroFact}>
+              {matched.length} of {matchTotal} requirements matched
+            </span>
+            {a.application?.created_at && (
+              <span style={heroFact}>Applied {relativeTime(a.application.created_at)}</span>
+            )}
+          </div>
+        </div>
+
+        {/* WHY this person, for this particular job. The job sits directly
+            above its requirements so the two can be read together instead of
+            from memory of the row they clicked. */}
+        <div style={sectionCard}>
+          <div style={jobHead}>
+            <span style={jobIcon} aria-hidden="true">
+              {viewingJob?.icon || "💼"}
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={jobTitle}>{viewingJob?.title || "This job"}</div>
+              <div style={jobMeta}>{viewingJob?.company}</div>
+              {viewingJob?.location && <div style={jobMeta}>{viewingJob.location}</div>}
+            </div>
+          </div>
+
+          {viewingJob?.description && <p style={jobDesc}>{viewingJob.description}</p>}
+
+          <div style={fitRow}>
+            <span style={fitIcon} aria-hidden="true">
+              🔍
+            </span>
+            <p style={fitText}>{fitSummary}</p>
+          </div>
+
+          {checklist.length > 0 && (
+            <div style={checkList}>
+              {checklist.map((r) => (
+                <div key={r.name} style={checkItem(r.has)}>
+                  <span style={checkMark(r.has)} aria-hidden="true">
+                    {r.has ? "✓" : "✗"}
+                  </span>
+                  <span>{r.name}</span>
+                </div>
+              ))}
             </div>
           )}
+
+          {a.match?.explanation && (
+            <div style={aiExplanation}>
+              <strong>🤖 Match analysis:</strong> {a.match.explanation}
+            </div>
+          )}
+
           {a.match?.basicScore !== undefined && a.match.basicScore !== a.match.score && (
             <div style={comparisonRow}>
               <span style={comparisonLabel}>🔍 Basic Match</span>
@@ -531,94 +640,120 @@ export default function ManageJobs() {
               <span style={{ ...comparisonValue, color: "#93c5fd" }}>{a.match.score}%</span>
             </div>
           )}
-          <div style={detailGrid}>
-            <div style={detailItem}><strong>Skills:</strong> {a.skills || "Not set"}</div>
-            <div style={detailItem}><strong>Location:</strong> {a.location || "Not set"}</div>
-            <div style={detailItem}><strong>Phone:</strong> {a.phone_number || "Not set"}</div>
-            <div style={detailItem}><strong>Bio:</strong> {a.bio || "Not set"}</div>
-            {a.resume_url && (
-              <div style={detailItem}>
-                <strong>Resume:</strong>
-                <div style={{ marginTop: "4px" }}>
-                  <a href={a.resume_url} target="_blank" rel="noreferrer" style={resumeViewBtn}>
-                    📄 {a.resume_url.split("/").pop() || "View Resume"}
-                  </a>
-                </div>
+        </div>
+
+        {/* What they say about themselves, written as prose rather than as
+            one label:value line per fact. Empty fields are omitted instead
+            of printing "Not set" five times. */}
+        <div style={sectionCard}>
+          <div style={sectionLabel}>About this applicant</div>
+
+          <div style={aboutList}>
+          {a.skills && (
+            <div style={aboutRow}>
+              <span style={aboutKey}>Skills</span>
+              <div style={aboutChips}>
+                {a.skills
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean)
+                  .map((s) => (
+                    <span key={s} style={skillChip}>
+                      {s}
+                    </span>
+                  ))}
               </div>
-            )}
-            <div style={detailItem}>
-              <strong>Status:</strong>{" "}
-              {/* Was a bare span that painted hired green, rejected red and
-                  everything else — pending, reviewed AND interview scheduled —
-                  the same amber. */}
-              <span style={statusBadge(a.application?.status || "pending")}>
-                {statusLabel(a.application?.status)}
-              </span>
             </div>
-            {a.application?.status !== "hired" && a.application?.status !== "rejected" && (
-              <div style={{ display: "flex", gap: "8px", marginTop: "4px", flexWrap: "wrap" }}>
-                {a.application?.status === "pending" && (
-                  <button onClick={() => updateApplicantStatus(a.application.id, "reviewed")} style={{
-                    flex: 1, padding: "8px", backgroundColor: "#4a90e2", color: "#fff", border: "none",
-                    borderRadius: "8px", fontWeight: "700", fontSize: "12px", cursor: "pointer",
-                  }}>Review</button>
-                )}
-                {a.application?.status === "reviewed" && (
-                  <button onClick={() => updateApplicantStatus(a.application.id, "accepted")} style={{
-                    flex: 1, padding: "8px", backgroundColor: "#22c55e", color: "#fff", border: "none",
-                    borderRadius: "8px", fontWeight: "700", fontSize: "12px", cursor: "pointer",
-                  }}>Accept</button>
-                )}
-                {a.application?.status === "interview_scheduled" && (
-                  <button onClick={() => updateApplicantStatus(a.application.id, "accepted")} style={{
-                    flex: 1, padding: "8px", backgroundColor: "#22c55e", color: "#fff", border: "none",
-                    borderRadius: "8px", fontWeight: "700", fontSize: "12px", cursor: "pointer",
-                  }}>Accept</button>
-                )}
-                {a.application?.status === "accepted" && (
-                  <button onClick={() => updateApplicantStatus(a.application.id, "hired")} style={{
-                    flex: 1, padding: "8px", backgroundColor: "#22c55e", color: "#fff", border: "none",
-                    borderRadius: "8px", fontWeight: "700", fontSize: "12px", cursor: "pointer",
-                  }}>Hire</button>
-                )}
-                <button onClick={() => updateApplicantStatus(a.application.id, "rejected")} style={{
-                  flex: 1, padding: "8px", backgroundColor: "#ef4444", color: "#fff", border: "none",
-                  borderRadius: "8px", fontWeight: "700", fontSize: "12px", cursor: "pointer",
-                }}>Reject</button>
-              </div>
-            )}
-            {(a.application?.status === "reviewed" || a.application?.status === "pending" || a.application?.status === "interview_scheduled") && (
-              <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
-                <button onClick={() => openInterviewModal(a)} style={{
-                  flex: 1, padding: "10px", backgroundColor: "rgba(139,92,246,0.2)", color: "#c4b5fd",
-                  border: "1px solid rgba(139,92,246,0.3)", borderRadius: "8px", fontWeight: "700", fontSize: "13px", cursor: "pointer",
-                }}>{a.application?.status === "interview_scheduled" ? "Reschedule Interview" : "Schedule Interview"}</button>
-              </div>
-            )}
-            {a.match?.matchedItems?.length > 0 && (
-              <div style={detailItem}>
-                <strong>Matched Skills:</strong>
-                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
-                  {a.match.matchedItems.map((s) => (<span key={s} style={matchBadge}>{s}</span>))}
-                </div>
-              </div>
-            )}
-            {a.match?.missingItems?.length > 0 && (
-              <div style={detailItem}>
-                <strong>Missing Skills:</strong>
-                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
-                  {a.match.missingItems.map((s) => (<span key={s} style={missingBadge}>{s}</span>))}
-                </div>
-              </div>
-            )}
+          )}
+
+          {a.bio && (
+            <div style={aboutRow}>
+              <span style={aboutKey}>Bio</span>
+              <p style={aboutBio}>{a.bio}</p>
+            </div>
+          )}
+
+          <div style={aboutRow}>
+            <span style={aboutKey}>Contact</span>
+            <div style={aboutValue}>
+              {a.location && <div>{a.location}</div>}
+              {a.phone_number && <div>{a.phone_number}</div>}
+              {!a.location && !a.phone_number && <div>Not set</div>}
+            </div>
           </div>
+
+          {a.resume_url && (
+            <div style={aboutRow}>
+              <span style={aboutKey}>Resume</span>
+              <div>
+                <a href={a.resume_url} target="_blank" rel="noreferrer" style={resumeViewBtn}>
+                  📄 {a.resume_url.split("/").pop() || "View Resume"}
+                </a>
+              </div>
+            </div>
+          )}
+          </div>
+        </div>
+
+        {/* The decision, grouped on its own instead of buried among the
+            facts it is based on. */}
+        <div style={sectionCard}>
+          <div style={sectionLabel}>Decision</div>
+
+          {a.application?.status !== "hired" && a.application?.status !== "rejected" ? (
+            <div style={{ display: "flex", gap: "8px", marginTop: "4px", flexWrap: "wrap" }}>
+              {a.application?.status === "pending" && (
+                <button onClick={() => updateApplicantStatus(a.application.id, "reviewed")} style={{
+                  flex: 1, padding: "8px", backgroundColor: "#4a90e2", color: "#fff", border: "none",
+                  borderRadius: "8px", fontWeight: "700", fontSize: "12px", cursor: "pointer",
+                }}>Review</button>
+              )}
+              {a.application?.status === "reviewed" && (
+                <button onClick={() => updateApplicantStatus(a.application.id, "accepted")} style={{
+                  flex: 1, padding: "8px", backgroundColor: "#22c55e", color: "#fff", border: "none",
+                  borderRadius: "8px", fontWeight: "700", fontSize: "12px", cursor: "pointer",
+                }}>Accept</button>
+              )}
+              {a.application?.status === "interview_scheduled" && (
+                <button onClick={() => updateApplicantStatus(a.application.id, "accepted")} style={{
+                  flex: 1, padding: "8px", backgroundColor: "#22c55e", color: "#fff", border: "none",
+                  borderRadius: "8px", fontWeight: "700", fontSize: "12px", cursor: "pointer",
+                }}>Accept</button>
+              )}
+              {a.application?.status === "accepted" && (
+                <button onClick={() => updateApplicantStatus(a.application.id, "hired")} style={{
+                  flex: 1, padding: "8px", backgroundColor: "#22c55e", color: "#fff", border: "none",
+                  borderRadius: "8px", fontWeight: "700", fontSize: "12px", cursor: "pointer",
+                }}>Hire</button>
+              )}
+              <button onClick={() => updateApplicantStatus(a.application.id, "rejected")} style={{
+                flex: 1, padding: "8px", backgroundColor: "#ef4444", color: "#fff", border: "none",
+                borderRadius: "8px", fontWeight: "700", fontSize: "12px", cursor: "pointer",
+              }}>Reject</button>
+            </div>
+          ) : (
+            <p style={closedText}>
+              {a.application?.status === "hired"
+                ? "Hired — nothing further to decide on this application."
+                : "Not selected — this application is closed."}
+            </p>
+          )}
+
+          {(a.application?.status === "reviewed" || a.application?.status === "pending" || a.application?.status === "interview_scheduled") && (
+            <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
+              <button onClick={() => openInterviewModal(a)} style={{
+                flex: 1, padding: "10px", backgroundColor: "rgba(139,92,246,0.2)", color: "#c4b5fd",
+                border: "1px solid rgba(139,92,246,0.3)", borderRadius: "8px", fontWeight: "700", fontSize: "13px", cursor: "pointer",
+              }}>{a.application?.status === "interview_scheduled" ? "Reschedule Interview" : "Schedule Interview"}</button>
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
   if (loading) {
-    return <div style={{ padding: "5px" }}><SkeletonTable rows={4} cols={7} /></div>;
+    return <div style={{ padding: "5px" }}><SkeletonTable rows={4} cols={5} /></div>;
   }
 
   return (
@@ -626,11 +761,23 @@ export default function ManageJobs() {
       {interviewModal}
 
       <div style={headerRow}>
-        <div>
-          <h2 style={{ fontSize: "20px", color: "#fff", fontWeight: "800", margin: "0 0 4px" }}>Manage Jobs</h2>
-          <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)", margin: 0 }}>{jobs.length} job{jobs.length !== 1 ? "s" : ""} listed</p>
+        <div style={{ minWidth: 0 }}>
+          <div style={pageTitleRow}>
+            <span style={pageIcon} aria-hidden="true">📋</span>
+            <div>
+              <h2 style={pageTitle}>Manage Jobs</h2>
+              <p style={pageSub}>
+                Post, close and review CJLink listings — every applicant is one click away.
+              </p>
+            </div>
+          </div>
         </div>
-        <button style={addBtn} onClick={() => { resetForm(); setShowForm(true); }}>+ New Job</button>
+        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+          <span style={countChip}>
+            {jobs.length} {jobs.length === 1 ? "job" : "jobs"}
+          </span>
+          <button style={addBtn} onClick={() => { resetForm(); setShowForm(true); }}>+ New Job</button>
+        </div>
       </div>
 
       {message && <p style={msg(message)}>{message}</p>}
@@ -731,21 +878,24 @@ export default function ManageJobs() {
         <table style={tableStyle}>
           <thead>
             <tr style={dashRow}>
-              <th style={dashTh}>Icon</th>
-              <th style={dashTh}>Title</th>
+              <th style={dashTh}>Job</th>
               <th style={dashTh}>Status</th>
-              <th style={dashTh}>Company</th>
-              <th style={dashTh}>Location</th>
               <th style={dashTh}>Salary</th>
-              <th style={dashTh}>Applicants</th>
+              <th style={{ ...dashTh, textAlign: "center" }}>Applicants</th>
               <th style={dashTh}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {jobs.length === 0 ? (
               <tr>
-                <td colSpan={8} style={{ textAlign: "center", padding: "30px", color: "rgba(255,255,255,0.5)" }}>
-                  No jobs yet. Click "+ New Job" to create one.
+                <td colSpan={5} style={{ textAlign: "center", padding: "40px 20px" }}>
+                  <div style={{ fontSize: "28px", opacity: 0.6 }}>🗂️</div>
+                  <p style={{ color: "rgba(255,255,255,0.6)", fontWeight: "700", margin: "8px 0 2px" }}>
+                    Nothing posted yet.
+                  </p>
+                  <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "13px", margin: 0 }}>
+                    Click “+ New Job” to write your first listing.
+                  </p>
                 </td>
               </tr>
             ) : (
@@ -781,13 +931,34 @@ function JobRow({ job, onEdit, onToggleStatus, onViewApplicants }) {
 
   return (
     <tr style={{ ...dashRow, opacity: status === "draft" ? 0.6 : 1 }}>
-      <td style={dashTd}><span style={{ fontSize: "20px" }}>{job.icon || "💼"}</span></td>
-      <td style={{ ...dashTd, fontWeight: "600" }}>{job.title}</td>
+      {/* Icon, title, who it is for and what it needs all sit in one cell —
+          three of the old eight columns repeated what the identity already
+          said, and pushed Actions off a 700px table. */}
+      <td style={{ ...dashTd, verticalAlign: "top" }}>
+        <div style={titleCell}>
+          <span style={rowIcon} aria-hidden="true">{job.icon || "💼"}</span>
+          <div style={{ minWidth: 0 }}>
+            <div style={rowTitle}>{job.title}</div>
+            <div style={rowSub}>
+              {job.company}
+              {job.location ? ` • ${job.location}` : ""}
+            </div>
+            {job.requirements?.length > 0 && (
+              <div style={rowReqs}>
+                {job.requirements.slice(0, 3).map((r) => (
+                  <span key={r} style={reqChip}>{r}</span>
+                ))}
+                {job.requirements.length > 3 && (
+                  <span style={reqChipMore}>+{job.requirements.length - 3} more</span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </td>
       <td style={dashTd}><span style={statusChip(status)}>{status}</span></td>
-      <td style={dashTd}>{job.company}</td>
-      <td style={dashTd}>{job.location}</td>
       <td style={{ ...dashTd, fontSize: "12px" }}>{job.salary || "—"}</td>
-      <td style={{ ...dashTd, textAlign: "center" }}>
+      <td style={{ ...dashTd, textAlign: "center", verticalAlign: "middle" }}>
         {maxApps > 0 ? (
           <span style={{
             fontSize: "12px", fontWeight: "600",
@@ -797,7 +968,7 @@ function JobRow({ job, onEdit, onToggleStatus, onViewApplicants }) {
           </span>
         ) : (filled ?? "—")}
       </td>
-      <td style={dashTd}>
+      <td style={{ ...dashTd, verticalAlign: "middle" }}>
         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
           <button style={viewBtn} onClick={() => onViewApplicants(job)}>Applicants</button>
           <button style={editBtn} onClick={() => onEdit(job)}>Edit</button>
@@ -925,9 +1096,95 @@ const aiBadge = { fontSize: "9px", fontWeight: "800", padding: "2px 5px", border
 const analyzingOverlay = { display: "flex", justifyContent: "center", padding: "60px 20px" };
 const analyzingContent = { textAlign: "center" };
 
-const detailCard = { backgroundColor: "rgba(255,255,255,0.06)", borderRadius: radii.lg, padding: "24px", border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(12px)" };
-const scoreLarge = { fontSize: "20px", fontWeight: "700", color: "#fff", marginBottom: "16px" };
-const detailGrid = { display: "flex", flexDirection: "column", gap: "12px" };
-const detailItem = { fontSize: "13px", color: "rgba(255,255,255,0.85)", lineHeight: "1.6" };
-const matchBadge = { fontSize: "11px", padding: "3px 8px", borderRadius: "12px", backgroundColor: "rgba(34,197,94,0.2)", color: "#86efac", fontWeight: "600" };
-const missingBadge = { fontSize: "11px", padding: "3px 8px", borderRadius: "12px", backgroundColor: "rgba(239,68,68,0.2)", color: "#fca5a5", fontWeight: "600" };
+/* ── Page chrome ─────────────────────────────────────────────────── */
+const pageTitleRow = { display: "flex", alignItems: "center", gap: "12px" };
+const pageIcon = { width: "40px", height: "40px", borderRadius: "12px", background: "linear-gradient(135deg, #4a90e2, #1a73e8)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "19px", flexShrink: 0 };
+const pageTitle = { fontSize: "20px", color: "#fff", fontWeight: "800", margin: "0 0 2px" };
+const pageSub = { fontSize: "13px", color: "rgba(255,255,255,0.5)", margin: 0 };
+const countChip = { fontSize: "12px", fontWeight: "700", padding: "5px 11px", borderRadius: "20px", backgroundColor: "rgba(74,144,226,0.15)", color: "#93c5fd", border: "1px solid rgba(74,144,226,0.28)", whiteSpace: "nowrap" };
+
+/* ── Jobs table ─────────────────────────────────────────────────── */
+const titleCell = { display: "flex", gap: "10px", alignItems: "flex-start" };
+const rowIcon = { width: "34px", height: "34px", borderRadius: "9px", backgroundColor: "rgba(74,144,226,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "17px", flexShrink: 0 };
+const rowTitle = { fontWeight: "700", color: "#fff", fontSize: "14px", lineHeight: 1.3 };
+const rowSub = { fontSize: "12px", color: "rgba(255,255,255,0.5)", marginTop: "2px", lineHeight: 1.4 };
+const rowReqs = { display: "flex", gap: "5px", flexWrap: "wrap", marginTop: "7px" };
+const reqChip = { fontSize: "11px", fontWeight: "600", padding: "3px 8px", borderRadius: "10px", backgroundColor: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.65)", whiteSpace: "nowrap" };
+const reqChipMore = { ...reqChip, backgroundColor: "transparent", borderStyle: "dashed", color: "rgba(255,255,255,0.45)" };
+
+/* ── Applicants for one job ─────────────────────────────────────── */
+const jobBanner = { display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap", backgroundColor: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: radii.lg, padding: "16px 18px", margin: "16px 0" };
+const jobBannerIcon = { width: "42px", height: "42px", borderRadius: "11px", backgroundColor: "rgba(74,144,226,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "21px", flexShrink: 0 };
+const jobBannerTitle = { color: "#fff", fontSize: "17px", fontWeight: "800", lineHeight: 1.3 };
+const jobBannerMeta = { fontSize: "12px", color: "rgba(255,255,255,0.5)", marginTop: "2px" };
+const jobBannerReqs = { display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center", marginTop: "9px" };
+const jobBannerReqsKey = { fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.7px", color: "rgba(255,255,255,0.4)", marginRight: "2px" };
+const emptyPanel = { textAlign: "center", padding: "44px 20px", backgroundColor: "rgba(255,255,255,0.04)", border: "1px dashed rgba(255,255,255,0.14)", borderRadius: radii.lg };
+
+/* ── Applicant detail ──────────────────────────────────────────────
+   The old view was one card with eight label:value rows at the same
+   weight: the score, the person and the decision all ran together, and
+   nothing said how the two related. It is now three cards under a hero —
+   what the job needs, who they are, what to do about it — so an employer
+   can answer "why are they applying for THIS job" without doing sums. */
+
+// Hero: identity, score and status in one glance.
+const heroCard = { backgroundColor: "rgba(255,255,255,0.06)", borderRadius: radii.lg, padding: "20px", border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(12px)", marginBottom: "16px" };
+const heroTop = { display: "flex", alignItems: "center", gap: "14px" };
+const heroAvatar = { width: "52px", height: "52px", borderRadius: "50%", background: "linear-gradient(135deg, #4a90e2, #1a73e8)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "800", fontSize: "20px", flexShrink: 0 };
+const heroName = { color: "#fff", fontSize: "19px", fontWeight: "800", margin: "0 0 2px", lineHeight: 1.2 };
+const heroMeta = { fontSize: "13px", color: "rgba(255,255,255,0.55)" };
+const heroScore = { textAlign: "center", flexShrink: 0 };
+const scoreRing = (score) => ({
+  width: "62px", height: "62px", borderRadius: "50%", display: "flex", alignItems: "center",
+  justifyContent: "center", fontWeight: "800", fontSize: "15px", marginLeft: "auto",
+  color: score >= 80 ? "#86efac" : score >= 50 ? "#fbbf24" : "#fca5a5",
+  backgroundColor: score >= 80 ? "rgba(34,197,94,0.2)" : score >= 50 ? "rgba(217,119,6,0.2)" : "rgba(239,68,68,0.2)",
+  border: `3px solid ${score >= 80 ? "#22c55e" : score >= 50 ? "#d97706" : "#ef4444"}`,
+});
+const heroScoreLabel = { fontSize: "10px", color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.6px", marginTop: "5px", fontWeight: "700" };
+const heroFacts = { display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap", marginTop: "16px", paddingTop: "14px", borderTop: "1px solid rgba(255,255,255,0.08)" };
+const heroFact = { fontSize: "12px", color: "rgba(255,255,255,0.55)" };
+
+// Shared chrome for the three cards under the hero.
+const sectionCard = { backgroundColor: "rgba(255,255,255,0.05)", borderRadius: radii.lg, padding: "20px", border: "1px solid rgba(255,255,255,0.09)", marginBottom: "16px" };
+const sectionLabel = { fontSize: "11px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.8px", color: "rgba(255,255,255,0.4)", marginBottom: "12px" };
+
+// The job, stated directly above the requirements it generated.
+const jobHead = { display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" };
+const jobIcon = { width: "40px", height: "40px", borderRadius: "10px", backgroundColor: "rgba(74,144,226,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", flexShrink: 0 };
+const jobTitle = { color: "#fff", fontSize: "15px", fontWeight: "700", lineHeight: 1.3 };
+const jobMeta = { fontSize: "12px", color: "rgba(255,255,255,0.5)", marginTop: "2px" };
+// Clamped rather than truncated: long postings still give the employer
+// context without pushing the verdict they are here to read off screen.
+const jobDesc = { fontSize: "13px", color: "rgba(255,255,255,0.7)", lineHeight: 1.6, margin: "0 0 14px", whiteSpace: "pre-wrap", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 4, overflow: "hidden" };
+
+// The verdict, in the employer's words instead of two numbers to subtract.
+const fitRow = { display: "flex", gap: "10px", alignItems: "flex-start", backgroundColor: "rgba(74,144,226,0.1)", border: "1px solid rgba(74,144,226,0.22)", borderRadius: "10px", padding: "12px 14px", marginBottom: "14px" };
+const fitIcon = { fontSize: "15px", lineHeight: "1.4", flexShrink: 0 };
+const fitText = { margin: 0, fontSize: "13px", color: "rgba(255,255,255,0.9)", lineHeight: 1.55, fontWeight: "600" };
+
+// Requirement-by-requirement, so the gap is visible rather than implied.
+const checkList = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "8px", marginBottom: "14px" };
+const checkItem = (has) => ({
+  display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", fontWeight: "600",
+  padding: "8px 10px", borderRadius: "8px",
+  backgroundColor: has ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
+  border: `1px solid ${has ? "rgba(34,197,94,0.22)" : "rgba(239,68,68,0.22)"}`,
+  color: has ? "#86efac" : "#fca5a5",
+});
+const checkMark = (has) => ({
+  width: "18px", height: "18px", borderRadius: "50%", display: "inline-flex",
+  alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: "800",
+  flexShrink: 0, lineHeight: "1", backgroundColor: has ? "#22c55e" : "#ef4444", color: "#fff",
+});
+
+// Their own words, laid out as prose rather than one row per fact.
+const aboutList = { display: "flex", flexDirection: "column", gap: "12px" };
+const aboutRow = { display: "flex", gap: "14px", alignItems: "flex-start", fontSize: "13px" };
+const aboutKey = { width: "74px", flexShrink: 0, color: "rgba(255,255,255,0.45)", fontWeight: "700", fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.5px", paddingTop: "3px" };
+const aboutChips = { display: "flex", gap: "6px", flexWrap: "wrap", flex: 1, minWidth: 0 };
+const skillChip = { fontSize: "12px", fontWeight: "600", padding: "4px 10px", borderRadius: "12px", backgroundColor: "rgba(74,144,226,0.15)", color: "#93c5fd", border: "1px solid rgba(74,144,226,0.25)" };
+const aboutBio = { margin: 0, color: "rgba(255,255,255,0.85)", lineHeight: 1.65, flex: 1, minWidth: 0 };
+const aboutValue = { color: "rgba(255,255,255,0.85)", lineHeight: 1.6, minWidth: 0 };
+const closedText = { fontSize: "13px", color: "rgba(255,255,255,0.5)", margin: "4px 0 0", fontStyle: "italic" };
