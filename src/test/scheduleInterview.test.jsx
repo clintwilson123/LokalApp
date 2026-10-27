@@ -78,11 +78,21 @@ const JOB = {
 
 const interviewWrites = () => h.writes.filter((w) => w.table === 'interviews');
 
+/**
+ * Opening a job now stops at the scan picker — the admin chooses Quick Scan or
+ * a full run instead of having quota spent automatically. Start a full run so
+ * the ranked grid (and every card these tests click) exists.
+ */
+async function startScan() {
+  fireEvent.click(await screen.findByRole('button', { name: /Analyze all/ }));
+}
+
 /** Walks Manage Jobs -> Applicants -> the applicant's detail view. */
 async function openApplicant() {
   render(<ManageJobs />);
   await screen.findByText('Manage Jobs');
   fireEvent.click(screen.getByRole('button', { name: 'Applicants' }));
+  await startScan();
   fireEvent.click(await screen.findByText('Maria Santos'));
   await screen.findByText('← Back to applicants');
 }
@@ -263,6 +273,7 @@ describe('the admin can see who has been scheduled', () => {
     render(<ManageJobs />);
     await screen.findByText('Manage Jobs');
     fireEvent.click(screen.getByRole('button', { name: 'Applicants' }));
+    await startScan();
 
     expect(await screen.findByText('Maria Santos')).toBeInTheDocument();
     // Scheduling updated the row correctly and left nothing on screen to show
@@ -275,6 +286,7 @@ describe('the admin can see who has been scheduled', () => {
     render(<ManageJobs />);
     await screen.findByText('Manage Jobs');
     fireEvent.click(screen.getByRole('button', { name: 'Applicants' }));
+    await startScan();
     fireEvent.click(await screen.findByText('Maria Santos'));
 
     expect(await screen.findByRole('button', { name: 'Reschedule Interview' })).toBeInTheDocument();
@@ -286,6 +298,7 @@ describe('the admin can see who has been scheduled', () => {
     render(<ManageJobs />);
     await screen.findByText('Manage Jobs');
     fireEvent.click(screen.getByRole('button', { name: 'Applicants' }));
+    await startScan();
     fireEvent.click(await screen.findByText('Maria Santos'));
 
     expect(await screen.findByRole('button', { name: 'Schedule Interview' })).toBeInTheDocument();
@@ -297,6 +310,7 @@ describe('the admin can see who has been scheduled', () => {
     render(<ManageJobs />);
     await screen.findByText('Manage Jobs');
     fireEvent.click(screen.getByRole('button', { name: 'Applicants' }));
+    await startScan();
 
     expect(await screen.findByText('pending')).toBeInTheDocument();
 

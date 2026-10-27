@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { radii, dashGrid } from "../uiStyles";
 import { SkeletonLine, SkeletonCard } from "../components/Skeleton";
 import { aiSkillMatch } from "../lib/aiSkillMatch";
+import { runInParallel, DEFAULT_CONCURRENCY } from "../lib/batchMatch";
+import ApplicantSelection, { AnalyzeSelectedButton } from "../components/ApplicantSelection";
 
 export default function AdminApplicants() {
   const [jobs, setJobs] = useState([]);
@@ -12,11 +14,26 @@ export default function AdminApplicants() {
   const [loading, setLoading] = useState(true);
   const [rankedApplicants, setRankedApplicants] = useState([]);
   const [analyzing, setAnalyzing] = useState(false);
-  // Distinguishes "ranking this job has not run yet" from "it ran and found
-  // nobody" — otherwise the frame before the effect fires tells you there are
-  // no applicants, which is not what it means.
+  // There is exactly one scan scope here now: the rows the employer ticked.
+  // Quick Scan and "Analyze all" used to live on this page too, but they
+  // answered a question the checkboxes already answer better — which people
+  // are worth Gemini quota — so a second, competing way to choose just made
+  // the panel harder to read without saving a single decision.
+  //
+  // Distinguishes "no run yet" from "a run that found nobody": the frame
+  // before the effect fires would otherwise read as an empty result.
   const [hasRanked, setHasRanked] = useState(false);
   const [analyzeProgress, setAnalyzeProgress] = useState({ current: 0, total: 0, name: "" });
+
+  // The employer's hand-picked subset. A plain id array rather than a Set so
+  // it can go straight into state (Sets compare by identity, which would
+  // re-render the picker on every unrelated change).
+  const [selectedIds, setSelectedIds] = useState([]);
+
+  // Bumped to invalidate a scan still in flight (job switched, Cancel pressed,
+  // component unmounted). Every await re-checks it, so a slow run can never
+  // write into a view that has already moved to another job.
+  const runIdRef = useRef(0);
 
   useEffect(() => {
     Promise.all([
@@ -34,28 +51,105 @@ export default function AdminApplicants() {
 
   const selectedJob = jobs.find((j) => j.id === selectedJobId);
 
+  // Shown both before a scan runs (nobody registered) and when a scan runs and
+  // finds nobody — same meaning either way, so it is not written out twice.
+  const noApplicantsCard = (
+    <div style={{ ...guideCard, marginTop: "4px" }}>
+      <span style={guideIcon} aria-hidden="true">🧩</span>
+      <div style={{ minWidth: 0 }}>
+        <div style={guideTitle}>No applicants with skills found</div>
+        <div style={guideText}>
+          Nobody registered yet has set the skills this job asks for.
+        </div>
+      </div>
+    </div>
+  );
+
+  // Selecting a job no longer starts a scan by itself — the employer ticks
+  // people and presses Analyze. This effect only clears the previous job's
+  // results and cancels anything still in flight.
+  //
+  // It deliberately depends on selectedJobId ALONE. The old version also
+  // listed `applicants` and `selectedJob`, so any new array identity could
+  // restart an entire ranking the admin never asked for — which is a quota
+  // cost and a spinner the user did nothing to trigger.
   useEffect(() => {
-    if (!selectedJob) { setRankedApplicants([]); setHasRanked(false); return; }
-    const requirements = selectedJob.requirements || [];
-    const title = selectedJob.title || "";
+    runIdRef.current += 1;
+    setAnalyzing(false);
+    setHasRanked(false);
+    setRankedApplicants([]);
+    // The ticks belong to the job they were made against. Carrying them to
+    // the next posting would silently decide who gets charged for it.
+    setSelectedIds([]);
+    setAnalyzeProgress({ current: 0, total: 0, name: "" });
+  }, [selectedJobId]);
+
+  const cancelScan = () => {
+    // Invalidates the in-flight run: lanes stop picking up new work and its
+    // results are never committed.
+    runIdRef.current += 1;
+    setAnalyzing(false);
+  };
+
+  /**
+   * Run the AI scan over exactly the rows the employer ticked.
+   *
+   * The caller hands over the already-filtered list rather than a scope: with
+   * no scope to interpret, there is nothing in here that can widen the batch,
+   * so quota can only go where it was pointed. `runInParallel` then overlaps
+   * those calls in a fixed pool of DEFAULT_CONCURRENCY lanes and hands back
+   * index-aligned results.
+   *
+   * @param {Array} people  The applicants to score.
+   */
+  const runScan = async (people) => {
+    const requirements = selectedJob?.requirements || [];
+    const title = selectedJob?.title || "";
+
+    const runId = runIdRef.current + 1;
+    runIdRef.current = runId;
+    const cancelled = () => runIdRef.current !== runId;
+
+    // The button is already disabled at zero, so this only guards a caller
+    // that filters to nobody — never worth a spinner or a scan to say nothing.
+    const targets = people || [];
+    if (targets.length === 0) return;
 
     setAnalyzing(true);
     setHasRanked(false);
     setRankedApplicants([]);
+    setAnalyzeProgress({ current: 0, total: targets.length, name: "" });
 
-    (async () => {
-      const ranked = [];
-      for (let i = 0; i < applicants.length; i++) {
-        const a = applicants[i];
-        setAnalyzeProgress({ current: i + 1, total: applicants.length, name: a.full_name || "Unnamed" });
-        ranked.push({ ...a, match: await aiSkillMatch(a.skills, requirements, title) });
-        ranked.sort((a, b) => b.match.score - a.match.score);
-        setRankedApplicants([...ranked]);
+    const ranked = [];
+    try {
+      await runInParallel(
+        targets,
+        (person) => aiSkillMatch(person.skills, requirements, title),
+        {
+          concurrency: DEFAULT_CONCURRENCY,
+          isCancelled: cancelled,
+          onResult: (match, index, completed, total) => {
+            if (cancelled()) return;
+            ranked.push({ ...targets[index], match });
+            setAnalyzeProgress({
+              current: completed,
+              total,
+              name: targets[index].full_name || "Unnamed",
+            });
+          },
+        }
+      );
+    } finally {
+      if (!cancelled()) {
+        // ONE commit, ONE sort. The overlay covers the grid while the scan
+        // runs, so the old per-iteration `sort()` + fresh array produced n
+        // orderings nobody could see: n sorts, n full grid re-renders.
+        setRankedApplicants(ranked.sort((a, b) => b.match.score - a.match.score));
+        setHasRanked(true);
+        setAnalyzing(false);
       }
-      setAnalyzing(false);
-      setHasRanked(true);
-    })();
-  }, [selectedJobId, applicants, selectedJob]);
+    }
+  };
 
   if (loading) {
     return (
@@ -235,45 +329,66 @@ export default function AdminApplicants() {
                   AI Analyzing Applicants
                 </p>
                 <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)", margin: 0 }}>
-                  Gemini comparing skills against job requirements...
+                  {`Scoring ${analyzeProgress.total} applicant${
+                    analyzeProgress.total === 1 ? "" : "s"
+                  } against ${selectedJob?.title || "this job"} — ${DEFAULT_CONCURRENCY} at a time.`}
                 </p>
                 <div style={progressWrap}>
                   <div style={progressTrack}>
-                    <div style={{ ...progressFill, width: `${(analyzeProgress.current / analyzeProgress.total) * 100}%` }} />
+                    <div
+                      style={{
+                        ...progressFill,
+                        width: `${(analyzeProgress.total ? analyzeProgress.current / analyzeProgress.total : 0) * 100}%`,
+                      }}
+                    />
                   </div>
                   <span style={progressText}>
                     {analyzeProgress.current}/{analyzeProgress.total} — {analyzeProgress.name}
                   </span>
                 </div>
+                {/* Nothing used to be able to stop this: a hung call pinned the
+                    overlay open. aiSkillMatch now times out, and this cancels
+                    the rest of the batch. */}
+                <button style={cancelScanBtn} onClick={cancelScan}>
+                  Cancel
+                </button>
               </div>
             </div>
           ) : !hasRanked ? (
-            <div style={{ ...guideCard, marginTop: "4px" }}>
-              <span style={guideIcon} aria-hidden="true">⏳</span>
-              <div style={{ minWidth: 0 }}>
-                <div style={guideTitle}>Preparing the ranking…</div>
-                <div style={guideText}>
-                  Matching every applicant against the requirements listed above.
-                </div>
-              </div>
-            </div>
-          ) : rankedApplicants.length === 0 ? (
-            <div style={{ ...guideCard, marginTop: "4px" }}>
-              <span style={guideIcon} aria-hidden="true">🧩</span>
-              <div style={{ minWidth: 0 }}>
-                <div style={guideTitle}>No applicants with skills found</div>
-                <div style={guideText}>
-                  Nobody registered yet has set the skills this job asks for.
-                </div>
-              </div>
-            </div>
+            applicants.length === 0 ? (
+              noApplicantsCard
+            ) : (
+              <ApplicantSelection
+                items={applicants}
+                selectedIds={selectedIds}
+                onChange={setSelectedIds}
+                onAnalyze={() => runScan(applicants.filter((p) => selectedIds.includes(p.id)))}
+                title={`Choose applicants to score against ${selectedJob?.title || "this job"}`}
+                subtitle="Tick the people worth a Gemini call, or take the whole roster with Select all."
+              />
+            )
           ) : (
-            <div style={resultsHead}>
-              <span style={resultsTitle}>Ranked results</span>
-              <span style={resultsMeta}>
-                {rankedApplicants.length} applicant{rankedApplicants.length === 1 ? "" : "s"}
-              </span>
-            </div>
+            <>
+              <div style={resultsHead}>
+                <span style={resultsTitle}>Ranked results</span>
+                <span style={resultsMeta}>
+                  {`Your selection: ${rankedApplicants.length} of ${applicants.length}`}
+                </span>
+              </div>
+              <div style={resultsToolbar}>
+                <AnalyzeSelectedButton
+                  count={selectedIds.length}
+                  onClick={() => runScan(applicants.filter((p) => selectedIds.includes(p.id)))}
+                />
+                {/* Stepping back to the picker must not cost the answers
+                    already on screen: `rankedApplicants` stays in state, and the
+                    next "Analyze Selected" simply replaces it with one commit. */}
+                <button style={resultsLink} onClick={() => setHasRanked(false)}>
+                  ← Change selection
+                </button>
+              </div>
+              {rankedApplicants.length === 0 && noApplicantsCard}
+            </>
           )}
 
           {!analyzing && hasRanked && rankedApplicants.length > 0 && (
@@ -408,6 +523,11 @@ const resultsHead = {
 };
 const resultsTitle = { color: "#fff", fontSize: "14px", fontWeight: "700" };
 const resultsMeta = { color: "rgba(255,255,255,0.45)", fontSize: "12px" };
+const resultsToolbar = { display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap", marginBottom: "12px" };
+const resultsLink = {
+  background: "none", border: "none", color: "#93c5fd", cursor: "pointer",
+  fontSize: "12.5px", fontWeight: "600", padding: 0,
+};
 const candidateCard = {
   backgroundColor: "rgba(255,255,255,0.06)", borderRadius: radii.md, padding: "16px",
   cursor: "pointer", border: "1px solid rgba(255,255,255,0.1)",
@@ -452,6 +572,14 @@ const missingBadge = {
 const aiBadge = { fontSize: "9px", fontWeight: "800", padding: "2px 5px", borderRadius: "4px", backgroundColor: "#4a90e2", color: "#fff", letterSpacing: "0.5px" };
 const analyzingOverlay = { display: "flex", justifyContent: "center", padding: "60px 20px" };
 const analyzingContent = { textAlign: "center" };
+
+// --- After a scan: results header and action row ---------------------------
+const cancelScanBtn = {
+  marginTop: "16px", backgroundColor: "transparent",
+  border: "1px solid rgba(255,255,255,0.25)", color: "rgba(255,255,255,0.75)",
+  padding: "7px 16px", borderRadius: "8px", fontSize: "12.5px", fontWeight: "600",
+  cursor: "pointer",
+};
 const aiExplanation = { fontSize: "13px", color: "rgba(255,255,255,0.85)", backgroundColor: "rgba(74,144,226,0.1)", padding: "12px", borderRadius: "8px", marginBottom: "16px", lineHeight: "1.5" };
 const comparisonRow = { display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", marginBottom: "16px", padding: "8px 12px", backgroundColor: "rgba(255,255,255,0.04)", borderRadius: "8px" };
 const comparisonLabel = { color: "rgba(255,255,255,0.5)", fontWeight: "500" };

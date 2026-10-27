@@ -773,7 +773,7 @@ textarea.input {
 }
 
 /* ---------------------------------------------------------------------------
- * "Continue with Google" � the ONE shared button rendered by Login and Signup.
+ * "Continue with Google" � the ONE shared button rendered by Login and Signup.
  * Base colours stay inline (they are part of the component contract); this
  * file only adds the interaction states and the small-screen sizing that
  * inline styles cannot express. The button is never display:none anywhere,
@@ -806,5 +806,96 @@ textarea.input {
     padding: 12px;
     font-size: 14px;
     gap: 8px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * "Choose applicants to score" — the checkbox picker on Manage Jobs and
+ * Manage Applicants. Same split as `.cjlink-google-btn` above: base colours,
+ * spacing and type stay inline (they are the component contract), and this
+ * file only adds what inline styles cannot express — hover, focus rings, and
+ * the transition between them.
+ *
+ * The card's selected colour is NOT repeated here. It is written inline as a
+ * function of state, so the stylesheet never has to agree with React about
+ * whether a row is ticked; the rules below only decorate the two states that
+ * already exist.
+ * ------------------------------------------------------------------------ */
+.cjlink-pick-card {
+  transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+}
+
+.cjlink-pick-card:hover {
+  border-color: rgba(74, 144, 226, 0.45);
+  background-color: rgba(255, 255, 255, 0.075);
+  transform: translateY(-1px);
+}
+
+.cjlink-pick-card.is-on:hover {
+  border-color: #4a90e2;
+  background-color: rgba(74, 144, 226, 0.21);
+}
+
+/* Focus is drawn on the whole card, not the 17px box — the <label> wraps the
+   input, so keyboard users tabbing the roster see which row they are on. */
+.cjlink-pick-card:focus-within {
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.3);
+}
+
+.cjlink-pick-btn {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.cjlink-pick-btn:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.11);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+
+.cjlink-pick-btn:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+.cjlink-pick-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* The primary action. `:not(:disabled)` is what keeps a zero-selection button
+   dead flat — hover must not promise an action the click will refuse. */
+.cjlink-pick-cta {
+  transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.cjlink-pick-cta:hover:not(:disabled) {
+  background-color: var(--color-primary-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(26, 115, 232, 0.35);
+}
+
+.cjlink-pick-cta:active:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+}
+
+.cjlink-pick-cta:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+.cjlink-pick-cta:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* One row of checkboxes is useless on a phone; two-up at least keeps the
+   roster scannable without a full-width stack. */
+@media (max-width: 560px) {
+  .cjlink-pick [style*="repeat(auto-fill, minmax(250px, 1fr))"] {
+    grid-template-columns: 1fr !important;
   }
 }
