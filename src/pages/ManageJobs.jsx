@@ -4,9 +4,8 @@ import { colors, radii, dashTable, dashTh, dashTd, dashRow, dashGrid, statusBadg
 import { SkeletonTable } from "../components/Skeleton";
 import { aiSkillMatch } from "../lib/aiSkillMatch";
 import { runInParallel, selectQuickScan, DEFAULT_CONCURRENCY, QUICK_SCAN_COUNT } from "../lib/batchMatch";
-import { relativeTime } from "../lib/format";
+import { relativeTime, formatDate, formatTime } from "../lib/format";
 import SkillPicker from "../components/SkillPicker";
-import ApplicantSelection, { AnalyzeSelectedButton } from "../components/ApplicantSelection";
 import { loadSkillCatalog } from "../lib/skillCatalog";
 
 /**
@@ -47,20 +46,15 @@ export default function ManageJobs() {
   // `a.match.score` and would crash on an unscanned row).
   const [roster, setRoster] = useState([]);
   const [scanDone, setScanDone] = useState(false);
-  // "quick" | "all" | "selected" | null — the scope last run, so a refresh
-  // after a status update can reuse the answers instead of paying for the
-  // scan again.
+  // "quick" | "all" | null — the scope last run, so a refresh after a status
+  // update can reuse the answers instead of paying for the scan again.
   const [scanMode, setScanMode] = useState(null);
 
-  // The employer's hand-picked subset. A plain id array rather than a Set so
-  // it can go straight into state (Sets are compared by identity, which would
-  // re-render the picker on every unrelated change).
-  const [selectedIds, setSelectedIds] = useState([]);
-
-  // Who the last scan actually charged quota for. Kept in a ref rather than
-  // derived from state because a re-fetch after a status change has to rebuild
-  // the same target list from a FRESH roster whose ids may have shifted.
-  const scannedIdsRef = useRef([]);
+  // The interview booked for each of this job's applications, keyed by
+  // application_id. This table used to be write-only here: booking an
+  // appointment only flipped a status badge, so the date and time you had just
+  // set were invisible until you left the page and opened Records.
+  const [interviews, setInterviews] = useState({});
 
   // Bumped to invalidate a scan that is still in flight (job switched away,
   // user hit Cancel, component unmounted). Every await re-checks it, so a
@@ -109,7 +103,7 @@ export default function ManageJobs() {
    * @param {"quick"|"all"|null} scope  What the employer ran last on this job.
    *   Defaults to the current scope, which is what a re-fetch after a status
    *   change wants; `viewApplicants` passes null explicitly so opening a
-   *   different job starts at the picker instead of silently re-scanning.
+   *   different job starts at the scan card instead of silently re-scanning.
    */
   const fetchApplicantsForJob = async (jobId, scope = scanMode) => {
     const { data: apps } = await supabase
@@ -124,9 +118,22 @@ export default function ManageJobs() {
       setApplicants([]);
       setScanDone(false);
       setScanMode(null);
-      setSelectedIds([]);
+      setInterviews({});
       return;
     }
+
+    // Read the appointments back alongside the applications. Done before any
+    // early return, so a re-fetch after a status change refreshes it too —
+    // scheduling an interview has to show up on the detail card immediately.
+    const { data: ivRows } = await supabase
+      .from("interviews")
+      .select("id, application_id, date, time, location, instructions, status")
+      .in("application_id", apps.map((a) => a.id));
+    const byApplication = {};
+    (ivRows || []).forEach((iv) => {
+      if (iv && iv.application_id) byApplication[iv.application_id] = iv;
+    });
+    setInterviews(byApplication);
 
     const userIds = apps.map((a) => a.user_id);
     const { data: profiles } = await supabase
@@ -156,7 +163,7 @@ export default function ManageJobs() {
     setAnalyzeProgress({ current: 0, total: 0, name: "" });
 
     if (!scope) {
-      // First time on this job: show the scan picker and spend nothing.
+      // First time on this job: show the scan card and spend nothing.
       runIdRef.current += 1;
       setAnalyzing(false);
       setApplicants([]);
@@ -184,25 +191,6 @@ export default function ManageJobs() {
 
     // Someone new applied, or there are no answers to carry: re-run the same
     // scope against the fresh roster.
-    //
-    // A hand-picked run has to be re-picked, not replayed against everyone —
-    // `built` is the WHOLE fresh roster, and running it as-is would silently
-    // bill quota for people the employer never ticked.
-    if (scope === "selected") {
-      const wanted = built.filter((p) => scannedIdsRef.current.includes(p.id));
-      if (wanted.length === 0) {
-        // Everyone in the last batch is gone: back to the picker rather than
-        // burning a call that cannot answer anything.
-        runIdRef.current += 1;
-        setAnalyzing(false);
-        setApplicants([]);
-        setScanDone(false);
-        return;
-      }
-      runScan("selected", wanted);
-      return;
-    }
-
     runScan(scope, built);
   };
 
@@ -216,15 +204,12 @@ export default function ManageJobs() {
   /**
    * Run the AI scan over a chosen scope.
    *
-   * @param {"quick"|"all"|"selected"} mode
-   *   quick    = the top QUICK_SCAN_COUNT people by the free local pre-rank.
-   *   all      = the whole roster.
-   *   selected = exactly the ids the employer ticked. The caller passes the
-   *              already-filtered list as `people`; this mode never widens it.
-   * @param {Array} people        Defaults to state. Passed explicitly when a
-   *                              refresh has just built a new roster whose
-   *                              state copy has not landed yet, and always for
-   *                              a "selected" run.
+   * @param {"quick"|"all"} mode
+   *   quick = the top QUICK_SCAN_COUNT people by the free local pre-rank.
+   *   all   = the whole roster.
+   * @param {Array} people  Defaults to state. Passed explicitly when a refresh
+   *                        has just built a new roster whose state copy has
+   *                        not landed yet.
    */
   const runScan = async (mode, people = roster) => {
     const requirements = viewingJob?.requirements || [];
@@ -236,15 +221,9 @@ export default function ManageJobs() {
 
     // Quick Scan picks its targets with the local matcher first — free, and it
     // means quota goes to plausible matches rather than a blind pass over
-    // everyone. "selected" skips it: the employer has already done the picking
-    // by hand, and re-ranking their choice would be a second, unasked-for
-    // filter on top of it.
+    // everyone.
     const targets = mode === "quick" ? await selectQuickScan(people, requirements) : people;
     if (cancelled()) return;
-
-    // Remember who this run was for, so a re-fetch after a status change can
-    // rebuild the same target list from a fresh roster.
-    scannedIdsRef.current = targets.map((t) => t.id);
 
     setAnalyzing(true);
     setScanMode(mode);
@@ -271,13 +250,12 @@ export default function ManageJobs() {
       );
     } finally {
       if (!cancelled()) {
-        // ONE commit, ONE sort, whatever the scope — including a hand-picked
-        // batch. `runInParallel` already ran the calls in a fixed pool of
-        // DEFAULT_CONCURRENCY lanes, so the work overlapped without the UI
-        // ever being asked to paint an intermediate ranking. Sorting per
-        // result would have produced n orderings nobody could see: n sorts
-        // and n full re-renders of the whole card grid, behind an overlay
-        // that was covering the grid the entire time.
+        // ONE commit, ONE sort, whatever the scope. `runInParallel` already ran
+        // the calls in a fixed pool of DEFAULT_CONCURRENCY lanes, so the work
+        // overlapped without the UI ever being asked to paint an intermediate
+        // ranking. Sorting per result would have produced n orderings nobody
+        // could see: n sorts and n full re-renders of the whole card grid,
+        // behind an overlay that was covering the grid the entire time.
         setApplicants(
           analyzed
             .map((entry) => ({ ...entry.person, match: entry.match }))
@@ -412,8 +390,6 @@ export default function ManageJobs() {
     setViewingJob(job);
     setSelectedApplicant(null);
     setScanMode(null);
-    setSelectedIds([]);
-    scannedIdsRef.current = [];
     fetchApplicantsForJob(job.id, null);
   }
 
@@ -511,11 +487,6 @@ export default function ManageJobs() {
             setRoster([]);
             setScanDone(false);
             setScanMode(null);
-            // The selection belongs to the job that produced the roster; a
-            // stale tick against the next job's applicants would silently
-            // decide who gets charged for it.
-            setSelectedIds([]);
-            scannedIdsRef.current = [];
           }}
         >
           ← Back to Jobs
@@ -553,9 +524,7 @@ export default function ManageJobs() {
               <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)", margin: 0 }}>
                 {scanMode === "quick"
                   ? `Quick scan — top ${QUICK_SCAN_COUNT} by local skill match, run ${DEFAULT_CONCURRENCY} at a time.`
-                  : scanMode === "selected"
-                    ? `Your hand-picked batch of ${analyzeProgress.total}, run ${DEFAULT_CONCURRENCY} at a time.`
-                    : "Gemini comparing skills against job requirements..."}
+                  : `Gemini comparing skills against job requirements, ${DEFAULT_CONCURRENCY} at a time.`}
               </p>
               <div style={progressWrap}>
                 <div style={progressTrack}>
@@ -582,62 +551,34 @@ export default function ManageJobs() {
             No applicants for this job yet.
           </p>
         ) : !scanDone ? (
-          /* The picker. This is the only place checkboxes live — the roster
-             and the results grid never render side by side, so a click on a
-             result card can never be confused with a click on a checkbox. */
-          <>
-            <ApplicantSelection
-              items={roster}
-              selectedIds={selectedIds}
-              onChange={setSelectedIds}
-              onAnalyze={() =>
-                runScan("selected", roster.filter((p) => selectedIds.includes(p.id)))
-              }
-              subtitle="Tick the people worth a Gemini call — only the rows you check are sent."
-            />
-            <div style={scanCard}>
-              <span style={{ fontSize: "24px" }} aria-hidden="true">
-                ⚡
-              </span>
-              <div style={{ minWidth: 0 }}>
-                <div style={scanCardTitle}>
-                  {roster.length} applicant{roster.length === 1 ? "" : "s"} ready to rank
-                </div>
-                <div style={scanCardText}>
-                  Not sure who to pick? Quick scan pre-ranks the whole list with the free local
-                  matcher and sends only the most promising {Math.min(QUICK_SCAN_COUNT, roster.length)}.
-                  These two buttons ignore the checkboxes above.
-                </div>
-                <div style={scanActions}>
-                  <button style={scanBtnPrimary} onClick={() => runScan("quick")}>
-                    ⚡ Quick scan — top {Math.min(QUICK_SCAN_COUNT, roster.length)}
-                  </button>
-                  <button style={scanBtn} onClick={() => runScan("all")}>
-                    🧠 Analyze all {roster.length}
-                  </button>
-                </div>
+          <div style={scanCard}>
+            <span style={{ fontSize: "24px" }} aria-hidden="true">
+              ⚡
+            </span>
+            <div style={{ minWidth: 0 }}>
+              <div style={scanCardTitle}>
+                {roster.length} applicant{roster.length === 1 ? "" : "s"} ready to rank
+              </div>
+              <div style={scanCardText}>
+                Not sure who to pick? Quick scan pre-ranks the whole list with the free local
+                matcher and sends only the most promising {Math.min(QUICK_SCAN_COUNT, roster.length)}.
+                Analyze all sends every one of them.
+              </div>
+              <div style={scanActions}>
+                <button style={scanBtnPrimary} onClick={() => runScan("quick")}>
+                  ⚡ Quick scan — top {Math.min(QUICK_SCAN_COUNT, roster.length)}
+                </button>
+                <button style={scanBtn} onClick={() => runScan("all")}>
+                  🧠 Analyze all {roster.length}
+                </button>
               </div>
             </div>
-          </>
+          </div>
         ) : (
           <>
             <div style={resultsHead}>
               <span style={resultsTitle}>Analyzed results</span>
               <span style={resultsMeta}>{scanSummary(applicants.length, roster.length, scanMode)}</span>
-            </div>
-            <div style={resultsToolbar}>
-              <AnalyzeSelectedButton
-                count={selectedIds.length}
-                onClick={() =>
-                  runScan("selected", roster.filter((p) => selectedIds.includes(p.id)))
-                }
-              />
-              {/* Stepping back to the picker must not cost the answers already
-                  on screen: `applicants` stays in state, and the next
-                  "Analyze Selected" simply replaces it with one commit. */}
-              <button style={resultsLink} onClick={() => setScanDone(false)}>
-                ← Change selection
-              </button>
             </div>
             <div style={dashGrid}>
             {applicants.map((a) => (
@@ -782,6 +723,8 @@ export default function ManageJobs() {
     const matchTotal = a.match?.total || 0;
     const matched = a.match?.matchedItems || [];
     const missing = a.match?.missingItems || [];
+    // The appointment booked against this application, if there is one.
+    const iv = interviews[a.application?.id];
     // Both lists hold JOB requirements, not the applicant's own skills, so
     // together they are the full checklist — which is what turns "he has
     // Excel" into an answerable "why does he fit this job".
@@ -944,6 +887,40 @@ export default function ManageJobs() {
           )}
           </div>
         </div>
+
+        {/* An appointment that exists belongs on the person it is for. The
+            status badge could only ever say "interview_scheduled" — never
+            when, where, or what the applicant was told to bring. */}
+        {iv && (
+          <div style={sectionCard}>
+            <div style={sectionLabel}>Scheduled interview</div>
+            <div style={aboutList}>
+              <div style={aboutRow}>
+                <span style={aboutKey}>When</span>
+                <div style={aboutValue}>
+                  <strong style={{ color: "#fff" }}>{formatDate(iv.date)}</strong>
+                  {iv.time && (
+                    <span style={{ marginLeft: "6px" }}>
+                      at <strong style={{ color: "#fff" }}>{formatTime(iv.time)}</strong>
+                    </span>
+                  )}
+                </div>
+              </div>
+              {iv.location && (
+                <div style={aboutRow}>
+                  <span style={aboutKey}>Where</span>
+                  <div style={aboutValue}>{iv.location}</div>
+                </div>
+              )}
+              {iv.instructions && (
+                <div style={aboutRow}>
+                  <span style={aboutKey}>Instructions</span>
+                  <p style={aboutBio}>{iv.instructions}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* The decision, grouped on its own instead of buried among the
             facts it is based on. */}
@@ -1207,7 +1184,6 @@ function JobRow({ job, onEdit, onToggleStatus, onViewApplicants }) {
 function scanSummary(shown, total, mode) {
   const noun = shown === 1 ? "applicant" : "applicants";
   if (mode === "quick") return `Quick scan: top ${shown} of ${total} by local skill match`;
-  if (mode === "selected") return `Your selection: ${shown} of ${total}`;
   return `${shown} ${noun} — the whole roster`;
 }
 
@@ -1359,11 +1335,6 @@ const resultsHead = {
 };
 const resultsTitle = { color: "#fff", fontSize: "14px", fontWeight: "700" };
 const resultsMeta = { color: "rgba(255,255,255,0.45)", fontSize: "12px", textAlign: "right" };
-const resultsToolbar = { display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap", marginBottom: "12px" };
-const resultsLink = {
-  background: "none", border: "none", color: "#93c5fd", cursor: "pointer",
-  fontSize: "12.5px", fontWeight: "600", padding: 0,
-};
 const cancelScanBtn = {
   marginTop: "16px", backgroundColor: "transparent",
   border: "1px solid rgba(255,255,255,0.25)", color: "rgba(255,255,255,0.75)",

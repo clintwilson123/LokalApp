@@ -12,6 +12,9 @@ const h = vi.hoisted(() => ({
   apps: [],
   profiles: [],
   writes: [],
+  // Readable interview rows. Scheduling pushes one here, so the fetch that
+  // follows an insert returns the appointment the admin just made.
+  interviews: [],
   failInterviewInsert: false,
   failStatusUpdate: false,
 }));
@@ -24,15 +27,27 @@ vi.mock('../lib/supabaseClient', () => ({
         order: () => q,
         eq: () => q,
         in: () => q,
-        insert: (payload) => { h.writes.push({ table, op: 'insert', payload }); return q; },
+        insert: (payload) => {
+          q._op = 'insert';
+          h.writes.push({ table, op: 'insert', payload });
+          // An interview that went in is readable on the very next fetch —
+          // which is what the "Scheduled interview" block on the applicant's
+          // detail card reads. A failed insert leaves nothing behind.
+          if (table === 'interviews' && !h.failInterviewInsert) {
+            h.interviews.push({ id: h.interviews.length + 1, ...payload });
+          }
+          return q;
+        },
         update: (payload) => { q._op = 'update'; h.writes.push({ table, op: 'update', payload }); return q; },
         then: (ok, err) => {
           let result = { data: null, error: null };
           if (table === 'jobs') result = { data: h.jobs, error: null };
           if (table === 'applications') result = { data: h.apps, error: null };
           if (table === 'profiles') result = { data: h.profiles, error: null };
-          if (table === 'interviews' && h.failInterviewInsert) {
-            result = { data: null, error: { message: 'permission denied for table interviews' } };
+          if (table === 'interviews') {
+            result = h.failInterviewInsert && q._op === 'insert'
+              ? { data: null, error: { message: 'permission denied for table interviews' } }
+              : { data: h.interviews, error: null };
           }
           if (table === 'applications' && q._op === 'update' && h.failStatusUpdate) {
             result = { data: null, error: { message: 'row was locked' } };
@@ -79,8 +94,8 @@ const JOB = {
 const interviewWrites = () => h.writes.filter((w) => w.table === 'interviews');
 
 /**
- * Opening a job now stops at the scan picker — the admin chooses Quick Scan or
- * a full run instead of having quota spent automatically. Start a full run so
+ * Opening a job stops at the scan card — the admin chooses Quick Scan or a
+ * full run instead of having quota spent automatically. Start a full run so
  * the ranked grid (and every card these tests click) exists.
  */
 async function startScan() {
@@ -116,6 +131,7 @@ beforeEach(() => {
     resume_url: null,
   }];
   h.writes = [];
+  h.interviews = [];
   h.failInterviewInsert = false;
   h.failStatusUpdate = false;
 });
@@ -318,5 +334,53 @@ describe('the admin can see who has been scheduled', () => {
     await screen.findByText('← Back to applicants');
     // Card is not in the DOM in the detail view, so exactly one badge here.
     expect(screen.getAllByText('pending')).toHaveLength(1);
+  });
+
+  it('shows the appointment itself, not just a badge implying one', async () => {
+    asScheduled();
+    // The row sitting in interviews for that application.
+    h.interviews = [{
+      id: 1,
+      application_id: 101,
+      date: '2026-11-04',
+      time: '14:30:00',
+      location: 'CJTECH Shop',
+      instructions: 'Bring two copies of your resume.',
+      status: 'scheduled',
+    }];
+
+    render(<ManageJobs />);
+    await screen.findByText('Manage Jobs');
+    fireEvent.click(screen.getByRole('button', { name: 'Applicants' }));
+    await startScan();
+    fireEvent.click(await screen.findByText('Maria Santos'));
+
+    expect(await screen.findByText('Scheduled interview')).toBeInTheDocument();
+    // The column is DATE + TIME, not a string the admin typed — parsed back
+    // into a date and a clock rather than "2026-11-04 14:30:00".
+    expect(screen.getByText('Wednesday, November 4, 2026')).toBeInTheDocument();
+    expect(screen.getByText('2:30 PM')).toBeInTheDocument();
+    expect(screen.getByText('CJTECH Shop')).toBeInTheDocument();
+    expect(screen.getByText('Bring two copies of your resume.')).toBeInTheDocument();
+  });
+
+  it('shows the appointment the admin just booked, without leaving the card', async () => {
+    await openApplicant();
+    fireEvent.click(screen.getByRole('button', { name: 'Schedule Interview' }));
+    fillModal();
+    fireEvent.click(screen.getByRole('button', { name: 'Schedule' }));
+
+    await waitFor(() => expect(interviewWrites()).toHaveLength(1));
+    // The modal closes and the detail stays put, now carrying what was written.
+    expect(await screen.findByText('Scheduled interview')).toBeInTheDocument();
+    expect(screen.getByText('Tuesday, October 20, 2026')).toBeInTheDocument();
+    expect(screen.getByText('2:30 PM')).toBeInTheDocument();
+  });
+
+  it('shows no appointment section when there is nothing to show', async () => {
+    await openApplicant();
+
+    expect(await screen.findByRole('button', { name: 'Schedule Interview' })).toBeInTheDocument();
+    expect(screen.queryByText('Scheduled interview')).toBeNull();
   });
 });

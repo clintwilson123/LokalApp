@@ -4,6 +4,7 @@ import { radii, dashGrid } from "../uiStyles";
 import { SkeletonLine, SkeletonCard } from "../components/Skeleton";
 import { aiSkillMatch } from "../lib/aiSkillMatch";
 import { runInParallel, DEFAULT_CONCURRENCY } from "../lib/batchMatch";
+import { formatDate, formatTime } from "../lib/format";
 import ApplicantSelection, { AnalyzeSelectedButton } from "../components/ApplicantSelection";
 
 export default function AdminApplicants() {
@@ -30,6 +31,12 @@ export default function AdminApplicants() {
   // re-render the picker on every unrelated change).
   const [selectedIds, setSelectedIds] = useState([]);
 
+  // Every interview on file, with its application (and that application's
+  // job) embedded. Booking happens on Manage Jobs, so without this the admin
+  // had to leave the page to find out what they had just scheduled — the only
+  // trace here was nothing at all.
+  const [interviews, setInterviews] = useState([]);
+
   // Bumped to invalidate a scan still in flight (job switched, Cancel pressed,
   // component unmounted). Every await re-checks it, so a slow run can never
   // write into a view that has already moved to another job.
@@ -42,9 +49,20 @@ export default function AdminApplicants() {
         .from("profiles")
         .select("id, full_name, skills, location, phone_number, resume_url, bio, created_at")
         .eq("role", "applicant"),
-    ]).then(([jobsRes, appsRes]) => {
+      // interviews hangs off applications, which hangs off profiles and jobs —
+      // one nested read rather than a round trip per applicant. Every embed is
+      // a real foreign key, so PostgREST resolves it without a hint.
+      supabase
+        .from("interviews")
+        .select(
+          "id, date, time, location, instructions, status, " +
+            "applications(user_id, job_id, jobs(title))"
+        )
+        .order("date", { ascending: true }),
+    ]).then(([jobsRes, appsRes, ivRes]) => {
       if (jobsRes.data) setJobs(jobsRes.data);
       if (appsRes.data) setApplicants(appsRes.data);
+      if (ivRes.data) setInterviews(ivRes.data);
       setLoading(false);
     });
   }, []);
@@ -163,77 +181,173 @@ export default function AdminApplicants() {
 
   if (selectedApplicant) {
     const match = selectedJob ? selectedApplicant.match : null;
+    const name = selectedApplicant.full_name || "Unnamed";
+    // Parsed once here rather than per chip: a skills column is one comma
+    // string, and rendering it as text wall-to-wall was the main reason this
+    // card was hard to read.
+    const skills = String(selectedApplicant.skills || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    // This person's interviews, matched on the embedded application rather
+    // than on a job — it still reads correctly when no job is chosen yet.
+    const mine = interviews.filter((iv) => iv.applications?.user_id === selectedApplicant.id);
+    const contact = [selectedApplicant.location, selectedApplicant.phone_number]
+      .filter(Boolean)
+      .join(" · ");
+
     return (
       <div style={container}>
         <button style={backBtn} onClick={() => setSelectedApplicant(null)}>
           ← Back to applicants
         </button>
         <div style={detailCard}>
-          <h3 style={{ color: "#fff", marginBottom: "16px" }}>
-            {selectedApplicant.full_name || "Unnamed"}
-          </h3>
-          {match && (
-            <div style={scoreLarge}>
-              <span style={aiBadge}>AI</span>{" "}
-              Match: <strong>{match.score}%</strong> ({match.matched}/{match.total} skills)
+          {/* WHO, before WHAT they scored. */}
+          <div style={detailHead}>
+            <span style={detailAvatar} aria-hidden="true">
+              {(name.trim()[0] || "?").toUpperCase()}
+            </span>
+            <div style={{ minWidth: 0 }}>
+              <h3 style={detailName}>{name}</h3>
+              <div style={detailMeta}>{contact || "No contact details set"}</div>
             </div>
-          )}
-          {match?.explanation && (
-            <div style={aiExplanation}>
-              <strong>🤖 Gemini Analysis:</strong> {match.explanation}
-            </div>
-          )}
-          {match?.basicScore !== undefined && match?.basicScore !== match?.score && (
-            <div style={comparisonRow}>
-              <span style={comparisonLabel}>🔍 Basic Match</span>
-              <span style={comparisonValue}>{match.basicScore}%</span>
-              <span style={comparisonArrow}>→</span>
-              <span style={{ ...comparisonLabel, color: "#93c5fd" }}>🤖 AI Match</span>
-              <span style={{ ...comparisonValue, color: "#93c5fd" }}>{match.score}%</span>
-            </div>
-          )}
-          <div style={detailGrid}>
-            <div style={detailItem}>
-              <strong>Skills:</strong> {selectedApplicant.skills || "Not set"}
-            </div>
-            <div style={detailItem}>
-              <strong>Location:</strong> {selectedApplicant.location || "Not set"}
-            </div>
-            <div style={detailItem}>
-              <strong>Phone:</strong> {selectedApplicant.phone_number || "Not set"}
-            </div>
-            <div style={detailItem}>
-              <strong>Bio:</strong> {selectedApplicant.bio || "Not set"}
-            </div>
-            {selectedApplicant.resume_url && (
-              <div style={detailItem}>
-                <strong>Resume:</strong>{" "}
-                <a href={selectedApplicant.resume_url} target="_blank" rel="noreferrer" style={{ color: "#93c5fd" }}>
-                  View Resume ↗
-                </a>
-              </div>
-            )}
-            {match && match.matchedItems.length > 0 && (
-              <div style={detailItem}>
-                <strong>Matched Skills:</strong>
-                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
-                  {match.matchedItems.map((s) => (
-                    <span key={s} style={matchBadge}>{s}</span>
-                  ))}
+          </div>
+
+          {/* The verdict: one number, then the reason for it. */}
+          <div style={block}>
+            <div style={blockLabel}>How they score</div>
+
+            {match ? (
+              <>
+                <div style={scoreRow}>
+                  <span style={scorePct}>{match.score}%</span>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={scoreCaption}>
+                      Against {selectedJob?.title || "this job"}
+                    </div>
+                    <div style={scoreCounts}>
+                      {match.matched} of {match.total} required skills matched
+                    </div>
+                    <div style={matchBar}>
+                      <div style={matchBarFill(match.score)} />
+                    </div>
+                  </div>
                 </div>
-              </div>
-            )}
-            {match && match.missingItems.length > 0 && (
-              <div style={detailItem}>
-                <strong>Missing Skills:</strong>
-                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
-                  {match.missingItems.map((s) => (
-                    <span key={s} style={missingBadge}>{s}</span>
-                  ))}
-                </div>
-              </div>
+
+                {match.explanation && (
+                  <div style={aiExplanation}>
+                    <strong>🤖 Gemini Analysis:</strong> {match.explanation}
+                  </div>
+                )}
+
+                {match.basicScore !== undefined && match.basicScore !== match.score && (
+                  <div style={comparisonRow}>
+                    <span style={comparisonLabel}>🔍 Basic Match</span>
+                    <span style={comparisonValue}>{match.basicScore}%</span>
+                    <span style={comparisonArrow}>→</span>
+                    <span style={{ ...comparisonLabel, color: "#93c5fd" }}>🤖 AI Match</span>
+                    <span style={{ ...comparisonValue, color: "#93c5fd" }}>{match.score}%</span>
+                  </div>
+                )}
+
+                {match.matchedItems.length > 0 && (
+                  <div style={listBlock}>
+                    <div style={listLabel}>Matched Skills</div>
+                    <div style={chipWrap}>
+                      {match.matchedItems.map((s) => (
+                        <span key={s} style={matchBadge}>{s}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {match.missingItems.length > 0 && (
+                  <div style={listBlock}>
+                    <div style={listLabel}>Missing Skills</div>
+                    <div style={chipWrap}>
+                      {match.missingItems.map((s) => (
+                        <span key={s} style={missingBadge}>{s}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p style={mutedNote}>
+                Choose a job above to score this applicant against its requirements.
+              </p>
             )}
           </div>
+
+          {/* The appointment. Booking it happens on Manage Jobs, so this is
+              the only place an admin sees the result without leaving. */}
+          {mine.length > 0 && (
+            <div style={block}>
+              <div style={blockLabel}>
+                Scheduled interview{mine.length === 1 ? "" : "s"}
+              </div>
+              {mine.map((iv) => (
+                <div key={iv.id} style={ivCard}>
+                  <div style={ivWhen}>
+                    <strong style={{ color: "#fff" }}>{formatDate(iv.date)}</strong>
+                    {iv.time && (
+                      <span style={{ marginLeft: "6px" }}>
+                        at <strong style={{ color: "#fff" }}>{formatTime(iv.time)}</strong>
+                      </span>
+                    )}
+                  </div>
+                  {(iv.applications?.jobs?.title || iv.location) && (
+                    <div style={ivMeta}>
+                      {iv.applications?.jobs?.title && (
+                        <span style={ivTag}>{iv.applications.jobs.title}</span>
+                      )}
+                      {iv.location && <span style={ivTag}>{iv.location}</span>}
+                    </div>
+                  )}
+                  {iv.instructions && <p style={ivNotes}>{iv.instructions}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* The facts, kept apart from the score they feed into. */}
+          {(skills.length > 0 || selectedApplicant.bio || selectedApplicant.resume_url) && (
+            <div style={block}>
+              <div style={blockLabel}>About</div>
+              <div style={factList}>
+                {skills.length > 0 && (
+                  <div style={factRow}>
+                    <span style={factKey}>Skills</span>
+                    <div style={chipWrap}>
+                      {skills.map((s) => (
+                        <span key={s} style={skillChip}>{s}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {selectedApplicant.bio && (
+                  <div style={factRow}>
+                    <span style={factKey}>Bio</span>
+                    <p style={factValue}>{selectedApplicant.bio}</p>
+                  </div>
+                )}
+                {selectedApplicant.resume_url && (
+                  <div style={factRow}>
+                    <span style={factKey}>Resume</span>
+                    <div>
+                      <a
+                        href={selectedApplicant.resume_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={resumeLink}
+                      >
+                        View Resume ↗
+                      </a>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -556,11 +670,73 @@ const detailCard = {
   backgroundColor: "rgba(255,255,255,0.06)", borderRadius: radii.lg, padding: "24px",
   border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(12px)",
 };
-const scoreLarge = {
-  fontSize: "24px", fontWeight: "700", color: "#fff", marginBottom: "16px",
+// --- Applicant detail -------------------------------------------------------
+// The card was one flat run of label:value lines that read as a data dump. It
+// is now three labelled blocks — verdict, appointment, facts — so the eye
+// lands on the score first and the prose last.
+const detailHead = { display: "flex", alignItems: "center", gap: "14px", marginBottom: "4px" };
+const detailAvatar = {
+  width: "46px", height: "46px", borderRadius: "50%", flexShrink: 0,
+  background: "linear-gradient(135deg, #4a90e2, #1a73e8)", color: "#fff",
+  display: "flex", alignItems: "center", justifyContent: "center",
+  fontWeight: "700", fontSize: "17px",
 };
-const detailGrid = { display: "flex", flexDirection: "column", gap: "12px" };
-const detailItem = { fontSize: "13px", color: "rgba(255,255,255,0.85)", lineHeight: "1.6" };
+const detailName = { color: "#fff", fontWeight: "800", fontSize: "19px", margin: 0, lineHeight: 1.3 };
+const detailMeta = { color: "rgba(255,255,255,0.5)", fontSize: "13px", marginTop: "3px" };
+
+const block = { padding: "18px 0 0", marginTop: "18px", borderTop: "1px solid rgba(255,255,255,0.07)" };
+const blockLabel = {
+  fontSize: "11px", color: "rgba(255,255,255,0.45)", fontWeight: "700",
+  textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "13px",
+};
+
+const scoreRow = { display: "flex", alignItems: "center", gap: "16px", marginBottom: "14px" };
+const scorePct = {
+  fontSize: "40px", fontWeight: "800", color: "#fff", lineHeight: 1,
+  fontVariantNumeric: "tabular-nums", flexShrink: 0,
+};
+const scoreCaption = { color: "rgba(255,255,255,0.85)", fontSize: "13.5px", fontWeight: "600" };
+const scoreCounts = { color: "rgba(255,255,255,0.5)", fontSize: "12.5px", margin: "3px 0 8px" };
+
+const listBlock = { marginTop: "14px" };
+const listLabel = {
+  fontSize: "12.5px", fontWeight: "700", color: "rgba(255,255,255,0.75)", marginBottom: "7px",
+};
+const chipWrap = { display: "flex", gap: "6px", flexWrap: "wrap" };
+const skillChip = {
+  fontSize: "11.5px", padding: "4px 9px", borderRadius: "12px",
+  backgroundColor: "rgba(74,144,226,0.14)", color: "#93c5fd",
+  border: "1px solid rgba(74,144,226,0.26)", fontWeight: "600",
+};
+const mutedNote = {
+  color: "rgba(255,255,255,0.5)", fontSize: "13px", margin: 0, fontStyle: "italic",
+};
+
+// Scheduled interview, tinted purple to match the modal that creates it.
+const ivCard = {
+  backgroundColor: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.28)",
+  borderRadius: radii.md, padding: "13px 15px", marginBottom: "8px",
+};
+const ivWhen = { color: "#fff", fontSize: "14px", lineHeight: 1.5 };
+const ivMeta = { display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px" };
+const ivTag = {
+  fontSize: "11.5px", padding: "3px 9px", borderRadius: "12px",
+  backgroundColor: "rgba(139,92,246,0.2)", color: "#c4b5fd", fontWeight: "600",
+};
+const ivNotes = {
+  color: "rgba(255,255,255,0.65)", fontSize: "12.5px", margin: "9px 0 0", lineHeight: 1.55,
+};
+
+const factList = { display: "flex", flexDirection: "column", gap: "14px" };
+// Label column rather than `Skills: text` — the eye can then run straight
+// down the values without re-finding the label in every line.
+const factRow = { display: "grid", gridTemplateColumns: "74px 1fr", gap: "12px", alignItems: "start" };
+const factKey = {
+  fontSize: "11.5px", color: "rgba(255,255,255,0.45)", fontWeight: "700",
+  textTransform: "uppercase", letterSpacing: "0.5px", paddingTop: "3px",
+};
+const factValue = { fontSize: "13.5px", color: "rgba(255,255,255,0.85)", lineHeight: 1.6, margin: 0 };
+const resumeLink = { color: "#93c5fd", fontSize: "13.5px", fontWeight: "600", textDecoration: "none" };
 const matchBadge = {
   fontSize: "11px", padding: "3px 8px", borderRadius: "12px",
   backgroundColor: "rgba(34,197,94,0.2)", color: "#86efac", fontWeight: "600",
