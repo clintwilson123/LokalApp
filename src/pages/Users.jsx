@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { colors, dashTable, dashTh, dashTd, dashRow, dashStatCard, dashStatNum, dashStatLabel, dashBadge, dashSmallBtn } from "../uiStyles";
 import { SkeletonTable } from "../components/Skeleton";
+import SkillChips from "../components/SkillChips";
 
 export default function Users() {
   const [users, setUsers] = useState([]);
@@ -212,59 +213,12 @@ const container = { padding: "5px" };
 const statsRow = { display: "flex", gap: "12px", margin: "20px 0", flexWrap: "wrap" };
 const tableStyle = { width: "100%", borderCollapse: "collapse", minWidth: "700px" };
 
-const skillTag = {
-  fontSize: "11px",
-  padding: "3px 9px",
-  borderRadius: "6px",
-  backgroundColor: "rgba(148,163,184,0.12)",
-  border: "1px solid rgba(148,163,184,0.22)",
-  color: "rgba(226,232,240,0.88)",
-  fontWeight: "500",
-  letterSpacing: "0.2px",
-  whiteSpace: "nowrap",
-  lineHeight: "1.4",
-};
-const skillMoreBtn = {
-  fontSize: "11px",
-  padding: "3px 10px",
-  borderRadius: "6px",
-  backgroundColor: "transparent",
-  border: "1px dashed rgba(148,163,184,0.4)",
-  color: "rgba(148,163,184,0.95)",
-  cursor: "pointer",
-  fontWeight: "600",
-  whiteSpace: "nowrap",
-  lineHeight: "1.4",
-  letterSpacing: "0.2px",
-};
-
 function SkillCell({ skills }) {
-  const [expanded, setExpanded] = useState(false);
-
-  if (!skills || !skills.trim()) {
+  const list = String(skills || "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (list.length === 0) {
     return <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>—</span>;
   }
-
-  const list = skills.split(",").map((s) => s.trim()).filter(Boolean);
-  const VISIBLE = 2;
-  const hasMore = list.length > VISIBLE;
-  const shown = expanded || !hasMore ? list : list.slice(0, VISIBLE);
-
-  return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: "5px", alignItems: "center" }}>
-      {shown.map((s, i) => (
-        <span key={i} style={skillTag}>{s}</span>
-      ))}
-      {hasMore && (
-        <button
-          className="skill-more-btn"
-          style={skillMoreBtn}
-          onClick={() => setExpanded(!expanded)}
-          title={expanded ? "Show fewer skills" : `Show ${list.length - VISIBLE} more skills`}
-        >
-          {expanded ? `Less ▴` : `+${list.length - VISIBLE} more ▾`}
-        </button>
-      )}
-    </div>
-  );
+  // Two per view keeps the table rows an even height. The applicant detail
+  // cards pass a longer preview because they have the room for one.
+  return <SkillChips skills={skills} visible={2} />;
 }

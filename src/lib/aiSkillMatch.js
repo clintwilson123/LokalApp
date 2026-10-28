@@ -31,28 +31,48 @@ export async function aiSkillMatch(applicantSkills, jobRequirements, jobTitle) {
   const { aliasIndex } = await loadSkillCatalog();
   const basic = computeSkillMatch(applicantSkills, jobRequirements, aliasIndex);
 
+  // Everything the cheap pass could answer has been answered. Sending the full
+  // requirement list anyway cost a round trip to re-hear answers we already
+  // had — and, because a whole-roster scan makes one call per applicant, it was
+  // the single biggest reason a scan took as long as it did. No open questions,
+  // no AI call, no explanation line: the score and the two lists still say
+  // everything the card needs.
+  const uncertain = basic.missingItems || [];
+  if (uncertain.length === 0) {
+    return { ...basic, basicScore: basic.score, explanation: "" };
+  }
+
   try {
     const result = await withTimeout(
       callEdgeFunction("gemini-match", {
         applicantSkills,
-        jobRequirements,
+        // ONLY the requirements that are still in doubt. A shorter list is a
+        // shorter prompt and a shorter answer, so the calls that are actually
+        // made come back faster too.
+        jobRequirements: uncertain,
         jobTitle,
       }),
       AI_TIMEOUT_MS
     );
 
-    const matched = result.matchedItems?.length || 0;
-    // From the basic pass, not from jobRequirements.length — computeSkillMatch
-    // drops empty strings, and the two would otherwise disagree.
-    const total = basic.total;
+    // A local match is exact or alias-resolved, so it stands on its own; the
+    // model only ever ADDS to it. It cannot talk a confidently matched
+    // requirement out of the list, which is a small accuracy win on top of the
+    // speed one. The Set is belt and braces: the model is only asked about the
+    // misses, so an overlap means it answered about something else, and a
+    // duplicate would both overcount the score and give the chip list two
+    // identical keys.
+    const matchedItems = [...new Set([...(basic.matchedItems || []), ...(result.matchedItems || [])])];
+    const missingItems = result.missingItems || [];
+    const matched = matchedItems.length;
 
     return {
       matched,
-      total,
-      score: total > 0 ? Math.round((matched / total) * 100) : 0,
+      total: basic.total,
+      score: basic.total > 0 ? Math.round((matched / basic.total) * 100) : 0,
       basicScore: basic.score,
-      matchedItems: result.matchedItems || [],
-      missingItems: result.missingItems || [],
+      matchedItems,
+      missingItems,
       explanation: result.explanation || "AI match analysis complete.",
     };
   } catch {

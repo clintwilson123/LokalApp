@@ -6,6 +6,7 @@ import { aiSkillMatch } from "../lib/aiSkillMatch";
 import { runInParallel, selectQuickScan, DEFAULT_CONCURRENCY, QUICK_SCAN_COUNT } from "../lib/batchMatch";
 import { relativeTime, formatDate, formatTime } from "../lib/format";
 import ApplicantSelection, { AnalyzeSelectedButton } from "../components/ApplicantSelection";
+import SkillChips from "../components/SkillChips";
 import SkillPicker from "../components/SkillPicker";
 import { loadSkillCatalog } from "../lib/skillCatalog";
 
@@ -903,16 +904,11 @@ export default function ManageJobs() {
           {a.skills && (
             <div style={aboutRow}>
               <span style={aboutKey}>Skills</span>
+              {/* A long skill column used to print in full and push the bio,
+                  the contact details and the interview off the bottom of the
+                  card. Preview plus toggle, same as everywhere else. */}
               <div style={aboutChips}>
-                {a.skills
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean)
-                  .map((s) => (
-                    <span key={s} style={skillChip}>
-                      {s}
-                    </span>
-                  ))}
+                <SkillChips skills={a.skills} />
               </div>
             </div>
           )}
@@ -957,10 +953,13 @@ export default function ManageJobs() {
                 <span style={aboutKey}>When</span>
                 <div style={aboutValue}>
                   <strong style={{ color: "#fff" }}>{formatDate(iv.date)}</strong>
+                  {/* The space lives in the content, not in a margin — margin
+                      leaves the copied or read-aloud text as "2026at 10:30 AM". */}
                   {iv.time && (
-                    <span style={{ marginLeft: "6px" }}>
-                      at <strong style={{ color: "#fff" }}>{formatTime(iv.time)}</strong>
-                    </span>
+                    <>
+                      {" "}at{" "}
+                      <strong style={{ color: "#fff" }}>{formatTime(iv.time)}</strong>
+                    </>
                   )}
                 </div>
               </div>
@@ -1450,7 +1449,6 @@ const aboutList = { display: "flex", flexDirection: "column", gap: "12px" };
 const aboutRow = { display: "flex", gap: "14px", alignItems: "flex-start", fontSize: "13px" };
 const aboutKey = { width: "74px", flexShrink: 0, color: "rgba(255,255,255,0.45)", fontWeight: "700", fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.5px", paddingTop: "3px" };
 const aboutChips = { display: "flex", gap: "6px", flexWrap: "wrap", flex: 1, minWidth: 0 };
-const skillChip = { fontSize: "12px", fontWeight: "600", padding: "4px 10px", borderRadius: "12px", backgroundColor: "rgba(74,144,226,0.15)", color: "#93c5fd", border: "1px solid rgba(74,144,226,0.25)" };
 const aboutBio = { margin: 0, color: "rgba(255,255,255,0.85)", lineHeight: 1.65, flex: 1, minWidth: 0 };
 const aboutValue = { color: "rgba(255,255,255,0.85)", lineHeight: 1.6, minWidth: 0 };
 const emailLink = { color: "#93c5fd", fontWeight: "600", textDecoration: "none", wordBreak: "break-all" };

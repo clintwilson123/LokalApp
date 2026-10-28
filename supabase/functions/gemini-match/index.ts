@@ -24,6 +24,40 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+/**
+ * How long a caller's admin verdict may be reused.
+ *
+ * A scan makes one of these calls per applicant, and Deno reuses a warm
+ * instance across them, so verifying the caller cost two round trips BEFORE
+ * the model was even reached — `auth.getUser` against the auth server, then a
+ * profiles lookup for the role. A ten-person scan paid for both twenty times.
+ *
+ * 60s comfortably covers a batch and is far too short to matter if an admin is
+ * demoted. Only the verdict is cached, never the token.
+ */
+const ADMIN_CACHE_MS = 60_000;
+const adminCache = new Map<string, { admin: boolean; expires: number }>();
+
+/** djb2. Not security-sensitive — it only has to make a good map key. */
+function hashToken(value: string): string {
+  let hash = 5381;
+  for (let i = 0; i < value.length; i++) {
+    hash = ((hash << 5) + hash + value.charCodeAt(i)) | 0;
+  }
+  return String(hash >>> 0);
+}
+
+/**
+ * How long one model answer may be reused.
+ *
+ * The prompt is a pure function of the three inputs and the temperature is 0.2,
+ * so identical inputs are worth an identical answer. Re-running a scan after a
+ * status change, or scoring one person against two jobs that ask for the same
+ * things, used to buy a second identical call each time.
+ */
+const ANSWER_CACHE_MS = 10 * 60_000;
+const answerCache = new Map<string, { result: unknown; expires: number }>();
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { status: 200, headers: CORS_HEADERS });
@@ -51,20 +85,39 @@ serve(async (req) => {
     );
 
     const token = authHeader.replace(/^Bearer\s+/i, "");
-    const { data: callerData, error: callerError } = await supabase.auth.getUser(token);
-    const caller = callerData?.user;
-    if (callerError || !caller) {
-      return json({ error: "Unauthorized" }, 401);
-    }
+    const cacheKey = hashToken(token);
+    const cached = adminCache.get(cacheKey);
+    const now = Date.now();
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", caller.id)
-      .maybeSingle();
+    if (cached && cached.expires > now) {
+      if (!cached.admin) {
+        return json({ error: "Admin access required" }, 403);
+      }
+    } else {
+      const { data: callerData, error: callerError } = await supabase.auth.getUser(token);
+      const caller = callerData?.user;
+      if (callerError || !caller) {
+        // The negative result is cached too: otherwise a caller hammering this
+        // with a bad token still gets both round trips for free, which is
+        // precisely the version worth defending against.
+        adminCache.set(cacheKey, { admin: false, expires: now + ADMIN_CACHE_MS });
+        return json({ error: "Unauthorized" }, 401);
+      }
 
-    if (profile?.role !== "admin") {
-      return json({ error: "Admin access required" }, 403);
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", caller.id)
+        .maybeSingle();
+
+      const isAdmin = profile?.role === "admin";
+      // Bounded so a long-lived instance cannot grow this without limit.
+      if (adminCache.size > 500) adminCache.clear();
+      adminCache.set(cacheKey, { admin: isAdmin, expires: now + ADMIN_CACHE_MS });
+
+      if (!isAdmin) {
+        return json({ error: "Admin access required" }, 403);
+      }
     }
     // ----------------------------------------------------------------------
 
@@ -94,6 +147,12 @@ Return ONLY valid JSON (no markdown, no code blocks):
   "missingItems": ["requirement3"],
   "explanation": "Brief 1-sentence reasoning for the match"
 }`;
+
+    const answerKey = `${jobTitle}|${skills.join(",")}|${(jobRequirements as string[]).join(",")}`;
+    const cachedAnswer = answerCache.get(answerKey);
+    if (cachedAnswer && cachedAnswer.expires > Date.now()) {
+      return json(cachedAnswer.result, 200);
+    }
 
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
@@ -141,6 +200,8 @@ Return ONLY valid JSON (no markdown, no code blocks):
     }
 
     const result = JSON.parse(jsonMatch[0]);
+    if (answerCache.size > 300) answerCache.clear();
+    answerCache.set(answerKey, { result, expires: Date.now() + ANSWER_CACHE_MS });
     return json(result, 200);
   } catch (err) {
     return json({ error: err.message }, 500);

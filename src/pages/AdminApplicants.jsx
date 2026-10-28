@@ -5,6 +5,7 @@ import { SkeletonLine, SkeletonCard } from "../components/Skeleton";
 import { aiSkillMatch } from "../lib/aiSkillMatch";
 import { runInParallel, DEFAULT_CONCURRENCY } from "../lib/batchMatch";
 import { formatDate, formatTime } from "../lib/format";
+import SkillChips from "../components/SkillChips";
 import ApplicantSelection, { AnalyzeSelectedButton } from "../components/ApplicantSelection";
 
 export default function AdminApplicants() {
@@ -292,10 +293,13 @@ export default function AdminApplicants() {
                 <div key={iv.id} style={ivCard}>
                   <div style={ivWhen}>
                     <strong style={{ color: "#fff" }}>{formatDate(iv.date)}</strong>
+                    {/* The space lives in the content, not in a margin — margin
+                        leaves the copied or read-aloud text as "2026at 10:30 AM". */}
                     {iv.time && (
-                      <span style={{ marginLeft: "6px" }}>
-                        at <strong style={{ color: "#fff" }}>{formatTime(iv.time)}</strong>
-                      </span>
+                      <>
+                        {" "}at{" "}
+                        <strong style={{ color: "#fff" }}>{formatTime(iv.time)}</strong>
+                      </>
                     )}
                   </div>
                   {(iv.applications?.jobs?.title || iv.location) && (
@@ -320,11 +324,10 @@ export default function AdminApplicants() {
                 {skills.length > 0 && (
                   <div style={factRow}>
                     <span style={factKey}>Skills</span>
-                    <div style={chipWrap}>
-                      {skills.map((s) => (
-                        <span key={s} style={skillChip}>{s}</span>
-                      ))}
-                    </div>
+                    {/* Preview plus toggle, so a 23-skill applicant no longer
+                        buries their bio, contact details and interview below
+                        the fold — and their card height matches a 3-skill one. */}
+                    <SkillChips skills={selectedApplicant.skills} />
                   </div>
                 )}
                 {selectedApplicant.bio && (
@@ -709,11 +712,6 @@ const listLabel = {
   fontSize: "12.5px", fontWeight: "700", color: "rgba(255,255,255,0.75)", marginBottom: "7px",
 };
 const chipWrap = { display: "flex", gap: "6px", flexWrap: "wrap" };
-const skillChip = {
-  fontSize: "11.5px", padding: "4px 9px", borderRadius: "12px",
-  backgroundColor: "rgba(74,144,226,0.14)", color: "#93c5fd",
-  border: "1px solid rgba(74,144,226,0.26)", fontWeight: "600",
-};
 const mutedNote = {
   color: "rgba(255,255,255,0.5)", fontSize: "13px", margin: 0, fontStyle: "italic",
 };

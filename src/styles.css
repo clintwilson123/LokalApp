@@ -899,3 +899,21 @@ textarea.input {
     grid-template-columns: 1fr !important;
   }
 }
+
+/* The "show the rest of the skills" control. It carries the class so it can
+   have hover and focus states, which an inline style cannot express — without
+   these it looked like a twelfth skill that happened to be clickable. */
+.skill-more-btn {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.skill-more-btn:hover {
+  background-color: rgba(255, 255, 255, 0.11);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
+
+.skill-more-btn:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.45);
+  outline-offset: 2px;
+}

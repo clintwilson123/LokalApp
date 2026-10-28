@@ -9,13 +9,19 @@ import { useState } from "react";
  * show by default and the rest wait behind a button that says how many it is
  * holding back.
  *
- * One copy for the whole app: the admin records table and the applicant's own
- * application detail show the same list and should fold it the same way, and
- * the limit should be adjustable in one place.
+ * One copy for the whole app: the admin records table, the applicant's own
+ * application detail, the user list and both applicant detail cards show the
+ * same list and should fold it the same way. The limit is a prop so a table
+ * cell can hold a shorter preview than a card with room to spare.
  */
 const SKILL_CHIP_LIMIT = 4;
 
-export default function SkillChips({ skills }) {
+/**
+ * @param {string|null|undefined} skills  The raw comma-separated column.
+ * @param {number} [visible]              Preview length. The fold only renders
+ *                                        when there is more than this to show.
+ */
+export default function SkillChips({ skills, visible = SKILL_CHIP_LIMIT }) {
   const [open, setOpen] = useState(false);
   const parts = String(skills || "")
     .split(",")
@@ -24,8 +30,8 @@ export default function SkillChips({ skills }) {
 
   if (parts.length === 0) return <span style={muted}>Not set</span>;
 
-  const hidden = parts.length - SKILL_CHIP_LIMIT;
-  const shown = open || hidden <= 0 ? parts : parts.slice(0, SKILL_CHIP_LIMIT);
+  const hidden = parts.length - visible;
+  const shown = open || hidden <= 0 ? parts : parts.slice(0, visible);
 
   return (
     <div style={chipWrap}>
@@ -35,8 +41,13 @@ export default function SkillChips({ skills }) {
       {hidden > 0 && (
         <button
           type="button"
+          // The class carries the hover and focus states, which an inline
+          // style cannot express — without them the control looked like one
+          // more skill that happened to be clickable.
+          className="skill-more-btn"
           onClick={() => setOpen((was) => !was)}
           aria-label={open ? "Show fewer skills" : `Show ${hidden} more skills`}
+          aria-expanded={open}
           style={chipMore}
         >
           {open ? "Show less" : `+${hidden} more`}
