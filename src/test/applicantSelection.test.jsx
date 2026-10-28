@@ -95,7 +95,7 @@ describe('ApplicantSelection — bulk controls', () => {
   it('reports the live state in the toolbar and the footer', () => {
     render(<Harness items={people(5)} />);
     expect(screen.getByText('Nothing selected')).toBeInTheDocument();
-    expect(screen.getByText('Tick applicants above to enable the scan.')).toBeInTheDocument();
+    expect(screen.getByText('Tick applicants above — or scan the whole roster.')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Analyze Applicant 1' }));
     expect(screen.getByText('1 of 5 ready to scan')).toBeInTheDocument();
@@ -134,6 +134,47 @@ describe('ApplicantSelection — the skills preview', () => {
     expect(screen.getByText('Cal Wong')).toBeInTheDocument();
     expect(screen.getByText('No location set')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Analyze Cal Wong' })).toBeInTheDocument();
+  });
+});
+
+describe('ApplicantSelection — the whole-roster actions', () => {
+  it('renders neither, unless the page offers them', () => {
+    // Quick scan only exists where a free local pre-ranker has something to
+    // rank against, so the component must not assume it. A page that passes
+    // nothing gets the picker and the counted action and nothing else.
+    render(<Harness items={people(3)} onAnalyze={vi.fn()} />);
+
+    expect(screen.queryByRole('button', { name: /Scan all/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Quick scan/ })).toBeNull();
+  });
+
+  it('places Scan all in the decision band and runs the whole roster', () => {
+    const onScanAll = vi.fn();
+    render(<Harness items={people(3)} onAnalyze={vi.fn()} onScanAll={onScanAll} />);
+
+    const scanAll = screen.getByRole('button', { name: '🧠 Scan all 3' });
+    expect(scanAll).toBeInTheDocument();
+    // Its label carries the roster size, not the selection — pressing it with
+    // nothing ticked must still do exactly what it says.
+    expect(screen.getByRole('button', { name: 'Analyze Selected Applicants (0)' })).toBeDisabled();
+    expect(scanAll).toBeEnabled();
+
+    fireEvent.click(scanAll);
+    expect(onScanAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('takes Quick scan and its label from the page', () => {
+    const onQuickScan = vi.fn();
+    render(
+      <Harness
+        items={people(3)}
+        onQuickScan={onQuickScan}
+        quickScanLabel="⚡ Quick scan — top 2"
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '⚡ Quick scan — top 2' }));
+    expect(onQuickScan).toHaveBeenCalledTimes(1);
   });
 });
 

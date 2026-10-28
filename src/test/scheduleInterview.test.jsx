@@ -94,12 +94,12 @@ const JOB = {
 const interviewWrites = () => h.writes.filter((w) => w.table === 'interviews');
 
 /**
- * Opening a job stops at the scan card — the admin chooses Quick Scan or a
- * full run instead of having quota spent automatically. Start a full run so
- * the ranked grid (and every card these tests click) exists.
+ * Opening a job stops at the picker — the admin chooses Scan all, Quick scan,
+ * or a hand-picked batch, instead of having quota spent automatically. Start a
+ * full run so the ranked grid (and every card these tests click) exists.
  */
 async function startScan() {
-  fireEvent.click(await screen.findByRole('button', { name: /Analyze all/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /Scan all/ }));
 }
 
 /** Walks Manage Jobs -> Applicants -> the applicant's detail view. */

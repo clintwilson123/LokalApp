@@ -138,13 +138,15 @@ describe('Analyze Selected — only the checked subset is billed', () => {
     expect(aiSkillMatch).not.toHaveBeenCalled();
   });
 
-  it('the pre-ranker card is gone — nothing here runs behind the checkboxes', async () => {
+  it('the pre-ranker is gone — nothing here runs behind the checkboxes', async () => {
     await chooseJob();
     expect(screen.queryByText(/pre-ranker/i)).toBeNull();
+    // No Quick scan on this page: these are registered profiles rather than a
+    // job's own applicants, so there is no requirement to pre-rank them
+    // against. The whole-roster route that remains is an ordinary, visible
+    // button, sitting beside Select all instead of replacing it.
     expect(screen.queryByRole('button', { name: /Quick scan/ })).toBeNull();
-    expect(screen.queryByRole('button', { name: /Analyze all/ })).toBeNull();
-    // Select all is the only bulk route left, and it is explicit about what it
-    // selects rather than running a different algorithm.
+    expect(screen.getByRole('button', { name: '🧠 Scan all 10' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Select all 10' })).toBeInTheDocument();
   });
 });

@@ -6,16 +6,20 @@ import { radii } from "../uiStyles";
  * An employer with 40 applicants who already knew they wanted to hear about
  * three of them had no way to say so.
  *
- * This component is the picker for that decision. It owns the checkbox grid
- * and the Select all / Clear controls; it deliberately does NOT own the scan
- * itself — the page decides what a click means, because the two pages that
- * need this keep their rosters in different shapes (Manage Jobs ranks a job's
- * actual applicants, Manage Applicants ranks every registered profile).
+ * This component is the picker for that decision. It owns the checkbox grid,
+ * the Select all / Clear controls, and the whole action band; it deliberately
+ * does NOT own the scan itself — the page decides what a click means, because
+ * the two pages that need this keep their rosters in different shapes (Manage
+ * Jobs ranks a job's actual applicants, Manage Applicants ranks every
+ * registered profile). That is why Quick scan and Scan all arrive as
+ * callbacks rather than being built in: only one of the two pages has a free
+ * local pre-ranker to put behind them.
  *
- * Layout, top to bottom: what this panel is → the two bulk controls → the
- * people themselves → the action and what pressing it costs. Four bands, so
- * the eye always knows whether it is reading a heading, a control, data or a
- * decision.
+ * Layout, top to bottom: what this panel is → the selection controls → the
+ * people themselves → every way of starting a scan. Four bands, so the eye
+ * always knows whether it is reading a heading, a control, data or a
+ * decision. Keeping the three scan buttons in the one decision band is what
+ * stops them reading as three unrelated affordances scattered down the page.
  */
 
 /**
@@ -47,7 +51,13 @@ const SKILL_PREVIEW = 3;
  * @param {Array}    items        Roster to pick from. Each entry needs a stable `id`.
  * @param {string[]} selectedIds  The current selection.
  * @param {(ids: string[]) => void} onChange  Receives a NEW array — never mutate in place.
- * @param {() => void} [onAnalyze] Rendered as the action button when given.
+ * @param {() => void} [onAnalyze] The counted action for the ticked people.
+ * @param {() => void} [onScanAll] Whole-roster action. Ignoring the selection
+ *                                 is the point of it, so it never reads the count.
+ * @param {() => void} [onQuickScan] Whole-roster action backed by the free local
+ *                                   pre-ranker. Manage Jobs only — the other page
+ *                                   ranks profiles that have no job to match against.
+ * @param {string}    [quickScanLabel] Its button text; the caller owns the number.
  */
 export default function ApplicantSelection({
   items,
@@ -55,6 +65,9 @@ export default function ApplicantSelection({
   onChange,
   onAnalyze,
   analyzeLabel,
+  onScanAll,
+  onQuickScan,
+  quickScanLabel,
   title = "Choose applicants to score",
   subtitle,
   emptyMessage = "No applicants to pick from yet.",
@@ -166,22 +179,48 @@ export default function ApplicantSelection({
         })}
       </div>
 
+      {/* The decision band. All three ways of starting a scan live here and
+          nowhere else: ticked people, the whole roster, or the pre-ranked
+          slice. Splitting them up the page made each one look like a
+          different feature rather than a different scope of the same one. */}
       <footer style={panelFoot}>
         <span style={footHint}>
           {picked === 0
-            ? "Tick applicants above to enable the scan."
+            ? "Tick applicants above — or scan the whole roster."
             : "Your selection is kept — change it and run again any time."}
         </span>
-        {onAnalyze && (
-          <button
-            className="cjlink-pick-cta"
-            style={ctaStyle}
-            onClick={onAnalyze}
-            disabled={disabled || picked === 0}
-          >
-            {analyzeLabel || "Analyze Selected Applicants"} ({picked})
-          </button>
-        )}
+        <div style={footActions}>
+          {onQuickScan && (
+            <button
+              className="cjlink-pick-btn"
+              style={ghostBtn}
+              onClick={onQuickScan}
+              disabled={disabled}
+            >
+              {quickScanLabel || "Quick scan"}
+            </button>
+          )}
+          {onScanAll && (
+            <button
+              className="cjlink-pick-btn"
+              style={ghostBtn}
+              onClick={onScanAll}
+              disabled={disabled}
+            >
+              🧠 Scan all {total}
+            </button>
+          )}
+          {onAnalyze && (
+            <button
+              className="cjlink-pick-cta"
+              style={ctaStyle}
+              onClick={onAnalyze}
+              disabled={disabled || picked === 0}
+            >
+              {analyzeLabel || "Analyze Selected Applicants"} ({picked})
+            </button>
+          )}
+        </div>
       </footer>
     </section>
   );
@@ -293,6 +332,12 @@ const panelFoot = {
   borderTop: "1px solid rgba(255,255,255,0.07)",
 };
 const footHint = { fontSize: "12.5px", color: "rgba(255,255,255,0.45)" };
+// The two whole-roster buttons are ghost and the counted one is solid, so the
+// action that actually charges quota for a specific, chosen number of people
+// is the one that looks like the decision.
+const footActions = {
+  display: "flex", alignItems: "center", gap: "9px", flexWrap: "wrap",
+};
 const ctaStyle = {
   backgroundColor: "#4a90e2", border: "1px solid #4a90e2", color: "#fff",
   padding: "11px 20px", borderRadius: "9px", fontSize: "13.5px", fontWeight: "700",

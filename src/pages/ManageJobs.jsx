@@ -5,6 +5,7 @@ import { SkeletonTable } from "../components/Skeleton";
 import { aiSkillMatch } from "../lib/aiSkillMatch";
 import { runInParallel, selectQuickScan, DEFAULT_CONCURRENCY, QUICK_SCAN_COUNT } from "../lib/batchMatch";
 import { relativeTime, formatDate, formatTime } from "../lib/format";
+import ApplicantSelection, { AnalyzeSelectedButton } from "../components/ApplicantSelection";
 import SkillPicker from "../components/SkillPicker";
 import { loadSkillCatalog } from "../lib/skillCatalog";
 
@@ -40,15 +41,27 @@ export default function ManageJobs() {
   const [analyzeProgress, setAnalyzeProgress] = useState({ current: 0, total: 0, name: "" });
 
   // Applicants as fetched, BEFORE any AI call. Opening a job no longer starts
-  // the scan by itself — the employer picks Quick Scan or the full run from
-  // the panel below, so the roster has to exist independently of `applicants`
-  // (which only ever holds analysed people, because the cards read
-  // `a.match.score` and would crash on an unscanned row).
+  // the scan by itself — the employer ticks who is worth a Gemini call, or
+  // takes the whole roster from the panel below, so the roster has to exist
+  // independently of `applicants` (which only ever holds analysed people,
+  // because the cards read `a.match.score` and would crash on an unscanned
+  // row).
   const [roster, setRoster] = useState([]);
   const [scanDone, setScanDone] = useState(false);
-  // "quick" | "all" | null — the scope last run, so a refresh after a status
-  // update can reuse the answers instead of paying for the scan again.
+  // "quick" | "all" | "selected" | null — the scope last run, so a refresh
+  // after a status update can reuse the answers instead of paying for the
+  // scan again.
   const [scanMode, setScanMode] = useState(null);
+
+  // The employer's hand-picked subset. A plain id array rather than a Set so
+  // it can go straight into state (Sets are compared by identity, which would
+  // re-render the picker on every unrelated change).
+  const [selectedIds, setSelectedIds] = useState([]);
+
+  // Who the last scan actually charged quota for. Kept in a ref rather than
+  // derived from state because a re-fetch after a status change has to rebuild
+  // the same target list from a FRESH roster whose ids may have shifted.
+  const scannedIdsRef = useRef([]);
 
   // The interview booked for each of this job's applications, keyed by
   // application_id. This table used to be write-only here: booking an
@@ -100,10 +113,10 @@ export default function ManageJobs() {
 
   /**
    * @param {number} jobId
-   * @param {"quick"|"all"|null} scope  What the employer ran last on this job.
-   *   Defaults to the current scope, which is what a re-fetch after a status
-   *   change wants; `viewApplicants` passes null explicitly so opening a
-   *   different job starts at the scan card instead of silently re-scanning.
+   * @param {"quick"|"all"|"selected"|null} scope  What the employer ran last on
+   *   this job. Defaults to the current scope, which is what a re-fetch after a
+   *   status change wants; `viewApplicants` passes null explicitly so opening a
+   *   different job starts at the picker instead of silently re-scanning.
    */
   const fetchApplicantsForJob = async (jobId, scope = scanMode) => {
     const { data: apps } = await supabase
@@ -163,11 +176,14 @@ export default function ManageJobs() {
     setAnalyzeProgress({ current: 0, total: 0, name: "" });
 
     if (!scope) {
-      // First time on this job: show the scan card and spend nothing.
+      // First time on this job: show the picker and spend nothing. The ticks
+      // belong to the job that produced them, so a stale selection must not
+      // survive into the next one — it would silently decide who gets charged.
       runIdRef.current += 1;
       setAnalyzing(false);
       setApplicants([]);
       setScanDone(false);
+      setSelectedIds([]);
       return;
     }
 
@@ -191,6 +207,25 @@ export default function ManageJobs() {
 
     // Someone new applied, or there are no answers to carry: re-run the same
     // scope against the fresh roster.
+    //
+    // A hand-picked run has to be re-picked, not replayed against everyone —
+    // `built` is the WHOLE fresh roster, and running it as-is would silently
+    // bill quota for people the employer never ticked.
+    if (scope === "selected") {
+      const wanted = built.filter((p) => scannedIdsRef.current.includes(p.id));
+      if (wanted.length === 0) {
+        // Everyone in the last batch is gone: back to the picker rather than
+        // burning a call that cannot answer anything.
+        runIdRef.current += 1;
+        setAnalyzing(false);
+        setApplicants([]);
+        setScanDone(false);
+        return;
+      }
+      runScan("selected", wanted);
+      return;
+    }
+
     runScan(scope, built);
   };
 
@@ -204,12 +239,15 @@ export default function ManageJobs() {
   /**
    * Run the AI scan over a chosen scope.
    *
-   * @param {"quick"|"all"} mode
-   *   quick = the top QUICK_SCAN_COUNT people by the free local pre-rank.
-   *   all   = the whole roster.
-   * @param {Array} people  Defaults to state. Passed explicitly when a refresh
-   *                        has just built a new roster whose state copy has
-   *                        not landed yet.
+   * @param {"quick"|"all"|"selected"} mode
+   *   quick    = the top QUICK_SCAN_COUNT people by the free local pre-rank.
+   *   all      = the whole roster.
+   *   selected = exactly the ids the employer ticked. The caller passes the
+   *              already-filtered list as `people`; this mode never widens it.
+   * @param {Array} people        Defaults to state. Passed explicitly when a
+   *                              refresh has just built a new roster whose
+   *                              state copy has not landed yet, and always for
+   *                              a "selected" run.
    */
   const runScan = async (mode, people = roster) => {
     const requirements = viewingJob?.requirements || [];
@@ -221,9 +259,15 @@ export default function ManageJobs() {
 
     // Quick Scan picks its targets with the local matcher first — free, and it
     // means quota goes to plausible matches rather than a blind pass over
-    // everyone.
+    // everyone. "selected" skips it: the employer has already done the picking
+    // by hand, and re-ranking their choice would be a second, unasked-for
+    // filter on top of it.
     const targets = mode === "quick" ? await selectQuickScan(people, requirements) : people;
     if (cancelled()) return;
+
+    // Remember who this run was for, so a re-fetch after a status change can
+    // rebuild the same target list from a fresh roster.
+    scannedIdsRef.current = targets.map((t) => t.id);
 
     setAnalyzing(true);
     setScanMode(mode);
@@ -390,6 +434,11 @@ export default function ManageJobs() {
     setViewingJob(job);
     setSelectedApplicant(null);
     setScanMode(null);
+    // The selection belongs to the job that produced the roster; a stale tick
+    // against the next job's applicants would silently decide who gets charged
+    // for it.
+    setSelectedIds([]);
+    scannedIdsRef.current = [];
     fetchApplicantsForJob(job.id, null);
   }
 
@@ -509,7 +558,7 @@ export default function ManageJobs() {
           <div style={scanNote}>
             ⚡ Quick scan ranked the top {applicants.length} of {roster.length} applicants.{" "}
             <button style={scanLink} onClick={() => runScan("all")}>
-              Analyze all {roster.length} →
+              Scan all {roster.length} →
             </button>
           </div>
         )}
@@ -551,34 +600,43 @@ export default function ManageJobs() {
             No applicants for this job yet.
           </p>
         ) : !scanDone ? (
-          <div style={scanCard}>
-            <span style={{ fontSize: "24px" }} aria-hidden="true">
-              ⚡
-            </span>
-            <div style={{ minWidth: 0 }}>
-              <div style={scanCardTitle}>
-                {roster.length} applicant{roster.length === 1 ? "" : "s"} ready to rank
-              </div>
-              <div style={scanCardText}>
-                Not sure who to pick? Quick scan pre-ranks the whole list with the free local
-                matcher and sends only the most promising {Math.min(QUICK_SCAN_COUNT, roster.length)}.
-                Analyze all sends every one of them.
-              </div>
-              <div style={scanActions}>
-                <button style={scanBtnPrimary} onClick={() => runScan("quick")}>
-                  ⚡ Quick scan — top {Math.min(QUICK_SCAN_COUNT, roster.length)}
-                </button>
-                <button style={scanBtn} onClick={() => runScan("all")}>
-                  🧠 Analyze all {roster.length}
-                </button>
-              </div>
-            </div>
-          </div>
+          /* The picker, with Quick scan and Scan all sitting in the same
+             decision band as Analyze Selected. This is the only place
+             checkboxes live — the roster and the results grid never render
+             side by side, so a click on a result card can never be confused
+             with a click on a checkbox. */
+          <ApplicantSelection
+            items={roster}
+            selectedIds={selectedIds}
+            onChange={setSelectedIds}
+            onAnalyze={() =>
+              runScan("selected", roster.filter((p) => selectedIds.includes(p.id)))
+            }
+            onQuickScan={() => runScan("quick")}
+            quickScanLabel={`⚡ Quick scan — top ${Math.min(QUICK_SCAN_COUNT, roster.length)}`}
+            onScanAll={() => runScan("all")}
+            title={`Choose applicants to score against ${job.title}`}
+            subtitle="Tick the people worth a Gemini call. Quick scan pre-ranks the whole list with the free local matcher; Scan all sends every one of them."
+          />
         ) : (
           <>
             <div style={resultsHead}>
               <span style={resultsTitle}>Analyzed results</span>
               <span style={resultsMeta}>{scanSummary(applicants.length, roster.length, scanMode)}</span>
+            </div>
+            <div style={resultsToolbar}>
+              <AnalyzeSelectedButton
+                count={selectedIds.length}
+                onClick={() =>
+                  runScan("selected", roster.filter((p) => selectedIds.includes(p.id)))
+                }
+              />
+              {/* Stepping back to the picker must not cost the answers already
+                  on screen: `applicants` stays in state, and the next
+                  "Analyze Selected" simply replaces it with one commit. */}
+              <button style={resultsLink} onClick={() => setScanDone(false)}>
+                ← Change selection
+              </button>
             </div>
             <div style={dashGrid}>
             {applicants.map((a) => (
@@ -1184,6 +1242,7 @@ function JobRow({ job, onEdit, onToggleStatus, onViewApplicants }) {
 function scanSummary(shown, total, mode) {
   const noun = shown === 1 ? "applicant" : "applicants";
   if (mode === "quick") return `Quick scan: top ${shown} of ${total} by local skill match`;
+  if (mode === "selected") return `Your selection: ${shown} of ${total}`;
   return `${shown} ${noun} — the whole roster`;
 }
 
@@ -1301,23 +1360,6 @@ const analyzingOverlay = { display: "flex", justifyContent: "center", padding: "
 const analyzingContent = { textAlign: "center" };
 
 // --- Scan picker (Quick Scan vs full run) ----------------------------------
-const scanCard = {
-  display: "flex", gap: "14px", alignItems: "flex-start",
-  backgroundColor: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-  borderRadius: "10px", padding: "18px", margin: "8px 0 4px",
-};
-const scanCardTitle = { color: "#fff", fontWeight: "700", fontSize: "15px", marginBottom: "4px" };
-const scanCardText = { color: "rgba(255,255,255,0.55)", fontSize: "13px", lineHeight: "1.55" };
-const scanActions = { display: "flex", gap: "8px", marginTop: "14px", flexWrap: "wrap" };
-const scanBtnPrimary = {
-  backgroundColor: "#4a90e2", border: "1px solid #4a90e2", color: "#fff",
-  padding: "9px 15px", borderRadius: "8px", fontSize: "13px", fontWeight: "700", cursor: "pointer",
-};
-const scanBtn = {
-  backgroundColor: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.18)",
-  color: "#fff", padding: "9px 15px", borderRadius: "8px", fontSize: "13px",
-  fontWeight: "600", cursor: "pointer",
-};
 const scanNote = {
   backgroundColor: "rgba(74,144,226,0.12)", border: "1px solid rgba(74,144,226,0.35)",
   color: "rgba(255,255,255,0.75)", fontSize: "12.5px", padding: "9px 12px",
@@ -1335,6 +1377,14 @@ const resultsHead = {
 };
 const resultsTitle = { color: "#fff", fontSize: "14px", fontWeight: "700" };
 const resultsMeta = { color: "rgba(255,255,255,0.45)", fontSize: "12px", textAlign: "right" };
+// Same two controls, in the same order, as the Admin Applicants page — a scan
+// action should not have a different shape depending on which page it was
+// started from.
+const resultsToolbar = { display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap", marginBottom: "12px" };
+const resultsLink = {
+  background: "none", border: "none", color: "#93c5fd", cursor: "pointer",
+  fontSize: "12.5px", fontWeight: "600", padding: 0,
+};
 const cancelScanBtn = {
   marginTop: "16px", backgroundColor: "transparent",
   border: "1px solid rgba(255,255,255,0.25)", color: "rgba(255,255,255,0.75)",

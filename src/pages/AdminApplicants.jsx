@@ -15,11 +15,14 @@ export default function AdminApplicants() {
   const [loading, setLoading] = useState(true);
   const [rankedApplicants, setRankedApplicants] = useState([]);
   const [analyzing, setAnalyzing] = useState(false);
-  // There is exactly one scan scope here now: the rows the employer ticked.
-  // Quick Scan and "Analyze all" used to live on this page too, but they
-  // answered a question the checkboxes already answer better — which people
-  // are worth Gemini quota — so a second, competing way to choose just made
-  // the panel harder to read without saving a single decision.
+  // Quick Scan is still gone from this page: these are registered profiles
+  // rather than a job's own applicants, so there is no requirement to pre-rank
+  // them against and the free matcher would have had nothing to say.
+  //
+  // Scan all is kept, because it is not a competing way to choose — it is
+  // Select all followed by the counted action in a single press. Both sit in
+  // the same decision band so the scopes read as one choice rather than three
+  // separate features.
   //
   // Distinguishes "no run yet" from "a run that found nobody": the frame
   // before the effect fires would otherwise read as an empty result.
@@ -477,14 +480,17 @@ export default function AdminApplicants() {
                 selectedIds={selectedIds}
                 onChange={setSelectedIds}
                 onAnalyze={() => runScan(applicants.filter((p) => selectedIds.includes(p.id)))}
+                onScanAll={() => runScan(applicants)}
                 title={`Choose applicants to score against ${selectedJob?.title || "this job"}`}
-                subtitle="Tick the people worth a Gemini call, or take the whole roster with Select all."
+                subtitle="Tick the people worth a Gemini call, or take the whole roster with Scan all."
               />
             )
           ) : (
             <>
               <div style={resultsHead}>
-                <span style={resultsTitle}>Ranked results</span>
+                {/* Same heading and same toolbar as Manage Jobs' results, so a
+                    scan that finished looks the same wherever it was started. */}
+                <span style={resultsTitle}>Analyzed results</span>
                 <span style={resultsMeta}>
                   {`Your selection: ${rankedApplicants.length} of ${applicants.length}`}
                 </span>
