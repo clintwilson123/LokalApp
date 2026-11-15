@@ -65,19 +65,6 @@ export default function Users() {
     }
   }
 
-  async function deleteUser(userId) {
-    if (!window.confirm("Delete this user? This cannot be undone.")) return;
-    setMessage("");
-    try {
-      const { error } = await supabase.from("profiles").delete().eq("id", userId);
-      if (error) throw error;
-      setMessage("User deleted successfully.");
-      fetchUsers();
-    } catch (err) {
-      setMessage("Failed to delete: " + err.message);
-    }
-  }
-
   const badge = (val) => {
     const colorsMap = {
       active: "#22c55e", pending: "#d97706",
@@ -185,6 +172,13 @@ export default function Users() {
                       )}
                     </td>
                     <td style={dashTd}>
+                      {/* No Delete, and no role/status escalation either: an admin row
+                          can be approved or suspended, never destroyed. Manage Jobs
+                          already refuses Delete for the same reason ("Close, never
+                          Delete"), and the database still holds the authority — the
+                          DELETE policy on profiles was never the thing protecting an
+                          admin, so the button only advertised a capability the UI
+                          should not present. */}
                       <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
                         {user.status !== "active" && (
                           <button style={dashSmallBtn("#22c55e")}
@@ -194,8 +188,6 @@ export default function Users() {
                           <button style={{ ...dashSmallBtn("#d97706") }}
                             onClick={() => updateUserStatus(user.id, "suspended")}>Suspend</button>
                         )}
-                        <button style={{ ...dashSmallBtn("#ef4444"), opacity: 0.6 }}
-                          onClick={() => deleteUser(user.id)}>Delete</button>
                       </div>
                     </td>
                   </tr>
