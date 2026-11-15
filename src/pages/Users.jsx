@@ -65,6 +65,19 @@ export default function Users() {
     }
   }
 
+  async function deleteUser(userId) {
+    if (!window.confirm("Delete this user? This cannot be undone.")) return;
+    setMessage("");
+    try {
+      const { error } = await supabase.from("profiles").delete().eq("id", userId);
+      if (error) throw error;
+      setMessage("User deleted successfully.");
+      fetchUsers();
+    } catch (err) {
+      setMessage("Failed to delete: " + err.message);
+    }
+  }
+
   const badge = (val) => {
     const colorsMap = {
       active: "#22c55e", pending: "#d97706",
@@ -172,13 +185,16 @@ export default function Users() {
                       )}
                     </td>
                     <td style={dashTd}>
-                      {/* No Delete, and no role/status escalation either: an admin row
-                          can be approved or suspended, never destroyed. Manage Jobs
-                          already refuses Delete for the same reason ("Close, never
-                          Delete"), and the database still holds the authority — the
-                          DELETE policy on profiles was never the thing protecting an
-                          admin, so the button only advertised a capability the UI
-                          should not present. */}
+                      {/* Suspend and Delete are both scoped away from admin rows —
+                          the same guard, so the two buttons always agree.
+                          Manage Users is where the signed-in admin sees their OWN
+                          account among the roster, and an admin row cannot be
+                          rebuilt once removed: profiles.id references auth.users
+                          only one way, so the auth user survives the delete, and
+                          recoverMissingProfile() refuses to heal a row whose
+                          metadata says admin. That account would sign in again and
+                          still land on "/" forever, with no UI route back. Applicants
+                          keep the destructive action; admins never see it. */}
                       <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
                         {user.status !== "active" && (
                           <button style={dashSmallBtn("#22c55e")}
@@ -187,6 +203,10 @@ export default function Users() {
                         {user.status !== "suspended" && user.role !== "admin" && (
                           <button style={{ ...dashSmallBtn("#d97706") }}
                             onClick={() => updateUserStatus(user.id, "suspended")}>Suspend</button>
+                        )}
+                        {user.role !== "admin" && (
+                          <button style={{ ...dashSmallBtn("#ef4444"), opacity: 0.6 }}
+                            onClick={() => deleteUser(user.id)}>Delete</button>
                         )}
                       </div>
                     </td>
